@@ -1,0 +1,435 @@
+// =============================================================
+// Sueldos UY 2026 - Prisma Schema
+// PostgreSQL database schema for Uruguayan payroll system
+// =============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================
+// MULTI-TENANT: Companies
+// =============================================================
+
+model Company {
+  id               String   @id @default(cuid())
+  rut              String   @unique  // Registro Único Tributario
+  razonSocial      String
+  nombreFantasia   String?
+  domicilio        String?
+  localidad        String?
+  departamento     String?
+  telefono         String?
+  email            String?
+  actividadPrincipal String?
+  grupoActividad   String?  // Consejo de Salarios group
+  bseRate          Int      @default(0)  // BSE rate in basis points (e.g. 25 = 0.25%)
+  active           Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  employees        Employee[]
+  payrollPeriods   PayrollPeriod[]
+  users            User[]
+  laudos           Laudo[]
+  auditLogs        AuditLog[]
+
+  @@map("companies")
+}
+
+// =============================================================
+// USERS & AUTH
+// =============================================================
+
+enum UserRole {
+  ADMIN
+  OPERATOR
+  VIEWER
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  nombre       String
+  apellido     String
+  role         UserRole  @default(VIEWER)
+  companyId    String?
+  active       Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  company      Company?  @relation(fields: [companyId], references: [id])
+  refreshTokens RefreshToken[]
+  auditLogs    AuditLog[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
+
+// =============================================================
+// EMPLOYEES
+// =============================================================
+
+enum SalaryType {
+  MENSUAL
+  JORNALERO
+}
+
+enum EstadoCivil {
+  SOLTERO
+  CASADO
+  CONCUBINATO
+  DIVORCIADO
+  VIUDO
+}
+
+enum SexoBiologico {
+  M
+  F
+}
+
+model Employee {
+  id               String      @id @default(cuid())
+  companyId        String
+  ci               String      // Cédula de Identidad
+  nombre           String
+  apellido         String
+  fechaNacimiento  DateTime?
+  sexo             SexoBiologico?
+  estadoCivil      EstadoCivil @default(SOLTERO)
+  domicilio        String?
+  localidad        String?
+  departamento     String?
+  email            String?
+  telefono         String?
+
+  // Employment
+  fechaIngreso     DateTime
+  fechaEgreso      DateTime?
+  cargo            String?
+  categoria        String?     // Categoría del laudo
+  nivel            String?     // Nivel dentro de la categoría
+  salaryType       SalaryType  @default(MENSUAL)
+  salarioNominal   BigInt      // In centésimos (1 peso = 100 centésimos)
+  jornal           BigInt?     // Daily wage in centésimos (for JORNALERO)
+
+  // Family situation for IRPF/FONASA
+  conyugeACargo    Boolean     @default(false)
+  hijosACargo      Int         @default(0)
+  hijosDiscapacitados Int      @default(0)
+
+  // IRPF settings
+  irpfMetodo       String      @default("PROYECCION")  // PROYECCION or SIMPLIFICADO
+  irpfFicto        BigInt?     // Ficto mensual for simplified method
+
+  // BPS
+  bpsNumero        String?     // BPS affiliate number
+  fondoSolidario   Boolean     @default(false)
+
+  // FONASA
+  fonasaFamilia    Boolean     @default(false)  // Has dependent family (adds 2%)
+
+  active           Boolean     @default(true)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  company          Company     @relation(fields: [companyId], references: [id])
+  history          EmployeeHistory[]
+  payrollItems     PayrollItem[]
+  vacationAccruals VacationAccrual[]
+  leaveRequests    LeaveRequest[]
+  adjustments      PayrollAdjustment[]
+
+  @@unique([companyId, ci])
+  @@map("employees")
+}
+
+model EmployeeHistory {
+  id           String   @id @default(cuid())
+  employeeId   String
+  field        String   // Which field changed
+  oldValue     String?
+  newValue     String?
+  changedBy    String?
+  reason       String?
+  createdAt    DateTime @default(now())
+
+  employee     Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@map("employee_history")
+}
+
+// =============================================================
+// PAYROLL PARAMETERS (versioned — effective_date based)
+// All tax rates, BPC, brackets stored here — never in code
+// =============================================================
+
+model PayrollParameter {
+  id             String   @id @default(cuid())
+  key            String   // e.g. "BPC", "BPS_JUBILATORIO_RATE", etc.
+  value          String   // JSON value
+  description    String?
+  effectiveDate  DateTime
+  expiresDate    DateTime?
+  companyId      String?  // null = global/system parameter
+  createdBy      String?
+  createdAt      DateTime @default(now())
+
+  @@index([key, effectiveDate])
+  @@map("payroll_parameters")
+}
+
+// IRPF tax brackets (stored as versioned records)
+model IrpfBracket {
+  id             String   @id @default(cuid())
+  effectiveDate  DateTime
+  expiresDate    DateTime?
+  // Tramo in BPC (annual)
+  fromBpc        Int      // lower bound in hundredths of BPC (e.g. 84 BPC = 8400)
+  toBpc          Int?     // null = no upper bound
+  rate           Int      // rate in basis points (e.g. 1000 = 10%)
+  createdAt      DateTime @default(now())
+
+  @@index([effectiveDate])
+  @@map("irpf_brackets")
+}
+
+// =============================================================
+// LAUDOS Y CONVENIOS COLECTIVOS
+// =============================================================
+
+model Laudo {
+  id             String   @id @default(cuid())
+  companyId      String
+  grupoActividad String
+  subgrupo       String?
+  categoria      String
+  nivel          String?
+  descripcion    String?
+  salarioMinimo  BigInt   // In centésimos
+  effectiveDate  DateTime
+  expiresDate    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  company        Company  @relation(fields: [companyId], references: [id])
+
+  @@map("laudos")
+}
+
+// =============================================================
+// PAYROLL PERIODS & LIQUIDATIONS
+// =============================================================
+
+enum PeriodStatus {
+  BORRADOR
+  CONFIRMADO
+  CERRADO
+}
+
+enum LiquidationStatus {
+  BORRADOR
+  CONFIRMADO
+  ANULADO
+}
+
+enum LiquidationType {
+  MENSUAL
+  AGUINALDO
+  LICENCIA
+  VACACIONAL
+  LIQUIDACION_FINAL
+  AJUSTE
+}
+
+model PayrollPeriod {
+  id          String       @id @default(cuid())
+  companyId   String
+  year        Int
+  month       Int          // 1-12
+  status      PeriodStatus @default(BORRADOR)
+  confirmedAt DateTime?
+  confirmedBy String?
+  closedAt    DateTime?
+  notes       String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  company     Company      @relation(fields: [companyId], references: [id])
+  liquidations Liquidation[]
+
+  @@unique([companyId, year, month])
+  @@map("payroll_periods")
+}
+
+model Liquidation {
+  id              String            @id @default(cuid())
+  periodId        String
+  employeeId      String
+  type            LiquidationType   @default(MENSUAL)
+  status          LiquidationStatus @default(BORRADOR)
+
+  // Period info
+  year            Int
+  month           Int
+  diasTrabajados  Int               @default(30)  // days worked this period
+  diasHabiles     Int               @default(22)  // business days in period
+
+  // Totals (all in centésimos)
+  totalHaberes    BigInt            @default(0)
+  totalDescuentos BigInt            @default(0)
+  totalPatronal   BigInt            @default(0)
+  liquidoPercibir BigInt            @default(0)
+
+  // Snapshot of parameters used (JSON)
+  parametersSnapshot Json?
+
+  confirmedAt     DateTime?
+  confirmedBy     String?
+  notes           String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  period          PayrollPeriod     @relation(fields: [periodId], references: [id])
+  items           PayrollItem[]
+  adjustments     PayrollAdjustment[]
+
+  @@unique([periodId, employeeId, type])
+  @@map("liquidations")
+}
+
+// =============================================================
+// PAYROLL ITEMS (individual concepts/líneas of the liquidation)
+// =============================================================
+
+enum ItemType {
+  HABER
+  DESCUENTO_OBRERO
+  APORTE_PATRONAL
+  INFORMATIVO
+}
+
+model PayrollItem {
+  id             String   @id @default(cuid())
+  liquidationId  String
+  employeeId     String
+  itemType       ItemType
+  concepto       String   // e.g. "SUELDO_BASICO", "BPS_JUBILATORIO", "IRPF", etc.
+  descripcion    String
+  baseCalculo    BigInt?  // Base used for calculation (centésimos)
+  rate           Int?     // Rate applied in basis points
+  amount         BigInt   // Amount in centésimos
+  // Debug/audit: formula used and all intermediate values
+  calculationDetail Json?
+  createdAt      DateTime @default(now())
+
+  liquidation    Liquidation @relation(fields: [liquidationId], references: [id], onDelete: Cascade)
+  employee       Employee    @relation(fields: [employeeId], references: [id])
+
+  @@map("payroll_items")
+}
+
+// =============================================================
+// MANUAL ADJUSTMENTS (with audit trail)
+// =============================================================
+
+model PayrollAdjustment {
+  id             String   @id @default(cuid())
+  liquidationId  String
+  employeeId     String
+  concepto       String
+  descripcion    String
+  amount         BigInt   // Can be negative (discount) in centésimos
+  itemType       ItemType
+  reason         String   // Required: must explain the adjustment
+  approvedBy     String?
+  createdBy      String
+  createdAt      DateTime @default(now())
+
+  liquidation    Liquidation @relation(fields: [liquidationId], references: [id])
+  employee       Employee    @relation(fields: [employeeId], references: [id])
+
+  @@map("payroll_adjustments")
+}
+
+// =============================================================
+// VACATION & LEAVE
+// =============================================================
+
+model VacationAccrual {
+  id             String   @id @default(cuid())
+  employeeId     String
+  year           Int
+  diasCorresponden Int    // Days earned this year (20/25/30 per seniority)
+  diasTomados    Int      @default(0)
+  diasPendientes Int      @default(0)
+  updatedAt      DateTime @updatedAt
+  createdAt      DateTime @default(now())
+
+  employee       Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, year])
+  @@map("vacation_accrual")
+}
+
+model LeaveRequest {
+  id             String   @id @default(cuid())
+  employeeId     String
+  fechaInicio    DateTime
+  fechaFin       DateTime
+  diasHabiles    Int
+  motivo         String?
+  status         String   @default("PENDIENTE")  // PENDIENTE, APROBADO, RECHAZADO
+  approvedBy     String?
+  liquidacionId  String?  // link to the vacation liquidation
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  employee       Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@map("leave_requests")
+}
+
+// =============================================================
+// AUDIT LOG
+// =============================================================
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  companyId  String?
+  userId     String?
+  action     String   // e.g. "CREATE_LIQUIDATION", "CONFIRM_PERIOD"
+  entity     String   // e.g. "Liquidation", "Employee"
+  entityId   String?
+  oldData    Json?
+  newData    Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  company    Company? @relation(fields: [companyId], references: [id])
+  user       User?    @relation(fields: [userId], references: [id])
+
+  @@index([companyId, createdAt])
+  @@index([entity, entityId])
+  @@map("audit_log")
+}

@@ -1,0 +1,54 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: sueldos_uy_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sueldos_user
+      POSTGRES_PASSWORD: sueldos_pass
+      POSTGRES_DB: sueldos_uy
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sueldos_user -d sueldos_uy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: sueldos_uy_backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: "postgresql://sueldos_user:sueldos_pass@postgres:5432/sueldos_uy?schema=public"
+      NODE_ENV: production
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend/logs:/app/logs
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: sueldos_uy_frontend
+    restart: unless-stopped
+    environment:
+      VITE_API_URL: http://backend:3000
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
