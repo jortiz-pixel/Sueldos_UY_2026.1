@@ -27,7 +27,12 @@ import { multiplyFraction, maxBigInt } from '../utils/money';
 import { calcularAportesObreros, calcularAportesPatronales } from './bps.service';
 import { calcularIrpfMensual } from './irpf.service';
 import { parametersService } from './parameters.service';
-import { diasLicenciaCorrespondientes, calcularAntiguedad } from '../utils/date';
+import {
+  diasLicenciaCorrespondientes,
+  calcularAntiguedad,
+  calcularAntiguedadMeses,
+  diasPreavisoCorrespondientes,
+} from '../utils/date';
 import { AppError } from '../middleware/errorHandler';
 
 export interface LicenciaInput {
@@ -269,7 +274,6 @@ export async function calcularLiquidacionFinal(
   const year = fechaEgreso.getFullYear();
   const month = fechaEgreso.getMonth() + 1;
 
-  const { calcularAntiguedadMeses, diasPreavisoCorrespondientes } = await import('../utils/date');
   const antiguedadMeses = calcularAntiguedadMeses(employee.fechaIngreso, fechaEgreso);
   const antiguedadAnios = Math.floor(antiguedadMeses / 12);
 

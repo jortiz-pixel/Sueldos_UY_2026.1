@@ -42,7 +42,7 @@ export async function generateNominaExcel(
   // ── Hoja 1: Nómina completa ─────────────────────────────────
   const nominaData: (string | number)[][] = [
     [`NÓMINA MENSUAL — ${MESES[month]} ${year}`],
-    [`Empresa: ${(period as any).company?.razonSocial ?? ''}`],
+    [`Empresa: ${period.company.razonSocial}`],
     [`Estado: ${period.status}`],
     [],
     [

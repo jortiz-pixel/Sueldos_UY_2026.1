@@ -54,9 +54,19 @@
     "testMatch": ["**/tests/**/*.test.ts"],
     "globals": {
       "ts-jest": {
-        "tsconfig": "tsconfig.json"
+        "tsconfig": {
+          "strict": true,
+          "esModuleInterop": true,
+          "resolveJsonModule": true,
+          "module": "commonjs",
+          "target": "ES2022",
+          "lib": ["ES2022"]
+        }
       }
     },
     "setupFiles": ["./tests/setup.ts"]
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   }
 }

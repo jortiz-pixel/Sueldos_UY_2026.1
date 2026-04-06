@@ -11,9 +11,12 @@ export const prisma =
   global.__prisma ||
   new PrismaClient({
     log: [
-      { emit: 'event', level: 'query' },
-      { emit: 'event', level: 'error' },
-      { emit: 'event', level: 'warn' },
+      // In development, also log slow queries to console
+      ...(process.env.NODE_ENV !== 'production'
+        ? [{ emit: 'stdout' as const, level: 'warn' as const }]
+        : []),
+      { emit: 'event' as const, level: 'error' as const },
+      { emit: 'event' as const, level: 'warn' as const },
     ],
   });
 
