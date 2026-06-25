@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { Plus, Search, UserCheck, UserX, Eye } from 'lucide-react';
 import { employeesApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
@@ -8,7 +8,6 @@ import { Employee, formatPesos } from '../types';
 
 export default function EmployeesPage() {
   const { user, isOperator } = useAuth();
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);

@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Download, CheckCircle, XCircle } from 'lucide-react';
 import { liquidationApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
-import { formatPesos, MESES, PayrollItem, ItemType } from '../types';
+import { formatPesos, MESES, PayrollItem } from '../types';
 
 function ItemRow({ item }: { item: PayrollItem }) {
   return (
