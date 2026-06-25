@@ -1,28 +1,8 @@
 /**
  * SERVICIO DE AGUINALDO
- *
- * El aguinaldo (sueldo anual complementario) equivale a 1/12 del salario
- * mensual promedio por cada mes trabajado en el semestre.
- *
- * Se paga en dos cuotas:
- * - Primera: 30 de junio (por el primer semestre: enero-junio)
- * - Segunda: 31 de diciembre (por el segundo semestre: julio-diciembre)
- *
- * También se liquida proporcionalmente al egreso del empleado.
- *
- * CÁLCULO:
- * 1. Suma de haberes del semestre (o meses trabajados)
- * 2. Aguinaldo bruto = suma haberes / 12 (por cada mes del semestre)
- *    O: promedio mensual del semestre / 12 × meses trabajados
- * 3. BPS obrero sobre aguinaldo (15% jubilatorio + FONASA)
- * 4. IRPF sobre aguinaldo (ver irpf.service.ts)
- * 5. Aguinaldo neto
- *
- * Nota: La base del aguinaldo incluye sueldo básico + horas extra +
- *       comisiones, pero NO salario vacacional ni otros rubros especiales.
  */
 
-import { LiquidationType, LiquidationStatus, ItemType } from '@prisma/client';
+import { LiquidationType, LiquidationStatus, ItemType, Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { multiplyFraction, maxBigInt } from '../utils/money';
 import { calcularAportesObreros, calcularAportesPatronales } from './bps.service';
@@ -34,8 +14,8 @@ export interface AguinaldoInput {
   employeeId: string;
   periodId: string;
   year: number;
-  month: number;  // 6 = junio, 12 = diciembre (o mes de egreso)
-  mesesTrabajados?: number; // 1-6; null = calcular automáticamente
+  month: number;
+  mesesTrabajados?: number;
 }
 
 export async function calcularAguinaldo(input: AguinaldoInput): Promise<{
@@ -58,12 +38,10 @@ export async function calcularAguinaldo(input: AguinaldoInput): Promise<{
   });
   if (!employee) throw new AppError(404, 'Empleado no encontrado');
 
-  // Determinar semestre
   const esPrimerSemestre = input.month <= 6;
   const mesInicioSemestre = esPrimerSemestre ? 1 : 7;
   const mesFinSemestre = esPrimerSemestre ? 6 : 12;
 
-  // Calcular meses trabajados en el semestre
   let mesesTrabajados = input.mesesTrabajados;
   if (!mesesTrabajados) {
     const fechaIngreso = employee.fechaIngreso;
@@ -88,7 +66,6 @@ export async function calcularAguinaldo(input: AguinaldoInput): Promise<{
     throw new AppError(400, 'El empleado no tiene meses trabajados en el semestre');
   }
 
-  // Obtener las liquidaciones del semestre para calcular la base real
   const liquidacionesSemestre = await prisma.liquidation.findMany({
     where: {
       employeeId: input.employeeId,
@@ -107,7 +84,6 @@ export async function calcularAguinaldo(input: AguinaldoInput): Promise<{
     },
   });
 
-  // Si no hay liquidaciones previas, usar el salario nominal
   let sumaHaberesSemestre: bigint;
   if (liquidacionesSemestre.length > 0) {
     sumaHaberesSemestre = liquidacionesSemestre.reduce((sum, liq) => {
@@ -115,15 +91,11 @@ export async function calcularAguinaldo(input: AguinaldoInput): Promise<{
       return sum + haberesLiq;
     }, 0n);
   } else {
-    // Fallback: salario nominal × meses trabajados
     sumaHaberesSemestre = employee.salarioNominal * BigInt(mesesTrabajados);
   }
 
-  // Aguinaldo bruto = suma de haberes / 12
-  // (1/12 por cada mes trabajado en el semestre)
   const aguinaldoBruto = multiplyFraction(sumaHaberesSemestre, 1, 12);
 
-  // BPS obreros sobre aguinaldo
   const aportesObreros = calcularAportesObreros({
     salarioNominal: aguinaldoBruto,
     fonasaFamilia: employee.fonasaFamilia,
@@ -138,7 +110,6 @@ export async function calcularAguinaldo(input: AguinaldoInput): Promise<{
     bseRateEmpresa: employee.company.bseRate,
   });
 
-  // IRPF sobre aguinaldo
   const irpf = calcularIrpfAguinaldo(
     aguinaldoBruto,
     aportesObreros.jubilatorio,
@@ -149,7 +120,6 @@ export async function calcularAguinaldo(input: AguinaldoInput): Promise<{
   const totalDescuentos = aportesObreros.jubilatorio + aportesObreros.fonasaTotal + aportesObreros.frl + irpf;
   const aguinaldoNeto = maxBigInt(0n, aguinaldoBruto - totalDescuentos);
 
-  // Persistir
   const liquidacion = await prisma.liquidation.upsert({
     where: {
       periodId_employeeId_type: {
@@ -185,7 +155,6 @@ export async function calcularAguinaldo(input: AguinaldoInput): Promise<{
     },
   });
 
-  // Items
   await prisma.payrollItem.deleteMany({ where: { liquidationId: liquidacion.id } });
   await prisma.payrollItem.createMany({
     data: [
@@ -202,7 +171,7 @@ export async function calcularAguinaldo(input: AguinaldoInput): Promise<{
           sumaHaberesSemestre: sumaHaberesSemestre.toString(),
           mesesTrabajados,
           formula: 'suma_haberes / 12',
-        },
+        } as unknown as Prisma.InputJsonValue,
       },
       {
         liquidationId: liquidacion.id,
@@ -213,29 +182,29 @@ export async function calcularAguinaldo(input: AguinaldoInput): Promise<{
         baseCalculo: aguinaldoBruto,
         rate: params.bpsJubilatorioRate,
         amount: aportesObreros.jubilatorio,
-        calculationDetail: null,
+        calculationDetail: Prisma.DbNull,
       },
       {
         liquidationId: liquidacion.id,
         employeeId: input.employeeId,
         itemType: ItemType.DESCUENTO_OBRERO,
         concepto: 'FONASA',
-        descripcion: `FONASA sobre aguinaldo`,
+        descripcion: 'FONASA sobre aguinaldo',
         baseCalculo: aguinaldoBruto,
         rate: params.fonasaBasicRate + (employee.fonasaFamilia ? params.fonasaFamiliaRate : 0),
         amount: aportesObreros.fonasaTotal,
-        calculationDetail: null,
+        calculationDetail: Prisma.DbNull,
       },
       {
         liquidationId: liquidacion.id,
         employeeId: input.employeeId,
         itemType: ItemType.DESCUENTO_OBRERO,
         concepto: 'FRL',
-        descripcion: `FRL sobre aguinaldo`,
+        descripcion: 'FRL sobre aguinaldo',
         baseCalculo: aguinaldoBruto,
         rate: params.frlObreroRate,
         amount: aportesObreros.frl,
-        calculationDetail: null,
+        calculationDetail: Prisma.DbNull,
       },
       ...(irpf > 0n ? [{
         liquidationId: liquidacion.id,
@@ -246,9 +215,8 @@ export async function calcularAguinaldo(input: AguinaldoInput): Promise<{
         baseCalculo: aguinaldoBruto,
         rate: null,
         amount: irpf,
-        calculationDetail: null,
+        calculationDetail: Prisma.DbNull,
       }] : []),
-      // Aportes patronales informativos
       {
         liquidationId: liquidacion.id,
         employeeId: input.employeeId,
@@ -258,7 +226,7 @@ export async function calcularAguinaldo(input: AguinaldoInput): Promise<{
         baseCalculo: aguinaldoBruto,
         rate: params.bpsIvsPatronalRate,
         amount: aportesPatronales.bpsIvs,
-        calculationDetail: null,
+        calculationDetail: Prisma.DbNull,
       },
     ],
   });
