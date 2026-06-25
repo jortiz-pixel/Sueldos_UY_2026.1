@@ -11,11 +11,7 @@ import { generateReciboPDF } from '../services/pdf.service';
 
 export const liquidationRouter = Router();
 
-// =============================================================
-// PERÍODOS
-// =============================================================
-
-// GET /api/liquidation/periods?companyId=&year=
+// GET /api/liquidation/periods
 liquidationRouter.get('/periods', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const companyId = (req.query.companyId as string) || req.user!.companyId;
@@ -35,7 +31,7 @@ liquidationRouter.get('/periods', authenticate, async (req: Request, res: Respon
   } catch (err) { next(err); }
 });
 
-// POST /api/liquidation/periods — Crea período
+// POST /api/liquidation/periods
 liquidationRouter.post('/periods', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const schema = z.object({
@@ -54,11 +50,7 @@ liquidationRouter.post('/periods', authenticate, requireRole(UserRole.ADMIN, Use
   } catch (err) { next(err); }
 });
 
-// =============================================================
-// GENERAR LIQUIDACIONES
-// =============================================================
-
-// POST /api/liquidation/generate — Genera liquidación mensual para empleado
+// POST /api/liquidation/generate
 liquidationRouter.post('/generate', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const schema = z.object({
@@ -84,7 +76,6 @@ liquidationRouter.post('/generate', authenticate, requireRole(UserRole.ADMIN, Us
 
     const input = schema.parse(req.body);
 
-    // Check period is not closed
     const period = await prisma.payrollPeriod.findUnique({ where: { id: input.periodId } });
     if (!period) throw new NotFoundError('Período');
     if (period.status === PeriodStatus.CERRADO) {
@@ -92,14 +83,14 @@ liquidationRouter.post('/generate', authenticate, requireRole(UserRole.ADMIN, Us
     }
 
     const result = await generarLiquidacionMensual({ ...input, userId: req.user!.userId });
-
+    const { totalHaberes, totalDescuentos, totalPatronal, liquidoPercibir, items, ...restResult } = result;
     res.json({
-      ...result,
-      totalHaberes: result.totalHaberes.toString(),
-      totalDescuentos: result.totalDescuentos.toString(),
-      totalPatronal: result.totalPatronal.toString(),
-      liquidoPercibir: result.liquidoPercibir.toString(),
-      items: result.items.map((item) => ({
+      ...restResult,
+      totalHaberes: totalHaberes.toString(),
+      totalDescuentos: totalDescuentos.toString(),
+      totalPatronal: totalPatronal.toString(),
+      liquidoPercibir: liquidoPercibir.toString(),
+      items: items.map((item) => ({
         ...item,
         baseCalculo: item.baseCalculo?.toString() ?? null,
         amount: item.amount.toString(),
@@ -108,7 +99,7 @@ liquidationRouter.post('/generate', authenticate, requireRole(UserRole.ADMIN, Us
   } catch (err) { next(err); }
 });
 
-// POST /api/liquidation/generate-batch — Genera liquidaciones para todos los empleados
+// POST /api/liquidation/generate-batch
 liquidationRouter.post('/generate-batch', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const schema = z.object({
@@ -212,10 +203,6 @@ liquidationRouter.post('/final', authenticate, requireRole(UserRole.ADMIN, UserR
   } catch (err) { next(err); }
 });
 
-// =============================================================
-// CONSULTA Y CONFIRMACIÓN
-// =============================================================
-
 // GET /api/liquidation/:id/preview
 liquidationRouter.get('/:id/preview', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -273,7 +260,7 @@ liquidationRouter.post('/:id/cancel', authenticate, requireRole(UserRole.ADMIN),
   } catch (err) { next(err); }
 });
 
-// GET /api/liquidation/:id/recibo — PDF recibo de sueldo
+// GET /api/liquidation/:id/recibo
 liquidationRouter.get('/:id/recibo', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const liquidation = await prisma.liquidation.findUnique({
@@ -331,7 +318,7 @@ liquidationRouter.post('/:id/adjustment', authenticate, requireRole(UserRole.ADM
   } catch (err) { next(err); }
 });
 
-// GET /api/liquidation/period/:periodId — All liquidations for a period
+// GET /api/liquidation/period/:periodId
 liquidationRouter.get('/period/:periodId', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const liquidations = await prisma.liquidation.findMany({

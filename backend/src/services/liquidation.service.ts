@@ -1,17 +1,8 @@
 /**
  * SERVICIO DE LIQUIDACIÓN MENSUAL
- *
- * Orquesta el cálculo completo de la liquidación de haberes mensual:
- * 1. Obtiene parámetros vigentes
- * 2. Calcula haberes (sueldo básico + extras + horas extra + comisiones)
- * 3. Calcula aportes obreros (BPS, FONASA, FRL)
- * 4. Calcula IRPF
- * 5. Calcula aportes patronales
- * 6. Aplica ajustes manuales
- * 7. Persiste en BD con snapshot de parámetros para auditoría
  */
 
-import { LiquidationType, LiquidationStatus, ItemType, PayrollItem } from '@prisma/client';
+import { LiquidationType, LiquidationStatus, ItemType, PayrollItem, Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { salarioProporcional } from '../utils/money';
 import { calcularAportesObreros, calcularAportesPatronales, calcularHorasExtra } from './bps.service';
@@ -49,19 +40,16 @@ export async function generarLiquidacionMensual(
 ): Promise<LiquidacionResult> {
   const asOfDate = new Date(input.year, input.month - 1, 1);
 
-  // ── Cargar empleado ─────────────────────────────────────────
   const employee = await prisma.employee.findUnique({
     where: { id: input.employeeId },
     include: { company: true },
   });
   if (!employee) throw new AppError(404, 'Empleado no encontrado');
 
-  // ── Cargar parámetros vigentes ──────────────────────────────
   const params = await parametersService.getPayrollParameters(asOfDate);
   const bseRate = employee.company.bseRate;
-  const fonasaPatronalRate = 500; // 5% DISSE industria/comercio — parameterizable
+  const fonasaPatronalRate = 500;
 
-  // ── Calcular haberes ────────────────────────────────────────
   const diasTrabajados = input.diasTrabajados ?? 30;
   const salarioBase = employee.salaryType === 'MENSUAL'
     ? salarioProporcional(employee.salarioNominal, diasTrabajados, 30)
@@ -69,7 +57,6 @@ export async function generarLiquidacionMensual(
 
   const items: Omit<PayrollItem, 'id' | 'liquidationId' | 'createdAt'>[] = [];
 
-  // Sueldo básico
   items.push({
     employeeId: input.employeeId,
     itemType: ItemType.HABER,
@@ -84,18 +71,15 @@ export async function generarLiquidacionMensual(
       salarioNominal: employee.salarioNominal.toString(),
       diasTrabajados,
       diasMes: 30,
-    },
+    } as unknown as Prisma.JsonValue,
   });
 
-  // Horas extra
-  let horasExtraTotal = 0n;
   if ((input.horasExtraDiurnas ?? 0) > 0 || (input.horasExtraNocturnas ?? 0) > 0) {
     const he = calcularHorasExtra(
       employee.salarioNominal,
       input.horasExtraDiurnas ?? 0,
       input.horasExtraNocturnas ?? 0,
     );
-    horasExtraTotal = he.total;
     if (he.importeHorasDiurnas > 0n) {
       items.push({
         employeeId: input.employeeId,
@@ -103,12 +87,9 @@ export async function generarLiquidacionMensual(
         concepto: 'HORAS_EXTRA_DIURNAS',
         descripcion: `Horas extra diurnas (${input.horasExtraDiurnas}h × 2× valor hora)`,
         baseCalculo: he.valorHoraNormal,
-        rate: 20000, // 2x = 200%
+        rate: 20000,
         amount: he.importeHorasDiurnas,
-        calculationDetail: {
-          valorHoraNormal: he.valorHoraNormal.toString(),
-          horas: input.horasExtraDiurnas,
-        },
+        calculationDetail: { valorHoraNormal: he.valorHoraNormal.toString(), horas: input.horasExtraDiurnas } as unknown as Prisma.JsonValue,
       });
     }
     if (he.importeHorasNocturnas > 0n) {
@@ -118,17 +99,13 @@ export async function generarLiquidacionMensual(
         concepto: 'HORAS_EXTRA_NOCTURNAS',
         descripcion: `Horas extra nocturnas (${input.horasExtraNocturnas}h × 2.5× valor hora)`,
         baseCalculo: he.valorHoraNormal,
-        rate: 25000, // 2.5x = 250%
+        rate: 25000,
         amount: he.importeHorasNocturnas,
-        calculationDetail: {
-          valorHoraNormal: he.valorHoraNormal.toString(),
-          horas: input.horasExtraNocturnas,
-        },
+        calculationDetail: { valorHoraNormal: he.valorHoraNormal.toString(), horas: input.horasExtraNocturnas } as unknown as Prisma.JsonValue,
       });
     }
   }
 
-  // Comisiones
   if (input.comisiones && input.comisiones > 0n) {
     items.push({
       employeeId: input.employeeId,
@@ -142,7 +119,6 @@ export async function generarLiquidacionMensual(
     });
   }
 
-  // Otros haberes
   for (const oh of input.otrosHaberes ?? []) {
     items.push({
       employeeId: input.employeeId,
@@ -156,12 +132,10 @@ export async function generarLiquidacionMensual(
     });
   }
 
-  // ── Total haberes (base para aportes) ───────────────────────
   const totalHaberes = items
     .filter((i) => i.itemType === ItemType.HABER)
     .reduce((sum, i) => sum + i.amount, 0n);
 
-  // ── Aportes obreros ─────────────────────────────────────────
   const aportesObreros = calcularAportesObreros({
     salarioNominal: totalHaberes,
     fonasaFamilia: employee.fonasaFamilia,
@@ -177,10 +151,7 @@ export async function generarLiquidacionMensual(
     baseCalculo: totalHaberes,
     rate: params.bpsJubilatorioRate,
     amount: aportesObreros.jubilatorio,
-    calculationDetail: {
-      base: totalHaberes.toString(),
-      rateBp: params.bpsJubilatorioRate,
-    },
+    calculationDetail: { base: totalHaberes.toString(), rateBp: params.bpsJubilatorioRate } as unknown as Prisma.JsonValue,
   });
 
   items.push({
@@ -191,12 +162,7 @@ export async function generarLiquidacionMensual(
     baseCalculo: totalHaberes,
     rate: params.fonasaBasicRate + (employee.fonasaFamilia ? params.fonasaFamiliaRate : 0),
     amount: aportesObreros.fonasaTotal,
-    calculationDetail: {
-      base: totalHaberes.toString(),
-      basicRate: params.fonasaBasicRate,
-      familiaRate: employee.fonasaFamilia ? params.fonasaFamiliaRate : 0,
-      fonasaFamilia: employee.fonasaFamilia,
-    },
+    calculationDetail: { base: totalHaberes.toString(), basicRate: params.fonasaBasicRate, familiaRate: employee.fonasaFamilia ? params.fonasaFamiliaRate : 0, fonasaFamilia: employee.fonasaFamilia } as unknown as Prisma.JsonValue,
   });
 
   items.push({
@@ -207,15 +173,11 @@ export async function generarLiquidacionMensual(
     baseCalculo: totalHaberes,
     rate: params.frlObreroRate,
     amount: aportesObreros.frl,
-    calculationDetail: {
-      base: totalHaberes.toString(),
-      rateBp: params.frlObreroRate,
-    },
+    calculationDetail: { base: totalHaberes.toString(), rateBp: params.frlObreroRate } as unknown as Prisma.JsonValue,
   });
 
-  // ── IRPF ─────────────────────────────────────────────────────
   let irpfRetencion = 0n;
-  let irpfDetail: object = {};
+  let irpfDetail: Prisma.JsonValue = {};
 
   if (employee.irpfMetodo === 'SIMPLIFICADO' && employee.irpfFicto) {
     irpfRetencion = calcularIrpfSimplificado(employee.irpfFicto, params);
@@ -246,7 +208,7 @@ export async function generarLiquidacionMensual(
         baseEnTramo: t.baseEnTramo.toString(),
         impuesto: t.impuestoEnTramo.toString(),
       })),
-    };
+    } as unknown as Prisma.JsonValue;
   }
 
   if (irpfRetencion > 0n) {
@@ -262,7 +224,6 @@ export async function generarLiquidacionMensual(
     });
   }
 
-  // Otros descuentos
   for (const od of input.otrosDescuentos ?? []) {
     items.push({
       employeeId: input.employeeId,
@@ -276,7 +237,6 @@ export async function generarLiquidacionMensual(
     });
   }
 
-  // ── Aportes patronales ──────────────────────────────────────
   const aportesPatronales = calcularAportesPatronales({
     salarioNominal: totalHaberes,
     fonasaFamilia: employee.fonasaFamilia,
@@ -293,10 +253,7 @@ export async function generarLiquidacionMensual(
     baseCalculo: totalHaberes,
     rate: params.bpsIvsPatronalRate,
     amount: aportesPatronales.bpsIvs,
-    calculationDetail: {
-      base: totalHaberes.toString(),
-      rateBp: params.bpsIvsPatronalRate,
-    },
+    calculationDetail: { base: totalHaberes.toString(), rateBp: params.bpsIvsPatronalRate } as unknown as Prisma.JsonValue,
   });
 
   items.push({
@@ -307,10 +264,7 @@ export async function generarLiquidacionMensual(
     baseCalculo: totalHaberes,
     rate: fonasaPatronalRate,
     amount: aportesPatronales.fonasa,
-    calculationDetail: {
-      base: totalHaberes.toString(),
-      rateBp: fonasaPatronalRate,
-    },
+    calculationDetail: { base: totalHaberes.toString(), rateBp: fonasaPatronalRate } as unknown as Prisma.JsonValue,
   });
 
   items.push({
@@ -337,7 +291,6 @@ export async function generarLiquidacionMensual(
     });
   }
 
-  // ── Totales ──────────────────────────────────────────────────
   const totalDescuentos = items
     .filter((i) => i.itemType === ItemType.DESCUENTO_OBRERO)
     .reduce((sum, i) => sum + i.amount, 0n);
@@ -348,7 +301,6 @@ export async function generarLiquidacionMensual(
 
   const liquidoPercibir = totalHaberes - totalDescuentos;
 
-  // ── Snapshot de parámetros ───────────────────────────────────
   const parametersSnapshot = {
     asOfDate: asOfDate.toISOString(),
     bpc: params.bpc.toString(),
@@ -361,8 +313,8 @@ export async function generarLiquidacionMensual(
     bseRate,
     irpfBrackets: params.irpfBrackets,
   };
+  const snapshotJson = parametersSnapshot as unknown as Prisma.InputJsonValue;
 
-  // ── Persistir en BD ──────────────────────────────────────────
   const liquidacion = await prisma.liquidation.upsert({
     where: {
       periodId_employeeId_type: {
@@ -383,7 +335,7 @@ export async function generarLiquidacionMensual(
       totalDescuentos,
       totalPatronal,
       liquidoPercibir,
-      parametersSnapshot,
+      parametersSnapshot: snapshotJson,
     },
     update: {
       status: LiquidationStatus.BORRADOR,
@@ -392,19 +344,24 @@ export async function generarLiquidacionMensual(
       totalDescuentos,
       totalPatronal,
       liquidoPercibir,
-      parametersSnapshot,
+      parametersSnapshot: snapshotJson,
     },
   });
 
-  // Eliminar items anteriores y recrear
   await prisma.payrollItem.deleteMany({ where: { liquidationId: liquidacion.id } });
 
   await prisma.payrollItem.createMany({
-    data: items.map((item) => ({
-      ...item,
-      liquidationId: liquidacion.id,
-      baseCalculo: item.baseCalculo ?? null,
-    })),
+    data: items.map((item) => {
+      const { calculationDetail, baseCalculo, ...rest } = item;
+      return {
+        ...rest,
+        liquidationId: liquidacion.id,
+        baseCalculo: baseCalculo ?? null,
+        calculationDetail: calculationDetail !== null
+          ? calculationDetail as unknown as Prisma.InputJsonValue
+          : Prisma.DbNull,
+      };
+    }),
   });
 
   return {
@@ -419,7 +376,6 @@ export async function generarLiquidacionMensual(
   };
 }
 
-/** Confirma una liquidación (la bloquea para edición) */
 export async function confirmarLiquidacion(
   liquidacionId: string,
   userId: string,
