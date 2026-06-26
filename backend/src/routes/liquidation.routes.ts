@@ -133,7 +133,7 @@ liquidationRouter.post('/generate-batch', authenticate, requireRole(UserRole.ADM
       }
     }
 
-    res.json({ generated: results.length, errors: errors.length, results, errors });
+    res.json({ generated: results.length, failed: errors.length, results, errors });
   } catch (err) { next(err); }
 });
 
