@@ -1,0 +1,52 @@
+# Configuración del buscador de oportunidades inmobiliarias (propscout).
+# Copiá este archivo a config.yaml y ajustá los valores a tu realidad.
+# Todos los parámetros tienen un valor por defecto razonable para Uruguay 2026.
+
+# --- Conversión de moneda y unidades fiscales ---
+tipo_cambio_uyu_por_usd: 40.0   # Pesos por dólar (actualizar al valor vigente)
+valor_bpc: 6576.0               # Valor de la BPC 2026 en UYU (40 BPC ≈ 263.040)
+moneda_reporte: USD             # Moneda del reporte: USD o UYU
+
+# --- Objetivo de inversión ---
+roi_objetivo: 0.08              # 8% anual neto de IRPF
+
+# --- Filtros de búsqueda ---
+ciudad: Montevideo
+operacion: venta
+precio_min: null                # null = sin mínimo
+precio_max: 200000              # Precio máximo de compra (en la moneda publicada)
+tipos_propiedad: []             # Ej: [apartamento, casa]. Vacío = todos
+barrios: []                     # Ej: [Pocitos, Cordón]. Vacío = todos
+solo_alquiladas: false          # true = solo publicaciones que parecen ya alquiladas
+limite_por_fuente: 200          # Máx. publicaciones por fuente y operación
+
+fuentes:
+  - mercadolibre
+  - infocasas
+
+# --- MercadoLibre ---
+# La API de búsqueda de MercadoLibre suele requerir un token OAuth.
+# Podés definirlo acá o, preferentemente, vía la variable de entorno ML_ACCESS_TOKEN.
+ml_access_token: null
+ml_site: MLU                    # Uruguay
+ml_category: MLU1459            # Inmuebles
+
+# --- IRPF a los arrendamientos ---
+irpf:
+  mode: simplificado            # "simplificado" (10,5% sobre bruto) o "detallado" (12% sobre neto)
+  tasa_efectiva: 0.105          # usada en modo simplificado
+  tasa_nominal: 0.12            # usada en modo detallado
+  comision_admin_pct: 0.066     # comisión administradora (modo detallado)
+  comision_admin_iva: 0.22
+  contribucion_inmobiliaria_anual: 0.0   # monto fijo anual en UYU (modo detallado)
+  primaria_anual: 0.0                    # Impuesto de Primaria anual en UYU
+  aplicar_exoneracion: true     # exonera si el total anual < 40 BPC
+  umbral_exoneracion_bpc: 40.0
+
+# --- Otros costos anuales (reducen el ROI real) ---
+costos:
+  incluir_costos_extra: true
+  vacancia_pct: 0.05            # % del año sin alquilar
+  mantenimiento_pct: 0.05       # % del alquiler destinado a reparaciones
+  gastos_comunes_anual: 0.0     # si los paga el propietario (moneda de reporte)
+  contribucion_inmobiliaria_anual: 0.0

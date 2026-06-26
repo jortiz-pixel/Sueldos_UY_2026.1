@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+config.yaml
+config.json
+*.xlsx
+*.csv
+!config.example.*
+.env
