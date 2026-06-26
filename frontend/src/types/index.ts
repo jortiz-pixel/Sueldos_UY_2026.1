@@ -28,7 +28,9 @@ export interface Company {
   domicilio?: string;
   localidad?: string;
   departamento?: string;
+  telefono?: string;
   email?: string;
+  actividadPrincipal?: string;
   grupoActividad?: string;
   bseRate: number;
   active: boolean;

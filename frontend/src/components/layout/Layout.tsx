@@ -7,6 +7,7 @@ import { useAuth } from '../../hooks/useAuth';
 
 const navItems = [
   { to: '/', label: 'Panel', icon: LayoutDashboard, end: true },
+  { to: '/companies', label: 'Empresas', icon: Building2 },
   { to: '/employees', label: 'Empleados', icon: Users },
   { to: '/liquidation', label: 'Liquidaciones', icon: FileText },
   { to: '/reports', label: 'Reportes', icon: BarChart2 },
@@ -88,7 +89,7 @@ export default function Layout() {
           <div className="flex items-center gap-2 text-sm text-gray-500">
             <Building2 size={14} />
             <ChevronRight size={12} />
-            <span className="text-gray-700 font-medium">Empresa Demo S.A.</span>
+            <span className="text-gray-700 font-medium">Sistema de Nómina</span>
           </div>
           <div className="text-xs text-gray-400">
             {new Date().toLocaleDateString('es-UY', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
