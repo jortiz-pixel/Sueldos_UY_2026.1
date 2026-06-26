@@ -1,24 +1,24 @@
 import { PrismaClient } from '@prisma/client';
 import { logger } from './logger';
 
+// Factory so the configured log-event types propagate to $on()
+const createPrismaClient = () =>
+  new PrismaClient({
+    log: [
+      { emit: 'event', level: 'error' },
+      { emit: 'event', level: 'warn' },
+    ],
+  });
+
+type ExtendedPrismaClient = ReturnType<typeof createPrismaClient>;
+
 declare global {
   // eslint-disable-next-line no-var
-  var __prisma: PrismaClient | undefined;
+  var __prisma: ExtendedPrismaClient | undefined;
 }
 
 // Singleton pattern — reuse in development (avoid too many connections)
-export const prisma =
-  global.__prisma ||
-  new PrismaClient({
-    log: [
-      // In development, also log slow queries to console
-      ...(process.env.NODE_ENV !== 'production'
-        ? [{ emit: 'stdout' as const, level: 'warn' as const }]
-        : []),
-      { emit: 'event' as const, level: 'error' as const },
-      { emit: 'event' as const, level: 'warn' as const },
-    ],
-  });
+export const prisma = global.__prisma || createPrismaClient();
 
 if (process.env.NODE_ENV !== 'production') {
   global.__prisma = prisma;
