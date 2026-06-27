@@ -57,6 +57,15 @@ const contractSchema = z.object({
   observacion: z.string().optional(),
 });
 
+/** Serializa campos BigInt de un empleado (salarioNominal/jornal/irpfFicto) a string. */
+function serializeEmployee(e: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...e };
+  if (typeof out.salarioNominal === 'bigint') out.salarioNominal = out.salarioNominal.toString();
+  if (typeof out.jornal === 'bigint') out.jornal = out.jornal.toString();
+  if (typeof out.irpfFicto === 'bigint') out.irpfFicto = out.irpfFicto.toString();
+  return out;
+}
+
 function serializeContrato(c: Contrato) {
   return {
     ...c,
@@ -114,7 +123,7 @@ employeesRouter.get('/', authenticate, async (req: Request, res: Response, next:
     ]);
 
     res.json({
-      data: employees,
+      data: employees.map((e) => serializeEmployee(e)),
       pagination: { total, page, limit, pages: Math.ceil(total / limit) },
     });
   } catch (err) { next(err); }
@@ -136,7 +145,11 @@ employeesRouter.get('/:id', authenticate, async (req: Request, res: Response, ne
     const antiguedad = calcularAntiguedad(employee.fechaIngreso);
     const diasLicencia = diasLicenciaCorrespondientes(antiguedad);
 
-    res.json({ ...employee, antiguedadAnios: antiguedad, diasLicenciaCorresponden: diasLicencia });
+    res.json({
+      ...serializeEmployee(employee),
+      antiguedadAnios: antiguedad,
+      diasLicenciaCorresponden: diasLicencia,
+    });
   } catch (err) { next(err); }
 });
 
@@ -189,7 +202,7 @@ employeesRouter.post('/', authenticate, requireRole(UserRole.ADMIN, UserRole.OPE
       },
     });
 
-    res.status(201).json(employee);
+    res.status(201).json(serializeEmployee(employee));
   } catch (err) { next(err); }
 });
 
@@ -224,7 +237,7 @@ employeesRouter.put('/:id', authenticate, requireRole(UserRole.ADMIN, UserRole.O
         fechaNacimiento: data.fechaNacimiento ? new Date(data.fechaNacimiento as unknown as string) : undefined,
       },
     });
-    res.json(employee);
+    res.json(serializeEmployee(employee));
   } catch (err) { next(err); }
 });
 
