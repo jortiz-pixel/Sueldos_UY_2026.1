@@ -33,6 +33,7 @@ export async function calcularLiquidacionLicencia(input: LicenciaInput) {
     include: { company: true },
   });
   if (!employee) throw new AppError(404, 'Empleado no encontrado');
+  const bseRate = employee.company?.bseRate ?? 0;
 
   const antiguedad = calcularAntiguedad(employee.fechaIngreso, asOfDate);
   const diasCorresponden = diasLicenciaCorrespondientes(antiguedad);
@@ -57,14 +58,14 @@ export async function calcularLiquidacionLicencia(input: LicenciaInput) {
     salarioNominal: totalBruto,
     fonasaFamilia: employee.fonasaFamilia,
     params,
-    bseRateEmpresa: employee.company.bseRate,
+    bseRateEmpresa: bseRate,
   });
 
   const aportesPatronales = calcularAportesPatronales({
     salarioNominal: totalBruto,
     fonasaFamilia: employee.fonasaFamilia,
     params,
-    bseRateEmpresa: employee.company.bseRate,
+    bseRateEmpresa: bseRate,
   });
 
   const irpfResult = calcularIrpfMensual({
@@ -230,6 +231,9 @@ export async function calcularLiquidacionFinal(
     include: { company: true },
   });
   if (!employee) throw new AppError(404, 'Empleado no encontrado');
+  const companyId = employee.companyId;
+  if (!companyId) throw new AppError(400, 'La persona no tiene empresa asociada para la liquidación final');
+  const bseRate = employee.company?.bseRate ?? 0;
 
   const year = fechaEgreso.getFullYear();
   const month = fechaEgreso.getMonth() + 1;
@@ -270,13 +274,13 @@ export async function calcularLiquidacionFinal(
     salarioNominal: baseBpsIrpf,
     fonasaFamilia: employee.fonasaFamilia,
     params,
-    bseRateEmpresa: employee.company.bseRate,
+    bseRateEmpresa: bseRate,
   });
   const aportesPatronales = calcularAportesPatronales({
     salarioNominal: baseBpsIrpf,
     fonasaFamilia: employee.fonasaFamilia,
     params,
-    bseRateEmpresa: employee.company.bseRate,
+    bseRateEmpresa: bseRate,
   });
 
   const irpfResult = calcularIrpfMensual({
@@ -293,8 +297,8 @@ export async function calcularLiquidacionFinal(
   const liquidoPercibir = maxBigInt(0n, totalBruto - totalDescuentos);
 
   const periodo = await prisma.payrollPeriod.upsert({
-    where: { companyId_year_month: { companyId: employee.companyId, year, month } },
-    create: { companyId: employee.companyId, year, month },
+    where: { companyId_year_month: { companyId, year, month } },
+    create: { companyId, year, month },
     update: {},
   });
 
