@@ -11,6 +11,7 @@ import { employeesRouter } from './routes/employees.routes';
 import { liquidationRouter } from './routes/liquidation.routes';
 import { parametersRouter } from './routes/parameters.routes';
 import { reportsRouter } from './routes/reports.routes';
+import { catalogsRouter } from './routes/catalogs.routes';
 import { errorHandler } from './middleware/errorHandler';
 import { logger } from './utils/logger';
 
@@ -62,6 +63,7 @@ app.use('/api/employees', employeesRouter);
 app.use('/api/liquidation', liquidationRouter);
 app.use('/api/parameters', parametersRouter);
 app.use('/api/reports', reportsRouter);
+app.use('/api/catalogs', catalogsRouter);
 
 // Health check
 app.get('/health', (_req, res) => {
