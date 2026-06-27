@@ -1,14 +1,15 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, FileText, BarChart2,
-  Settings, LogOut, Building2, ChevronRight, Calculator,
+  Settings, LogOut, Building2, ChevronRight, Calculator, Briefcase,
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 
 const navItems = [
   { to: '/', label: 'Panel', icon: LayoutDashboard, end: true },
   { to: '/companies', label: 'Empresas', icon: Building2 },
-  { to: '/employees', label: 'Empleados', icon: Users },
+  { to: '/employees', label: 'Personas', icon: Users },
+  { to: '/contracts', label: 'Contratos', icon: Briefcase },
   { to: '/concepts', label: 'Conceptos', icon: Calculator },
   { to: '/liquidation', label: 'Liquidaciones', icon: FileText },
   { to: '/reports', label: 'Reportes', icon: BarChart2 },

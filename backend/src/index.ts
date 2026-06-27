@@ -13,6 +13,7 @@ import { parametersRouter } from './routes/parameters.routes';
 import { reportsRouter } from './routes/reports.routes';
 import { catalogsRouter } from './routes/catalogs.routes';
 import { conceptsRouter } from './routes/concepts.routes';
+import { contractsRouter } from './routes/contracts.routes';
 import { errorHandler } from './middleware/errorHandler';
 import { logger } from './utils/logger';
 
@@ -20,9 +21,6 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173').split(',');
 
-// =============================================================
-// Security middleware
-// =============================================================
 app.use(helmet());
 app.use(cors({
   origin: (origin, callback) => {
@@ -35,7 +33,6 @@ app.use(cors({
   credentials: true,
 }));
 
-// Rate limiting
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000'),
   max: parseInt(process.env.RATE_LIMIT_MAX || '100'),
@@ -45,9 +42,6 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-// =============================================================
-// General middleware
-// =============================================================
 app.use(compression());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -55,34 +49,26 @@ app.use(morgan('combined', {
   stream: { write: (message) => logger.http(message.trim()) },
 }));
 
-// =============================================================
-// Routes
-// =============================================================
 app.use('/api/auth', authRouter);
 app.use('/api/companies', companiesRouter);
 app.use('/api/employees', employeesRouter);
+app.use('/api/contracts', contractsRouter);
 app.use('/api/liquidation', liquidationRouter);
 app.use('/api/parameters', parametersRouter);
 app.use('/api/reports', reportsRouter);
 app.use('/api/catalogs', catalogsRouter);
 app.use('/api/concepts', conceptsRouter);
 
-// Health check
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString(), version: '1.0.0' });
 });
 
-// 404 handler
 app.use((_req, res) => {
   res.status(404).json({ error: 'Endpoint no encontrado' });
 });
 
-// Global error handler
 app.use(errorHandler);
 
-// =============================================================
-// Start server
-// =============================================================
 app.listen(PORT, () => {
   logger.info(`Sueldos UY server corriendo en puerto ${PORT}`);
   logger.info(`Ambiente: ${process.env.NODE_ENV || 'development'}`);
