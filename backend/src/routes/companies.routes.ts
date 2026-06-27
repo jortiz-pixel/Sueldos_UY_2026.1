@@ -7,6 +7,11 @@ import { AppError, NotFoundError } from '../middleware/errorHandler';
 
 export const companiesRouter = Router();
 
+const optionalDate = z.preprocess(
+  (v) => (v === '' || v === null ? undefined : v),
+  z.coerce.date().optional(),
+);
+
 const companySchema = z.object({
   rut: z.string().min(1),
   razonSocial: z.string().min(1),
@@ -19,6 +24,32 @@ const companySchema = z.object({
   actividadPrincipal: z.string().optional(),
   grupoActividad: z.string().optional(),
   bseRate: z.number().int().min(0).max(10000).default(25),
+
+  // Datos BPS / MTSS / BSE (GNS)
+  numeroBps: z.string().optional(),
+  numeroBse: z.string().optional(),
+  tipoAporte: z.number().int().optional().nullable(),
+  tipoContribuyente: z.number().int().optional().nullable(),
+  grupoActividadNum: z.number().int().optional().nullable(),
+  subgrupo: z.string().optional(),
+  naturalezaJuridica: z.string().optional(),
+  convenioColectivo: z.string().optional(),
+  inicioActividadMtss: optionalDate,
+  fechaInscripcionBps: optionalDate,
+
+  // Exoneraciones (basis points)
+  exoApoJub: z.number().int().min(0).max(10000).optional(),
+  exoFonasa: z.number().int().min(0).max(10000).optional(),
+  exoFrl: z.number().int().min(0).max(10000).optional(),
+  exoCcm: z.number().int().min(0).max(10000).optional(),
+
+  // Configuración de licencia
+  diasLicenciaAnio: z.number().int().min(0).max(60).optional(),
+  primerDiaExtraDesdeAnio: z.number().int().min(0).max(50).optional(),
+  maxDiasExtras: z.number().int().min(0).max(90).optional(),
+  diasTrabajadosMes: z.number().int().min(1).max(31).optional(),
+
+  observaciones: z.string().optional(),
 });
 
 // GET /api/companies
