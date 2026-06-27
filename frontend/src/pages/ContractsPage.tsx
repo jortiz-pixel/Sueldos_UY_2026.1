@@ -2,15 +2,18 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { Link } from 'react-router-dom';
-import { Eye, Plus, X, AlertCircle } from 'lucide-react';
+import { Eye, Plus, X, AlertCircle, Pencil } from 'lucide-react';
 import { companiesApi, contractsApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
-import { formatPesos, SalaryType } from '../types';
+import { formatPesos, SalaryType, Contrato } from '../types';
+
+type ContratoRow = Contrato & { employee: { id: string; ci: string; nombre: string; apellido: string } };
 
 interface ContractForm {
   personId: string;
   vigenciaDesde: string;
   fechaIngreso: string;
+  fechaFin?: string;
   tipoContrato?: string;
   cargo?: string;
   categoria?: string;
@@ -27,6 +30,7 @@ export default function ContractsPage() {
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState<{ employeeId: string; contractId: string; persona: string } | null>(null);
   const [formError, setFormError] = useState('');
 
   const { data: companies } = useQuery({ queryKey: ['companies'], queryFn: () => companiesApi.list() });
@@ -47,34 +51,59 @@ export default function ContractsPage() {
   const salaryType = watch('salaryType');
 
   const openNew = () => {
+    setEditing(null);
     setFormError('');
     const hoy = new Date().toISOString().slice(0, 10);
-    reset({ personId: '', vigenciaDesde: hoy, fechaIngreso: hoy, salaryType: 'MENSUAL', salarioNominalPesos: 0, cargo: '', categoria: '', nivel: '' });
+    reset({ personId: '', vigenciaDesde: hoy, fechaIngreso: hoy, fechaFin: '', salaryType: 'MENSUAL', salarioNominalPesos: 0, cargo: '', categoria: '', nivel: '', tipoContrato: '', sucursal: '', observacion: '' });
     setModalOpen(true);
   };
 
-  const createMutation = useMutation({
-    mutationFn: (data: ContractForm) => contractsApi.create(data.personId, {
-      companyId,
-      vigenciaDesde: data.vigenciaDesde,
-      fechaIngreso: data.fechaIngreso,
-      tipoContrato: data.tipoContrato || undefined,
-      cargo: data.cargo || undefined,
-      categoria: data.categoria || undefined,
-      nivel: data.nivel || undefined,
-      salaryType: data.salaryType,
-      salarioNominal: String(Math.round(Number(data.salarioNominalPesos) * 100)),
-      jornal: data.jornalPesos ? String(Math.round(Number(data.jornalPesos) * 100)) : undefined,
-      sucursal: data.sucursal || undefined,
-      observacion: data.observacion || undefined,
-    }),
+  const openEdit = (c: ContratoRow) => {
+    setEditing({ employeeId: c.employee.id, contractId: c.id, persona: `${c.employee.apellido}, ${c.employee.nombre}` });
+    setFormError('');
+    reset({
+      personId: c.employee.id,
+      vigenciaDesde: c.vigenciaDesde ? c.vigenciaDesde.slice(0, 10) : '',
+      fechaIngreso: c.fechaIngreso ? c.fechaIngreso.slice(0, 10) : '',
+      fechaFin: c.fechaFin ? c.fechaFin.slice(0, 10) : '',
+      tipoContrato: c.tipoContrato ?? '',
+      cargo: c.cargo ?? '', categoria: c.categoria ?? '', nivel: c.nivel ?? '',
+      salaryType: c.salaryType,
+      salarioNominalPesos: Number(c.salarioNominal) / 100,
+      jornalPesos: c.jornal ? Number(c.jornal) / 100 : undefined,
+      sucursal: c.sucursal ?? '', observacion: c.observacion ?? '',
+    });
+    setModalOpen(true);
+  };
+
+  const saveMutation = useMutation({
+    mutationFn: (data: ContractForm) => {
+      const payload = {
+        companyId,
+        vigenciaDesde: data.vigenciaDesde,
+        fechaIngreso: data.fechaIngreso,
+        fechaFin: data.fechaFin || undefined,
+        tipoContrato: data.tipoContrato || undefined,
+        cargo: data.cargo || undefined,
+        categoria: data.categoria || undefined,
+        nivel: data.nivel || undefined,
+        salaryType: data.salaryType,
+        salarioNominal: String(Math.round(Number(data.salarioNominalPesos) * 100)),
+        jornal: data.jornalPesos ? String(Math.round(Number(data.jornalPesos) * 100)) : undefined,
+        sucursal: data.sucursal || undefined,
+        observacion: data.observacion || undefined,
+      };
+      return editing
+        ? contractsApi.update(editing.employeeId, editing.contractId, payload)
+        : contractsApi.create(data.personId, payload);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['contracts-company', companyId] });
       setModalOpen(false);
     },
     onError: (err: unknown) => {
       const message = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
-      setFormError(message || 'Error al crear el contrato.');
+      setFormError(message || 'Error al guardar el contrato.');
     },
   });
 
@@ -136,14 +165,19 @@ export default function ContractsPage() {
                   <td className="table-cell text-right font-mono text-xs">
                     {c.salaryType === 'MENSUAL' ? formatPesos(c.salarioNominal) : (c.jornal ? `${formatPesos(c.jornal)}/día` : formatPesos(c.salarioNominal))}
                   </td>
-                  <td className="table-cell text-xs">{fmt(c.vigenciaDesde)} — {c.vigenciaHasta ? fmt(c.vigenciaHasta) : 'Vigente'}</td>
+                  <td className="table-cell text-xs">{fmt(c.vigenciaDesde)} — {c.vigenciaHasta ? fmt(c.vigenciaHasta) : (c.fechaFin ? fmt(c.fechaFin) : 'Vigente')}</td>
                   <td className="table-cell">
-                    {!c.vigenciaHasta && c.activo
+                    {!c.vigenciaHasta && c.activo && (!c.fechaFin || new Date(c.fechaFin) >= new Date())
                       ? <span className="badge-green badge">Vigente</span>
                       : <span className="badge-gray badge">Histórico</span>}
                   </td>
                   <td className="table-cell">
-                    <Link to={`/employees/${c.employee.id}`} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg inline-flex" title="Ver persona"><Eye size={15} /></Link>
+                    <div className="flex items-center gap-1">
+                      {isOperator && (
+                        <button onClick={() => openEdit(c as ContratoRow)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg inline-flex" title="Editar contrato"><Pencil size={15} /></button>
+                      )}
+                      <Link to={`/employees/${c.employee.id}`} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg inline-flex" title="Ver persona"><Eye size={15} /></Link>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -156,27 +190,26 @@ export default function ContractsPage() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white z-10">
-              <h2 className="text-lg font-bold text-gray-900">Nuevo Contrato — {empresaNombre}</h2>
+              <h2 className="text-lg font-bold text-gray-900">{editing ? `Editar Contrato — ${editing.persona}` : `Nuevo Contrato — ${empresaNombre}`}</h2>
               <button onClick={() => setModalOpen(false)} className="p-1 text-gray-400 hover:text-gray-700"><X size={20} /></button>
             </div>
-            <form onSubmit={handleSubmit((d) => { setFormError(''); createMutation.mutate(d); })} className="p-6 space-y-4">
+            <form onSubmit={handleSubmit((d) => { setFormError(''); saveMutation.mutate(d); })} className="p-6 space-y-4">
               {formError && (
                 <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
                   <AlertCircle size={16} className="flex-shrink-0" />{formError}
                 </div>
               )}
-              <p className="text-xs text-gray-500">
-                Elegí una persona del padrón para vincularla a <b>{empresaNombre}</b>. Si la persona no existe aún, creála primero en <b>Personas → Nuevo Empleado</b>.
-              </p>
               <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2">
-                  <label className="form-label">Persona *</label>
-                  <select {...register('personId', { required: 'Requerido' })} className="form-input">
-                    <option value="">— Seleccionar persona —</option>
-                    {persons?.map((p) => <option key={p.id} value={p.id}>{p.apellido}, {p.nombre} (CI {p.ci})</option>)}
-                  </select>
-                  {errors.personId && <p className="form-error">{errors.personId.message}</p>}
-                </div>
+                {!editing && (
+                  <div className="col-span-2">
+                    <label className="form-label">Persona *</label>
+                    <select {...register('personId', { required: 'Requerido' })} className="form-input">
+                      <option value="">— Seleccionar persona —</option>
+                      {persons?.map((p) => <option key={p.id} value={p.id}>{p.apellido}, {p.nombre} (CI {p.ci})</option>)}
+                    </select>
+                    {errors.personId && <p className="form-error">{errors.personId.message}</p>}
+                  </div>
+                )}
                 <div>
                   <label className="form-label">Vigencia desde *</label>
                   <input {...register('vigenciaDesde', { required: 'Requerido' })} type="date" className="form-input" />
@@ -186,6 +219,11 @@ export default function ContractsPage() {
                   <label className="form-label">Fecha de ingreso *</label>
                   <input {...register('fechaIngreso', { required: 'Requerido' })} type="date" className="form-input" />
                   {errors.fechaIngreso && <p className="form-error">{errors.fechaIngreso.message}</p>}
+                </div>
+                <div>
+                  <label className="form-label">Fin de contrato</label>
+                  <input {...register('fechaFin')} type="date" className="form-input" />
+                  <p className="text-xs text-gray-400 mt-1">Dejá vacío si está vigente sin fecha de fin.</p>
                 </div>
                 <div>
                   <label className="form-label">Tipo de contrato</label>
@@ -231,8 +269,8 @@ export default function ContractsPage() {
               </div>
               <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
                 <button type="button" onClick={() => setModalOpen(false)} className="btn-secondary">Cancelar</button>
-                <button type="submit" disabled={createMutation.isPending} className="btn-primary">
-                  {createMutation.isPending ? 'Guardando...' : 'Crear contrato'}
+                <button type="submit" disabled={saveMutation.isPending} className="btn-primary">
+                  {saveMutation.isPending ? 'Guardando...' : editing ? 'Guardar cambios' : 'Crear contrato'}
                 </button>
               </div>
             </form>

@@ -98,6 +98,7 @@ export interface Contrato {
   numero: number;
   vigenciaDesde: string;
   vigenciaHasta?: string | null;
+  fechaFin?: string | null;
   fechaIngreso: string;
   tipoContrato?: string;
   cargo?: string;
@@ -239,12 +240,10 @@ export function ctmsToPesos(ctmsStr: string): number {
   return parseInt(ctmsStr, 10) / 100;
 }
 
-// ── Cédula de Identidad uruguaya ──
 export function soloDigitos(ci: string): string {
   return (ci || '').replace(/\D/g, '');
 }
 
-/** Formatea la cédula: 41318048 -> 4.131.804-8 */
 export function formatCedula(ci: string): string {
   const d = soloDigitos(ci);
   if (d.length < 2) return ci;
@@ -254,7 +253,6 @@ export function formatCedula(ci: string): string {
   return `${grouped}-${check}`;
 }
 
-/** Valida la cédula uruguaya por su dígito verificador */
 export function validarCedula(ci: string): boolean {
   const d = soloDigitos(ci);
   if (d.length < 7 || d.length > 8) return false;
