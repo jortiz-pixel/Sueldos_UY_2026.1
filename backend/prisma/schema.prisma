@@ -1,6 +1,5 @@
 // =============================================================
 // Sueldos UY 2026 - Prisma Schema
-// PostgreSQL database schema for Uruguayan payroll system
 // =============================================================
 
 generator client {
@@ -57,7 +56,7 @@ model SubgrupoActividad {
 
 model Company {
   id               String   @id @default(cuid())
-  rut              String   @unique  // Registro Único Tributario
+  rut              String   @unique
   razonSocial      String
   nombreFantasia   String?
   domicilio        String?
@@ -66,32 +65,29 @@ model Company {
   telefono         String?
   email            String?
   actividadPrincipal String?
-  grupoActividad   String?  // Consejo de Salarios group (texto libre, legado)
-  bseRate          Int      @default(0)  // BSE rate in basis points (e.g. 25 = 0.25%)
+  grupoActividad   String?
+  bseRate          Int      @default(0)
 
-  // ── Datos BPS / MTSS / BSE (GNS Personal) ──
   numeroBps           String?
   numeroBse           String?
-  tipoAporte          Int?      // código -> tipos_aporte
-  tipoContribuyente   Int?      // código -> tipos_contribuyente
-  grupoActividadNum   Int?      // número -> grupos_actividad (Consejo de Salarios)
+  tipoAporte          Int?
+  tipoContribuyente   Int?
+  grupoActividadNum   Int?
   subgrupo            String?
   naturalezaJuridica  String?
   convenioColectivo   String?
   inicioActividadMtss DateTime?
   fechaInscripcionBps DateTime?
 
-  // ── Exoneraciones de aportes patronales (en basis points) ──
-  exoApoJub  Int @default(0)  // % exoneración aporte jubilatorio patronal
-  exoFonasa  Int @default(0)  // % exoneración FONASA patronal (S.E.)
-  exoFrl     Int @default(0)  // % exoneración FRL patronal
-  exoCcm     Int @default(0)  // % exoneración CCM
+  exoApoJub  Int @default(0)
+  exoFonasa  Int @default(0)
+  exoFrl     Int @default(0)
+  exoCcm     Int @default(0)
 
-  // ── Configuración de licencia ──
-  diasLicenciaAnio        Int @default(20)  // días de licencia por año
-  primerDiaExtraDesdeAnio Int @default(5)   // primer día extra desde año de antigüedad
-  maxDiasExtras           Int @default(35)  // máximo total de días (con extras)
-  diasTrabajadosMes       Int @default(30)  // días trabajados al mes por contrato
+  diasLicenciaAnio        Int @default(20)
+  primerDiaExtraDesdeAnio Int @default(5)
+  maxDiasExtras           Int @default(35)
+  diasTrabajadosMes       Int @default(30)
 
   observaciones    String?
 
@@ -100,6 +96,7 @@ model Company {
   updatedAt        DateTime @updatedAt
 
   employees        Employee[]
+  contratos        Contrato[]
   payrollPeriods   PayrollPeriod[]
   users            User[]
   laudos           Laudo[]
@@ -110,23 +107,23 @@ model Company {
 }
 
 // =============================================================
-// MOTOR DE CONCEPTOS (parametrizable por empresa) — GNS Personal
+// MOTOR DE CONCEPTOS
 // =============================================================
 
 model Concepto {
   id              String   @id @default(cuid())
   companyId       String
-  codigo          String   // SB, JO, PRES, VIAT, etc.
+  codigo          String
   nombre          String
   nombreReducido  String?
-  orden           Int      @default(100)  // orden de cálculo
-  tipoOperacion   ItemType @default(HABER) // HABER / DESCUENTO_OBRERO / APORTE_PATRONAL / INFORMATIVO
-  tipoCalculo     String   @default("VALOR_FIJO") // VALOR_FIJO | PORCENTAJE | CANTIDAD_VALOR
-  baseCalculo     String?  // (PORCENTAJE) NOMINAL | SUELDO_BASICO | HABERES_GRAVADOS
-  valorRate       Int?     // (PORCENTAJE) tasa en basis points (500 = 5%)
-  valorFijo       BigInt?  // (VALOR_FIJO) monto, o valor unitario para CANTIDAD_VALOR (centésimos)
-  gravado         Boolean  @default(true)  // suma a la base de aportes/IRPF
-  codBps          Int?     // 1 = Monto imponible mensual
+  orden           Int      @default(100)
+  tipoOperacion   ItemType @default(HABER)
+  tipoCalculo     String   @default("VALOR_FIJO")
+  baseCalculo     String?
+  valorRate       Int?
+  valorFijo       BigInt?
+  gravado         Boolean  @default(true)
+  codBps          Int?
   visibleRecibo   Boolean  @default(true)
   incluyeLicencia Boolean  @default(false)
   activo          Boolean  @default(true)
@@ -183,7 +180,7 @@ model RefreshToken {
 }
 
 // =============================================================
-// EMPLOYEES
+// EMPLOYEES (Persona / Ficha Personal) — global, CI único
 // =============================================================
 
 enum SalaryType {
@@ -206,8 +203,8 @@ enum SexoBiologico {
 
 model Employee {
   id               String      @id @default(cuid())
-  companyId        String
-  ci               String      // Cédula de Identidad
+  companyId        String?     // empresa principal (caché); el vínculo real vive en Contrato
+  ci               String      @unique  // Cédula — única en todo el sistema (persona global)
   nombre           String
   apellido         String
   fechaNacimiento  DateTime?
@@ -219,37 +216,32 @@ model Employee {
   email            String?
   telefono         String?
 
-  // Employment (datos vigentes — legado; el detalle versionado vive en Contrato)
+  // Datos laborales “vigentes” (caché del contrato vigente)
   fechaIngreso     DateTime
   fechaEgreso      DateTime?
   cargo            String?
-  categoria        String?     // Categoría del laudo
-  nivel            String?     // Nivel dentro de la categoría
+  categoria        String?
+  nivel            String?
   salaryType       SalaryType  @default(MENSUAL)
-  salarioNominal   BigInt      // In centésimos (1 peso = 100 centésimos)
-  jornal           BigInt?     // Daily wage in centésimos (for JORNALERO)
+  salarioNominal   BigInt
+  jornal           BigInt?
 
-  // Family situation for IRPF/FONASA
   conyugeACargo    Boolean     @default(false)
   hijosACargo      Int         @default(0)
   hijosDiscapacitados Int      @default(0)
 
-  // IRPF settings
-  irpfMetodo       String      @default("PROYECCION")  // PROYECCION or SIMPLIFICADO
-  irpfFicto        BigInt?     // Ficto mensual for simplified method
+  irpfMetodo       String      @default("PROYECCION")
+  irpfFicto        BigInt?
 
-  // BPS
-  bpsNumero        String?     // BPS affiliate number
+  bpsNumero        String?
   fondoSolidario   Boolean     @default(false)
-
-  // FONASA
-  fonasaFamilia    Boolean     @default(false)  // Has dependent family (adds 2%)
+  fonasaFamilia    Boolean     @default(false)
 
   active           Boolean     @default(true)
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
 
-  company          Company     @relation(fields: [companyId], references: [id])
+  company          Company?    @relation(fields: [companyId], references: [id])
   contratos        Contrato[]
   history          EmployeeHistory[]
   payrollItems     PayrollItem[]
@@ -257,17 +249,17 @@ model Employee {
   leaveRequests    LeaveRequest[]
   adjustments      PayrollAdjustment[]
 
-  @@unique([companyId, ci])
   @@map("employees")
 }
 
 // =============================================================
-// CONTRATOS (versionados por vigencia) — GNS Personal
+// CONTRATOS (vínculo persona–empresa, versionado por vigencia)
 // =============================================================
 
 model Contrato {
   id               String     @id @default(cuid())
   employeeId       String
+  companyId        String?    // empresa empleadora (el vínculo)
   numero           Int        @default(1)
   vigenciaDesde    DateTime
   vigenciaHasta    DateTime?
@@ -293,8 +285,10 @@ model Contrato {
   updatedAt        DateTime   @updatedAt
 
   employee         Employee   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  company          Company?   @relation(fields: [companyId], references: [id])
 
   @@index([employeeId, vigenciaDesde])
+  @@index([companyId])
   @@map("contracts")
 }
 
@@ -314,7 +308,7 @@ model EmployeeHistory {
 }
 
 // =============================================================
-// PAYROLL PARAMETERS (versioned — effective_date based)
+// PAYROLL PARAMETERS
 // =============================================================
 
 model PayrollParameter {
@@ -346,7 +340,7 @@ model IrpfBracket {
 }
 
 // =============================================================
-// LAUDOS Y CONVENIOS COLECTIVOS
+// LAUDOS
 // =============================================================
 
 model Laudo {
@@ -446,10 +440,6 @@ model Liquidation {
   @@map("liquidations")
 }
 
-// =============================================================
-// PAYROLL ITEMS
-// =============================================================
-
 enum ItemType {
   HABER
   DESCUENTO_OBRERO
@@ -476,10 +466,6 @@ model PayrollItem {
   @@map("payroll_items")
 }
 
-// =============================================================
-// MANUAL ADJUSTMENTS
-// =============================================================
-
 model PayrollAdjustment {
   id             String   @id @default(cuid())
   liquidationId  String
@@ -498,10 +484,6 @@ model PayrollAdjustment {
 
   @@map("payroll_adjustments")
 }
-
-// =============================================================
-// VACATION & LEAVE
-// =============================================================
 
 model VacationAccrual {
   id             String   @id @default(cuid())
@@ -536,10 +518,6 @@ model LeaveRequest {
 
   @@map("leave_requests")
 }
-
-// =============================================================
-// AUDIT LOG
-// =============================================================
 
 model AuditLog {
   id         String   @id @default(cuid())

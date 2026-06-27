@@ -1,21 +1,21 @@
 /**
  * SERVICIO DE CONTRATOS
  *
- * Un empleado tiene N contratos versionados por vigencia.
- * El cálculo de cada liquidación usa el contrato VIGENTE para el período.
+ * El contrato es el vínculo persona–empresa, versionado por vigencia.
+ * El cálculo de cada liquidación usa el contrato VIGENTE para el período/empresa.
  */
 
 import { prisma } from '../utils/prisma';
 
 /**
- * Resuelve el contrato vigente de un empleado para una fecha dada.
- * Devuelve null si no hay contrato (el motor cae al dato legado del empleado).
+ * Resuelve el contrato vigente de una persona para una fecha (y opcionalmente una empresa).
  */
-export async function resolverContratoVigente(employeeId: string, asOfDate: Date) {
+export async function resolverContratoVigente(employeeId: string, asOfDate: Date, companyId?: string) {
   return prisma.contrato.findFirst({
     where: {
       employeeId,
       activo: true,
+      ...(companyId ? { companyId } : {}),
       vigenciaDesde: { lte: asOfDate },
       OR: [
         { vigenciaHasta: null },
@@ -23,6 +23,7 @@ export async function resolverContratoVigente(employeeId: string, asOfDate: Date
       ],
     },
     orderBy: { vigenciaDesde: 'desc' },
+    include: { company: true },
   });
 }
 
