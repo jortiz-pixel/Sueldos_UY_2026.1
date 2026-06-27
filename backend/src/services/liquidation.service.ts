@@ -138,7 +138,8 @@ export async function generarLiquidacionMensual(
 
   const aportesObreros = calcularAportesObreros({
     salarioNominal: totalHaberes,
-    fonasaFamilia: employee.fonasaFamilia,
+    hijosACargo: employee.hijosACargo,
+    conyugeACargo: employee.conyugeACargo,
     params,
     bseRateEmpresa: bseRate,
   });
@@ -158,11 +159,18 @@ export async function generarLiquidacionMensual(
     employeeId: input.employeeId,
     itemType: ItemType.DESCUENTO_OBRERO,
     concepto: 'FONASA',
-    descripcion: `FONASA/DISSE${employee.fonasaFamilia ? ' (con familia)' : ''} (${(params.fonasaBasicRate + (employee.fonasaFamilia ? params.fonasaFamiliaRate : 0)) / 100}%)`,
+    descripcion: `FONASA/DISSE (${aportesObreros.detail.fonasaRateEfectivo / 100}%)`,
     baseCalculo: totalHaberes,
-    rate: params.fonasaBasicRate + (employee.fonasaFamilia ? params.fonasaFamiliaRate : 0),
+    rate: aportesObreros.detail.fonasaRateEfectivo,
     amount: aportesObreros.fonasaTotal,
-    calculationDetail: { base: totalHaberes.toString(), basicRate: params.fonasaBasicRate, familiaRate: employee.fonasaFamilia ? params.fonasaFamiliaRate : 0, fonasaFamilia: employee.fonasaFamilia } as unknown as Prisma.JsonValue,
+    calculationDetail: {
+      base: totalHaberes.toString(),
+      baseRate: aportesObreros.detail.fonasaBaseRate,
+      hijosRate: aportesObreros.detail.fonasaHijosRate,
+      conyugeRate: aportesObreros.detail.fonasaConyugeRate,
+      hijosACargo: employee.hijosACargo,
+      conyugeACargo: employee.conyugeACargo,
+    } as unknown as Prisma.JsonValue,
   });
 
   items.push({
@@ -239,7 +247,6 @@ export async function generarLiquidacionMensual(
 
   const aportesPatronales = calcularAportesPatronales({
     salarioNominal: totalHaberes,
-    fonasaFamilia: employee.fonasaFamilia,
     params,
     bseRateEmpresa: bseRate,
     fonasaPatronalRate,
@@ -306,7 +313,11 @@ export async function generarLiquidacionMensual(
     bpc: params.bpc.toString(),
     bpsJubilatorioRate: params.bpsJubilatorioRate,
     fonasaBasicRate: params.fonasaBasicRate,
-    fonasaFamiliaRate: params.fonasaFamiliaRate,
+    fonasaBasicHighRate: params.fonasaBasicHighRate,
+    fonasaThresholdBpc: params.fonasaThresholdBpc,
+    fonasaHijosRate: params.fonasaHijosRate,
+    fonasaConyugeRate: params.fonasaConyugeRate,
+    fonasaRateEfectivo: aportesObreros.detail.fonasaRateEfectivo,
     frlObreroRate: params.frlObreroRate,
     bpsIvsPatronalRate: params.bpsIvsPatronalRate,
     fonasaPatronalRate,
