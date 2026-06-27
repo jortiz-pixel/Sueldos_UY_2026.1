@@ -26,6 +26,7 @@ const personFields = {
   irpfFicto: z.string().transform((v) => BigInt(v)).optional(),
   bpsNumero: z.string().optional(),
   fonasaFamilia: z.boolean().default(false),
+  observaciones: z.string().optional(),
 };
 
 const contratoFields = {
@@ -180,6 +181,7 @@ employeesRouter.post('/', authenticate, requireRole(UserRole.ADMIN, UserRole.OPE
         irpfFicto: data.irpfFicto,
         bpsNumero: data.bpsNumero,
         fonasaFamilia: data.fonasaFamilia,
+        observaciones: data.observaciones,
         companyId: c.companyId,
         fechaIngreso,
         cargo: c.cargo,

@@ -203,8 +203,8 @@ enum SexoBiologico {
 
 model Employee {
   id               String      @id @default(cuid())
-  companyId        String?     // empresa principal (caché); el vínculo real vive en Contrato
-  ci               String      @unique  // Cédula — única en todo el sistema (persona global)
+  companyId        String?
+  ci               String      @unique
   nombre           String
   apellido         String
   fechaNacimiento  DateTime?
@@ -216,7 +216,6 @@ model Employee {
   email            String?
   telefono         String?
 
-  // Datos laborales “vigentes” (caché del contrato vigente)
   fechaIngreso     DateTime
   fechaEgreso      DateTime?
   cargo            String?
@@ -236,6 +235,8 @@ model Employee {
   bpsNumero        String?
   fondoSolidario   Boolean     @default(false)
   fonasaFamilia    Boolean     @default(false)
+
+  observaciones    String?
 
   active           Boolean     @default(true)
   createdAt        DateTime    @default(now())
@@ -259,7 +260,7 @@ model Employee {
 model Contrato {
   id               String     @id @default(cuid())
   employeeId       String
-  companyId        String?    // empresa empleadora (el vínculo)
+  companyId        String?
   numero           Int        @default(1)
   vigenciaDesde    DateTime
   vigenciaHasta    DateTime?
