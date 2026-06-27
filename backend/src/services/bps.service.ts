@@ -1,19 +1,17 @@
 /**
  * SERVICIO BPS/FONASA/FRL
  *
- * Cálculo de aportes al BPS (Banco de Previsión Social):
- *
  * APORTES OBREROS (descuentos al empleado):
- * ─────────────────────────────────────────
  * - BPS Jubilatorio:       15% del salario nominal
- * - FONASA/DISSE básico:    3% del salario nominal
- * - FONASA/DISSE familia:  +2% adicional (si tiene familia a cargo)
+ * - FONASA/DISSE:          escalonado según ingreso y cargas familiares:
+ *     base 3% (ingreso <= 2.5 BPC) o 4.5% (ingreso > 2.5 BPC)
+ *     +1.5% si tiene hijos a cargo
+ *     +2%   si tiene cónyuge a cargo
  * - FRL (obrero):          0.125% del salario nominal
  *
  * APORTES PATRONALES (a cargo del empleador):
- * ────────────────────────────────────────────
  * - BPS IVS (patronal):    7.5% del salario nominal
- * - FONASA/DISSE patronal: varía por categoría (parameterizable)
+ * - FONASA/DISSE patronal: 5% (parametrizable)
  * - FRL (patronal):        0.025% del salario nominal
  * - BSE (seguro accidentes): tasa configurable por empresa
  *
@@ -25,9 +23,11 @@ import { PayrollParameters } from './parameters.service';
 
 export interface AportesInput {
   salarioNominal: bigint;
-  fonasaFamilia: boolean;       // Si el empleado tiene familia a cargo
   params: PayrollParameters;
   bseRateEmpresa: number;       // BSE rate en basis points (específico de empresa)
+  hijosACargo?: number;         // FONASA: +1.5% si > 0
+  conyugeACargo?: boolean;      // FONASA: +2% si true
+  fonasaFamilia?: boolean;      // (compat) si true y no se pasan hijos/cónyuge -> +1.5%
   fonasaPatronalRate?: number;  // FONASA patronal (si es distinto a default)
 }
 
@@ -40,8 +40,10 @@ export interface AportesObreros {
   total: bigint;
   detail: {
     jubilatorioRate: number;
-    fonasaBasicoRate: number;
-    fonasaFamiliaRate: number;
+    fonasaRateEfectivo: number; // tasa FONASA total aplicada (bp)
+    fonasaBaseRate: number;
+    fonasaHijosRate: number;
+    fonasaConyugeRate: number;
     frlRate: number;
   };
 }
@@ -61,17 +63,38 @@ export interface AportesPatronales {
 }
 
 /**
+ * Determina la tasa FONASA total (en basis points) según ingreso y cargas.
+ */
+export function calcularTasaFonasa(input: AportesInput): {
+  rateTotal: number; baseRate: number; hijosRate: number; conyugeRate: number;
+} {
+  const { salarioNominal, params } = input;
+  // Umbral en centésimos = umbral_BPC * BPC
+  const umbralCtms = (params.bpc * BigInt(Math.round(params.fonasaThresholdBpc * 100))) / 100n;
+  const baseRate = salarioNominal > umbralCtms ? params.fonasaBasicHighRate : params.fonasaBasicRate;
+
+  const tieneHijos = (input.hijosACargo ?? 0) > 0 || (input.fonasaFamilia ?? false);
+  const tieneConyuge = input.conyugeACargo ?? false;
+
+  const hijosRate = tieneHijos ? params.fonasaHijosRate : 0;
+  const conyugeRate = tieneConyuge ? params.fonasaConyugeRate : 0;
+
+  return { rateTotal: baseRate + hijosRate + conyugeRate, baseRate, hijosRate, conyugeRate };
+}
+
+/**
  * Calcula los aportes obreros (descuentos al empleado).
  */
 export function calcularAportesObreros(input: AportesInput): AportesObreros {
-  const { salarioNominal, fonasaFamilia, params } = input;
+  const { salarioNominal, params } = input;
 
   const jubilatorio = applyRate(salarioNominal, params.bpsJubilatorioRate);
-  const fonasaBasico = applyRate(salarioNominal, params.fonasaBasicRate);
-  const fonasaFamiliaAporte = fonasaFamilia
-    ? applyRate(salarioNominal, params.fonasaFamiliaRate)
-    : 0n;
-  const fonasaTotal = fonasaBasico + fonasaFamiliaAporte;
+
+  const fonasa = calcularTasaFonasa(input);
+  const fonasaTotal = applyRate(salarioNominal, fonasa.rateTotal);
+  const fonasaBasico = applyRate(salarioNominal, fonasa.baseRate);
+  const fonasaFamiliaAporte = fonasaTotal - fonasaBasico;
+
   const frl = applyRate(salarioNominal, params.frlObreroRate);
 
   return {
@@ -83,8 +106,10 @@ export function calcularAportesObreros(input: AportesInput): AportesObreros {
     total: jubilatorio + fonasaTotal + frl,
     detail: {
       jubilatorioRate: params.bpsJubilatorioRate,
-      fonasaBasicoRate: params.fonasaBasicRate,
-      fonasaFamiliaRate: fonasaFamilia ? params.fonasaFamiliaRate : 0,
+      fonasaRateEfectivo: fonasa.rateTotal,
+      fonasaBaseRate: fonasa.baseRate,
+      fonasaHijosRate: fonasa.hijosRate,
+      fonasaConyugeRate: fonasa.conyugeRate,
       frlRate: params.frlObreroRate,
     },
   };
@@ -93,14 +118,11 @@ export function calcularAportesObreros(input: AportesInput): AportesObreros {
 /**
  * Calcula los aportes patronales (a cargo del empleador).
  *
- * FONASA patronal: La tasa varía según la categoría de la empresa.
- * Para industria y comercio (la más común): 5% DISSE patronal.
- * Si se proporciona `fonasaPatronalRate`, se usa ese valor.
+ * FONASA patronal: 5% para industria/comercio por defecto (500 bp).
  */
 export function calcularAportesPatronales(input: AportesInput): AportesPatronales {
   const { salarioNominal, params } = input;
 
-  // FONASA patronal por defecto: 5% para industria/comercio (500 bp)
   const fonasaPatronalRate = input.fonasaPatronalRate ?? 500;
 
   const bpsIvs = applyRate(salarioNominal, params.bpsIvsPatronalRate);
@@ -149,9 +171,6 @@ export function calcularBpsAguinaldo(
  * Cálculo de horas extra.
  * - Diurnas: 2× el valor hora normal
  * - Nocturnas (después de las 22:00): 2.5× el valor hora normal
- *
- * Valor hora normal = salario mensual / (horas mensuales standard)
- * Standard: 200 horas/mes para jornada completa (40h/sem × 5 sem aprox)
  */
 export function calcularHorasExtra(
   salarioMensual: bigint,

@@ -18,8 +18,13 @@ export interface IrpfBracket {
 export interface PayrollParameters {
   bpc: bigint;                    // BPC en centésimos
   bpsJubilatorioRate: number;     // 1500 bp = 15%
-  fonasaBasicRate: number;        // 300 bp = 3%
-  fonasaFamiliaRate: number;      // 200 bp = 2% adicional
+  // FONASA escalonado (Ley 18.131 y modificativas)
+  fonasaBasicRate: number;        // 300 bp = 3%  (ingreso <= umbral)
+  fonasaBasicHighRate: number;    // 450 bp = 4.5% (ingreso > umbral)
+  fonasaThresholdBpc: number;     // 2.5 BPC umbral mensual
+  fonasaHijosRate: number;        // 150 bp = +1.5% si tiene hijos a cargo
+  fonasaConyugeRate: number;      // 200 bp = +2% si tiene cónyuge a cargo
+  fonasaFamiliaRate: number;      // (compat) 200 bp = 2%
   frlObreroRate: number;          // 12.5 bp = 0.125%
   frlPatronalRate: number;        // 2.5 bp = 0.025%
   bpsIvsPatronalRate: number;     // 750 bp = 7.5%
@@ -88,7 +93,10 @@ async function getPayrollParameters(asOfDate: Date = new Date()): Promise<Payrol
     bpcRaw,
     bpsJubilatorioRaw,
     fonasaBasicRaw,
-    fonasaFamiliaRaw,
+    fonasaBasicHighRaw,
+    fonasaThresholdRaw,
+    fonasaHijosRaw,
+    fonasaConyugeRaw,
     frlObreroRaw,
     frlPatronalRaw,
     bpsIvsRaw,
@@ -100,7 +108,10 @@ async function getPayrollParameters(asOfDate: Date = new Date()): Promise<Payrol
     getParam<number>('BPC', asOfDate),
     getParam<number>('BPS_JUBILATORIO_RATE_BP', asOfDate),
     getParam<number>('FONASA_BASIC_RATE_BP', asOfDate),
-    getParam<number>('FONASA_FAMILIA_RATE_BP', asOfDate),
+    getParam<number>('FONASA_BASIC_HIGH_RATE_BP', asOfDate),
+    getParam<number>('FONASA_THRESHOLD_BPC', asOfDate),
+    getParam<number>('FONASA_HIJOS_RATE_BP', asOfDate),
+    getParam<number>('FONASA_CONYUGE_RATE_BP', asOfDate),
     getParam<number>('FRL_OBRERO_RATE_BP', asOfDate),
     getParam<number>('FRL_PATRONAL_RATE_BP', asOfDate),
     getParam<number>('BPS_IVS_PATRONAL_RATE_BP', asOfDate),
@@ -111,11 +122,16 @@ async function getPayrollParameters(asOfDate: Date = new Date()): Promise<Payrol
   ]);
 
   // Fallback values (should always be in DB, but safeguard for dev)
+  const fonasaConyuge = fonasaConyugeRaw ?? 200;
   return {
     bpc: toCtms(bpcRaw ?? 6756),              // BPC 2024: $6,756
     bpsJubilatorioRate: bpsJubilatorioRaw ?? 1500,  // 15%
-    fonasaBasicRate: fonasaBasicRaw ?? 300,         // 3%
-    fonasaFamiliaRate: fonasaFamiliaRaw ?? 200,     // 2%
+    fonasaBasicRate: fonasaBasicRaw ?? 300,         // 3% (ingreso <= 2.5 BPC)
+    fonasaBasicHighRate: fonasaBasicHighRaw ?? 450, // 4.5% (ingreso > 2.5 BPC)
+    fonasaThresholdBpc: fonasaThresholdRaw ?? 2.5,  // umbral 2.5 BPC
+    fonasaHijosRate: fonasaHijosRaw ?? 150,         // +1.5%
+    fonasaConyugeRate: fonasaConyuge,               // +2%
+    fonasaFamiliaRate: fonasaConyuge,               // (compat)
     frlObreroRate: frlObreroRaw ?? 12.5,            // 0.125%
     frlPatronalRate: frlPatronalRaw ?? 2.5,         // 0.025%
     bpsIvsPatronalRate: bpsIvsRaw ?? 750,           // 7.5%
@@ -123,19 +139,20 @@ async function getPayrollParameters(asOfDate: Date = new Date()): Promise<Payrol
     irpfHijosBpc: irpfHijosRaw ?? 13,              // 13 BPC/año
     irpfHijosDiscapacitadosBpc: irpfHijosDiscapRaw ?? 26, // 26 BPC/año
     irpfConyugeBpc: irpfConyugeRaw ?? 6,            // 6 BPC/año
-    irpfBrackets: brackets.length > 0 ? brackets : DEFAULT_IRPF_BRACKETS_2024,
+    irpfBrackets: brackets.length > 0 ? brackets : DEFAULT_IRPF_BRACKETS,
   };
 }
 
-/** Parámetros por defecto 2024 (fallback si no hay BD) */
-const DEFAULT_IRPF_BRACKETS_2024: IrpfBracket[] = [
+/** Escala IRPF Categoría II vigente (Uruguay 2024/2025) — fallback si no hay BD */
+const DEFAULT_IRPF_BRACKETS: IrpfBracket[] = [
   { fromBpc: 0,    toBpc: 84,   ratePercent: 0,  rateBp: 0 },
   { fromBpc: 84,   toBpc: 120,  ratePercent: 10, rateBp: 1000 },
   { fromBpc: 120,  toBpc: 180,  ratePercent: 15, rateBp: 1500 },
-  { fromBpc: 180,  toBpc: 600,  ratePercent: 20, rateBp: 2000 },
-  { fromBpc: 600,  toBpc: 900,  ratePercent: 22, rateBp: 2200 },
-  { fromBpc: 900,  toBpc: 1380, ratePercent: 25, rateBp: 2500 },
-  { fromBpc: 1380, toBpc: null, ratePercent: 30, rateBp: 3000 },
+  { fromBpc: 180,  toBpc: 600,  ratePercent: 24, rateBp: 2400 },
+  { fromBpc: 600,  toBpc: 900,  ratePercent: 25, rateBp: 2500 },
+  { fromBpc: 900,  toBpc: 1380, ratePercent: 27, rateBp: 2700 },
+  { fromBpc: 1380, toBpc: 2100, ratePercent: 31, rateBp: 3100 },
+  { fromBpc: 2100, toBpc: null, ratePercent: 36, rateBp: 3600 },
 ];
 
 export const parametersService = {
@@ -143,5 +160,5 @@ export const parametersService = {
   getIrpfBrackets,
   getParam,
   clearCache,
-  DEFAULT_IRPF_BRACKETS_2024,
+  DEFAULT_IRPF_BRACKETS,
 };
