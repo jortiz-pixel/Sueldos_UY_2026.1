@@ -109,10 +109,11 @@ employeesRouter.get('/', authenticate, async (req: Request, res: Response, next:
         take: limit,
         select: {
           id: true, ci: true, nombre: true, apellido: true,
+          estadoCivil: true, email: true, telefono: true,
           cargo: true, categoria: true, salaryType: true,
           salarioNominal: true, fechaIngreso: true, fechaEgreso: true,
           active: true, conyugeACargo: true, hijosACargo: true,
-          fonasaFamilia: true,
+          hijosDiscapacitados: true, fonasaFamilia: true, irpfMetodo: true,
         },
       }),
     ]);
@@ -179,7 +180,6 @@ employeesRouter.post('/', authenticate, requireRole(UserRole.ADMIN, UserRole.OPE
         irpfFicto: data.irpfFicto,
         bpsNumero: data.bpsNumero,
         fonasaFamilia: data.fonasaFamilia,
-        // datos laborales (caché del contrato vigente) + empresa principal
         companyId: c.companyId,
         fechaIngreso,
         cargo: c.cargo,
@@ -291,7 +291,6 @@ employeesRouter.post('/:id/contracts', authenticate, requireRole(UserRole.ADMIN,
     checkCompanyAccess(req, data.companyId);
     const vigenciaDesde = new Date(data.vigenciaDesde ?? data.fechaIngreso);
 
-    // Cerrar contrato vigente anterior de la MISMA empresa
     const vigente = await prisma.contrato.findFirst({
       where: { employeeId: req.params.id, companyId: data.companyId, vigenciaHasta: null, activo: true },
       orderBy: { vigenciaDesde: 'desc' },
@@ -330,7 +329,6 @@ employeesRouter.post('/:id/contracts', authenticate, requireRole(UserRole.ADMIN,
       },
     });
 
-    // Sincronizar caché laboral + empresa principal del empleado
     await prisma.employee.update({
       where: { id: req.params.id },
       data: {

@@ -4,7 +4,12 @@ import { Link } from 'react-router-dom';
 import { Plus, Search, UserCheck, UserX, Eye, Pencil } from 'lucide-react';
 import { employeesApi, companiesApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
-import { Employee, formatPesos } from '../types';
+import { Employee } from '../types';
+
+const ESTADO_CIVIL: Record<string, string> = {
+  SOLTERO: 'Soltero/a', CASADO: 'Casado/a', CONCUBINATO: 'Concubinato',
+  DIVORCIADO: 'Divorciado/a', VIUDO: 'Viudo/a',
+};
 
 export default function EmployeesPage() {
   const { user, isOperator } = useAuth();
@@ -33,16 +38,14 @@ export default function EmployeesPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['employees'] }),
   });
 
-  const salaryTypeLabel = (type: string) => type === 'MENSUAL' ? 'Mensual' : 'Jornalero';
-
   return (
     <div className="space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Empleados</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Personas</h1>
           <p className="text-gray-500 text-sm mt-0.5">
-            {data?.pagination.total ?? '—'} empleados registrados
+            {data?.pagination.total ?? '—'} personas · datos de la ficha (lo laboral se gestiona en Contratos)
           </p>
         </div>
         {isOperator && (
@@ -82,12 +85,10 @@ export default function EmployeesPage() {
           <table className="w-full">
             <thead>
               <tr className="table-header">
-                <th className="px-4 py-3 text-left">Empleado</th>
+                <th className="px-4 py-3 text-left">Persona</th>
                 <th className="px-4 py-3 text-left">CI</th>
-                <th className="px-4 py-3 text-left">Cargo</th>
-                <th className="px-4 py-3 text-left">Tipo</th>
-                <th className="px-4 py-3 text-right">Salario Nominal</th>
-                <th className="px-4 py-3 text-left">Cargas</th>
+                <th className="px-4 py-3 text-left">Estado civil</th>
+                <th className="px-4 py-3 text-left">Cargas familiares</th>
                 <th className="px-4 py-3 text-left">Estado</th>
                 <th className="px-4 py-3 text-left">Acciones</th>
               </tr>
@@ -95,11 +96,11 @@ export default function EmployeesPage() {
             <tbody className="divide-y divide-gray-50">
               {isLoading ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-gray-400">Cargando...</td>
+                  <td colSpan={6} className="px-4 py-8 text-center text-gray-400">Cargando...</td>
                 </tr>
               ) : !data?.data.length ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-gray-400">Sin resultados</td>
+                  <td colSpan={6} className="px-4 py-8 text-center text-gray-400">Sin resultados</td>
                 </tr>
               ) : data.data.map((emp: Employee) => (
                 <tr key={emp.id} className="hover:bg-gray-50 transition-colors">
@@ -112,20 +113,12 @@ export default function EmployeesPage() {
                       </div>
                       <div>
                         <p className="font-medium text-gray-800 text-sm">{emp.apellido}, {emp.nombre}</p>
-                        <p className="text-xs text-gray-400">{new Date(emp.fechaIngreso).toLocaleDateString('es-UY')}</p>
+                        <p className="text-xs text-gray-400">Ingreso: {new Date(emp.fechaIngreso).toLocaleDateString('es-UY')}</p>
                       </div>
                     </div>
                   </td>
                   <td className="table-cell font-mono text-xs">{emp.ci}</td>
-                  <td className="table-cell text-xs">{emp.cargo || '-'}</td>
-                  <td className="table-cell">
-                    <span className={`badge ${emp.salaryType === 'MENSUAL' ? 'badge-blue' : 'badge-gray'}`}>
-                      {salaryTypeLabel(emp.salaryType)}
-                    </span>
-                  </td>
-                  <td className="table-cell text-right font-mono font-medium">
-                    {formatPesos(emp.salarioNominal)}
-                  </td>
+                  <td className="table-cell text-xs">{ESTADO_CIVIL[emp.estadoCivil] ?? emp.estadoCivil}</td>
                   <td className="table-cell text-xs text-gray-500">
                     {[
                       emp.hijosACargo > 0 && `${emp.hijosACargo} hijo(s)`,
@@ -144,7 +137,7 @@ export default function EmployeesPage() {
                       <Link
                         to={`/employees/${emp.id}`}
                         className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                        title="Ver detalle"
+                        title="Ver ficha y contratos"
                       >
                         <Eye size={15} />
                       </Link>
@@ -152,7 +145,7 @@ export default function EmployeesPage() {
                         <Link
                           to={`/employees/${emp.id}/edit`}
                           className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                          title="Editar"
+                          title="Editar persona"
                         >
                           <Pencil size={15} />
                         </Link>
