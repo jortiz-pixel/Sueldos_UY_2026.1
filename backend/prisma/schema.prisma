@@ -12,10 +12,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// =============================================================
-// CATÁLOGOS GLOBALES (BPS / MTSS / DGI)
-// =============================================================
-
 model TipoAporte {
   codigo Int    @id
   nombre String
@@ -49,10 +45,6 @@ model SubgrupoActividad {
   @@unique([grupoNumero, numero])
   @@map("subgrupos_actividad")
 }
-
-// =============================================================
-// MULTI-TENANT: Companies
-// =============================================================
 
 model Company {
   id               String   @id @default(cuid())
@@ -106,10 +98,6 @@ model Company {
   @@map("companies")
 }
 
-// =============================================================
-// MOTOR DE CONCEPTOS
-// =============================================================
-
 model Concepto {
   id              String   @id @default(cuid())
   companyId       String
@@ -135,10 +123,6 @@ model Concepto {
   @@unique([companyId, codigo])
   @@map("concepts")
 }
-
-// =============================================================
-// USERS & AUTH
-// =============================================================
 
 enum UserRole {
   ADMIN
@@ -178,10 +162,6 @@ model RefreshToken {
 
   @@map("refresh_tokens")
 }
-
-// =============================================================
-// EMPLOYEES (Persona / Ficha Personal) — global, CI único
-// =============================================================
 
 enum SalaryType {
   MENSUAL
@@ -253,10 +233,6 @@ model Employee {
   @@map("employees")
 }
 
-// =============================================================
-// CONTRATOS (vínculo persona–empresa, versionado por vigencia)
-// =============================================================
-
 model Contrato {
   id               String     @id @default(cuid())
   employeeId       String
@@ -264,6 +240,7 @@ model Contrato {
   numero           Int        @default(1)
   vigenciaDesde    DateTime
   vigenciaHasta    DateTime?
+  fechaFin         DateTime?
   fechaIngreso     DateTime
   tipoContrato     String?
   cargo            String?
@@ -308,10 +285,6 @@ model EmployeeHistory {
   @@map("employee_history")
 }
 
-// =============================================================
-// PAYROLL PARAMETERS
-// =============================================================
-
 model PayrollParameter {
   id             String   @id @default(cuid())
   key            String
@@ -340,10 +313,6 @@ model IrpfBracket {
   @@map("irpf_brackets")
 }
 
-// =============================================================
-// LAUDOS
-// =============================================================
-
 model Laudo {
   id             String   @id @default(cuid())
   companyId      String
@@ -362,10 +331,6 @@ model Laudo {
 
   @@map("laudos")
 }
-
-// =============================================================
-// PAYROLL PERIODS & LIQUIDATIONS
-// =============================================================
 
 enum PeriodStatus {
   BORRADOR
@@ -434,6 +399,7 @@ model Liquidation {
   updatedAt       DateTime          @updatedAt
 
   period          PayrollPeriod     @relation(fields: [periodId], references: [id])
+  employee        Employee          @relation(fields: [employeeId], references: [id])
   items           PayrollItem[]
   adjustments     PayrollAdjustment[]
 

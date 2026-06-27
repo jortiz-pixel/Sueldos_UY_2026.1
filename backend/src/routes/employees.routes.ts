@@ -32,6 +32,7 @@ const personFields = {
 const contratoFields = {
   companyId: z.string().cuid(),
   vigenciaDesde: z.string().optional(),
+  fechaFin: z.string().optional(),
   fechaIngreso: z.string(),
   tipoContrato: z.string().optional(),
   cargo: z.string().optional(),
@@ -77,7 +78,6 @@ function checkCompanyAccess(req: Request, companyId: string | null): void {
   }
 }
 
-// GET /api/employees?companyId=&search=&page=&limit=  (personas con contrato en la empresa)
 employeesRouter.get('/', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const companyId = (req.query.companyId as string) || req.user!.companyId;
@@ -126,7 +126,6 @@ employeesRouter.get('/', authenticate, async (req: Request, res: Response, next:
   } catch (err) { next(err); }
 });
 
-// GET /api/employees/:id
 employeesRouter.get('/:id', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const employee = await prisma.employee.findUnique({
@@ -150,7 +149,6 @@ employeesRouter.get('/:id', authenticate, async (req: Request, res: Response, ne
   } catch (err) { next(err); }
 });
 
-// POST /api/employees  (crea la persona + su primer contrato)
 employeesRouter.post('/', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const data = createEmployeeSchema.parse(req.body);
@@ -199,6 +197,7 @@ employeesRouter.post('/', authenticate, requireRole(UserRole.ADMIN, UserRole.OPE
         companyId: c.companyId,
         numero: 1,
         vigenciaDesde: c.vigenciaDesde ? new Date(c.vigenciaDesde) : fechaIngreso,
+        fechaFin: c.fechaFin ? new Date(c.fechaFin) : undefined,
         fechaIngreso,
         tipoContrato: c.tipoContrato,
         cargo: c.cargo,
@@ -235,7 +234,6 @@ employeesRouter.post('/', authenticate, requireRole(UserRole.ADMIN, UserRole.OPE
   } catch (err) { next(err); }
 });
 
-// PUT /api/employees/:id  (actualiza datos de la persona)
 employeesRouter.put('/:id', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const existing = await prisma.employee.findUnique({ where: { id: req.params.id } });
@@ -255,7 +253,6 @@ employeesRouter.put('/:id', authenticate, requireRole(UserRole.ADMIN, UserRole.O
   } catch (err) { next(err); }
 });
 
-// DELETE /api/employees/:id (soft delete)
 employeesRouter.delete('/:id', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const existing = await prisma.employee.findUnique({ where: { id: req.params.id } });
@@ -265,10 +262,6 @@ employeesRouter.delete('/:id', authenticate, requireRole(UserRole.ADMIN, UserRol
     res.json({ message: 'Empleado desactivado exitosamente' });
   } catch (err) { next(err); }
 });
-
-// =============================================================
-// CONTRATOS del empleado
-// =============================================================
 
 employeesRouter.get('/:id/contracts', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -311,6 +304,7 @@ employeesRouter.post('/:id/contracts', authenticate, requireRole(UserRole.ADMIN,
         companyId: data.companyId,
         numero: count + 1,
         vigenciaDesde,
+        fechaFin: data.fechaFin ? new Date(data.fechaFin) : undefined,
         fechaIngreso: new Date(data.fechaIngreso),
         tipoContrato: data.tipoContrato,
         cargo: data.cargo,
@@ -360,6 +354,7 @@ employeesRouter.put('/:id/contracts/:contractId', authenticate, requireRole(User
       data: {
         ...data,
         vigenciaDesde: data.vigenciaDesde ? new Date(data.vigenciaDesde) : undefined,
+        fechaFin: data.fechaFin ? new Date(data.fechaFin) : undefined,
         fechaIngreso: data.fechaIngreso ? new Date(data.fechaIngreso) : undefined,
         grupoActividadNum: data.grupoActividadNum ?? undefined,
       },
