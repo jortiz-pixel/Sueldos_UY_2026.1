@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Calendar, User, DollarSign, FileText, Briefcase, Plus, X, AlertCircle } from 'lucide-react';
 import { useForm } from 'react-hook-form';
-import { employeesApi, contractsApi } from '../services/api';
+import { employeesApi, contractsApi, companiesApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { formatPesos, MESES, Contrato, SalaryType } from '../types';
 
@@ -18,7 +18,9 @@ function Field({ label, value }: { label: string; value: string | number | boole
 }
 
 interface ContractForm {
+  companyId: string;
   vigenciaDesde: string;
+  fechaIngreso: string;
   tipoContrato?: string;
   cargo?: string;
   sector?: string;
@@ -35,7 +37,7 @@ interface ContractForm {
 
 export default function EmployeeDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { isOperator } = useAuth();
+  const { user, isOperator } = useAuth();
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [formError, setFormError] = useState('');
@@ -45,6 +47,8 @@ export default function EmployeeDetailPage() {
     queryFn: () => employeesApi.get(id!),
     enabled: !!id,
   });
+
+  const { data: companies } = useQuery({ queryKey: ['companies'], queryFn: () => companiesApi.list() });
 
   const { data: contratos } = useQuery({
     queryKey: ['employee-contracts', id],
@@ -65,14 +69,16 @@ export default function EmployeeDetailPage() {
   });
 
   const { register, handleSubmit, reset, watch, formState: { errors } } = useForm<ContractForm>({
-    defaultValues: { vigenciaDesde: '', salaryType: 'MENSUAL', salarioNominalPesos: 0 },
+    defaultValues: { companyId: '', vigenciaDesde: '', fechaIngreso: '', salaryType: 'MENSUAL', salarioNominalPesos: 0 },
   });
   const salaryType = watch('salaryType');
 
   const createMutation = useMutation({
     mutationFn: (data: ContractForm) => {
       const payload = {
+        companyId: data.companyId,
         vigenciaDesde: data.vigenciaDesde,
+        fechaIngreso: data.fechaIngreso,
         tipoContrato: data.tipoContrato || undefined,
         cargo: data.cargo || undefined,
         sector: data.sector || undefined,
@@ -101,8 +107,11 @@ export default function EmployeeDetailPage() {
 
   const openNew = () => {
     setFormError('');
+    const hoy = new Date().toISOString().slice(0, 10);
     reset({
-      vigenciaDesde: new Date().toISOString().slice(0, 10),
+      companyId: employee?.companyId ?? user?.companyId ?? companies?.[0]?.id ?? '',
+      vigenciaDesde: hoy,
+      fechaIngreso: employee?.fechaIngreso ? employee.fechaIngreso.slice(0, 10) : hoy,
       salaryType: employee?.salaryType ?? 'MENSUAL',
       cargo: employee?.cargo ?? '',
       categoria: employee?.categoria ?? '',
@@ -118,10 +127,10 @@ export default function EmployeeDetailPage() {
 
   const antiguedad = employee.antiguedadAnios ?? 0;
   const fmtFecha = (s?: string | null) => s ? new Date(s).toLocaleDateString('es-UY') : 'Vigente';
+  const nombreEmpresa = (cid?: string | null) => companies?.find((c) => c.id === cid)?.razonSocial ?? '—';
 
   return (
     <div className="space-y-5 max-w-5xl">
-      {/* Back */}
       <div className="flex items-center gap-3">
         <Link to="/employees" className="btn-secondary btn-sm">
           <ArrowLeft size={14} />
@@ -131,7 +140,8 @@ export default function EmployeeDetailPage() {
           <h1 className="text-xl font-bold text-gray-900">{employee.apellido}, {employee.nombre}</h1>
           <p className="text-gray-500 text-sm">CI: {employee.ci} · {employee.cargo || 'Sin cargo'}</p>
         </div>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <Link to={`/employees/${employee.id}/edit`} className="btn-secondary btn-sm">Editar persona</Link>
           {employee.active
             ? <span className="badge-green badge">Activo</span>
             : <span className="badge-red badge">Inactivo</span>
@@ -140,7 +150,6 @@ export default function EmployeeDetailPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Datos personales */}
         <div className="card p-5 lg:col-span-2 space-y-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-3">
             <User size={16} />
@@ -160,7 +169,7 @@ export default function EmployeeDetailPage() {
           <div className="border-t border-gray-100 pt-4">
             <div className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-3">
               <DollarSign size={16} />
-              Situación Salarial (vigente)
+              Situación Salarial (contrato vigente)
             </div>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Tipo de salario" value={employee.salaryType === 'MENSUAL' ? 'Mensual' : 'Jornalero'} />
@@ -173,7 +182,6 @@ export default function EmployeeDetailPage() {
           </div>
         </div>
 
-        {/* Vacaciones */}
         <div className="space-y-4">
           <div className="card p-5">
             <div className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-4">
@@ -208,7 +216,7 @@ export default function EmployeeDetailPage() {
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
           <div className="flex items-center gap-2 text-sm font-semibold text-gray-700">
             <Briefcase size={16} />
-            Contratos (versiones)
+            Contratos (vínculo con empresas)
           </div>
           {isOperator && (
             <button onClick={openNew} className="btn-primary btn-sm">
@@ -222,9 +230,9 @@ export default function EmployeeDetailPage() {
             <thead>
               <tr className="table-header">
                 <th className="px-4 py-3 text-left">N°</th>
+                <th className="px-4 py-3 text-left">Empresa</th>
                 <th className="px-4 py-3 text-left">Vigencia</th>
                 <th className="px-4 py-3 text-left">Cargo</th>
-                <th className="px-4 py-3 text-left">Tipo</th>
                 <th className="px-4 py-3 text-right">Salario / Jornal</th>
                 <th className="px-4 py-3 text-left">Estado</th>
               </tr>
@@ -235,15 +243,11 @@ export default function EmployeeDetailPage() {
               ) : contratos.map((c: Contrato) => (
                 <tr key={c.id} className="hover:bg-gray-50">
                   <td className="table-cell font-mono text-xs">{c.numero}</td>
+                  <td className="table-cell text-xs">{nombreEmpresa(c.companyId)}</td>
                   <td className="table-cell text-xs">
                     {fmtFecha(c.vigenciaDesde)} — {c.vigenciaHasta ? fmtFecha(c.vigenciaHasta) : 'Vigente'}
                   </td>
                   <td className="table-cell text-xs">{c.cargo || '-'}</td>
-                  <td className="table-cell">
-                    <span className={`badge ${c.salaryType === 'MENSUAL' ? 'badge-blue' : 'badge-gray'}`}>
-                      {c.salaryType === 'MENSUAL' ? 'Mensual' : 'Jornalero'}
-                    </span>
-                  </td>
                   <td className="table-cell text-right font-mono text-xs">
                     {c.salaryType === 'MENSUAL' ? formatPesos(c.salarioNominal) : (c.jornal ? `${formatPesos(c.jornal)}/día` : formatPesos(c.salarioNominal))}
                   </td>
@@ -323,13 +327,26 @@ export default function EmployeeDetailPage() {
                 </div>
               )}
               <p className="text-xs text-gray-500">
-                Al crear un nuevo contrato, el anterior queda como histórico (su vigencia se cierra el día previo a esta fecha).
+                El contrato vincula a la persona con una empresa. Al crear uno nuevo en la misma empresa, el anterior queda como histórico.
               </p>
               <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2">
+                  <label className="form-label">Empresa *</label>
+                  <select {...register('companyId', { required: 'Requerido' })} className="form-input">
+                    <option value="">— Seleccionar empresa —</option>
+                    {companies?.map((co) => <option key={co.id} value={co.id}>{co.razonSocial}</option>)}
+                  </select>
+                  {errors.companyId && <p className="form-error">{errors.companyId.message}</p>}
+                </div>
                 <div>
                   <label className="form-label">Vigencia desde *</label>
                   <input {...register('vigenciaDesde', { required: 'Requerido' })} type="date" className="form-input" />
                   {errors.vigenciaDesde && <p className="form-error">{errors.vigenciaDesde.message}</p>}
+                </div>
+                <div>
+                  <label className="form-label">Fecha de ingreso *</label>
+                  <input {...register('fechaIngreso', { required: 'Requerido' })} type="date" className="form-input" />
+                  {errors.fechaIngreso && <p className="form-error">{errors.fechaIngreso.message}</p>}
                 </div>
                 <div>
                   <label className="form-label">Tipo de contrato</label>
@@ -338,10 +355,6 @@ export default function EmployeeDetailPage() {
                 <div>
                   <label className="form-label">Cargo</label>
                   <input {...register('cargo')} className="form-input" />
-                </div>
-                <div>
-                  <label className="form-label">Sector</label>
-                  <input {...register('sector')} className="form-input" />
                 </div>
                 <div>
                   <label className="form-label">Categoría</label>
@@ -359,7 +372,7 @@ export default function EmployeeDetailPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="form-label">{salaryType === 'JORNALERO' ? 'Sueldo nominal mensual ($)' : 'Sueldo nominal ($)'}</label>
+                  <label className="form-label">Sueldo nominal mensual ($)</label>
                   <input {...register('salarioNominalPesos', { valueAsNumber: true, required: true, min: 0 })} type="number" step="0.01" className="form-input" />
                 </div>
                 {salaryType === 'JORNALERO' && (
@@ -368,14 +381,6 @@ export default function EmployeeDetailPage() {
                     <input {...register('jornalPesos', { valueAsNumber: true, min: 0 })} type="number" step="0.01" className="form-input" />
                   </div>
                 )}
-                <div>
-                  <label className="form-label">Horas x día</label>
-                  <input {...register('horasDia', { valueAsNumber: true })} type="number" className="form-input" />
-                </div>
-                <div>
-                  <label className="form-label">Régimen horario</label>
-                  <input {...register('regimenHorario')} className="form-input" />
-                </div>
                 <div>
                   <label className="form-label">Sucursal</label>
                   <input {...register('sucursal')} className="form-input" />
