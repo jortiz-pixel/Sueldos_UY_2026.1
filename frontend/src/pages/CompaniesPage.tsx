@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { Plus, Building2, Pencil, X, Users, AlertCircle } from 'lucide-react';
-import { companiesApi } from '../services/api';
+import { companiesApi, catalogsApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { Company } from '../types';
 
@@ -16,14 +16,41 @@ interface CompanyForm {
   localidad?: string;
   departamento?: string;
   actividadPrincipal?: string;
-  grupoActividad?: string;
   bseRate: number;
+  // BPS / MTSS / BSE
+  numeroBps?: string;
+  numeroBse?: string;
+  tipoAporte?: string;
+  tipoContribuyente?: string;
+  grupoActividadNum?: string;
+  subgrupo?: string;
+  naturalezaJuridica?: string;
+  convenioColectivo?: string;
+  inicioActividadMtss?: string;
+  fechaInscripcionBps?: string;
+  // Exoneraciones (basis points)
+  exoApoJub: number;
+  exoFonasa: number;
+  exoFrl: number;
+  exoCcm: number;
+  // Configuración de licencia
+  diasLicenciaAnio: number;
+  primerDiaExtraDesdeAnio: number;
+  maxDiasExtras: number;
+  diasTrabajadosMes: number;
+  observaciones?: string;
 }
 
 const emptyForm: CompanyForm = {
   razonSocial: '', rut: '', nombreFantasia: '', email: '', telefono: '',
   domicilio: '', localidad: '', departamento: '', actividadPrincipal: '',
-  grupoActividad: '', bseRate: 25,
+  bseRate: 25,
+  numeroBps: '', numeroBse: '', tipoAporte: '', tipoContribuyente: '',
+  grupoActividadNum: '', subgrupo: '', naturalezaJuridica: '', convenioColectivo: '',
+  inicioActividadMtss: '', fechaInscripcionBps: '',
+  exoApoJub: 0, exoFonasa: 0, exoFrl: 0, exoCcm: 0,
+  diasLicenciaAnio: 20, primerDiaExtraDesdeAnio: 5, maxDiasExtras: 35, diasTrabajadosMes: 30,
+  observaciones: '',
 };
 
 export default function CompaniesPage() {
@@ -37,6 +64,9 @@ export default function CompaniesPage() {
     queryKey: ['companies'],
     queryFn: () => companiesApi.list(),
   });
+  const { data: tiposAporte } = useQuery({ queryKey: ['tiposAporte'], queryFn: () => catalogsApi.tiposAporte() });
+  const { data: tiposContribuyente } = useQuery({ queryKey: ['tiposContribuyente'], queryFn: () => catalogsApi.tiposContribuyente() });
+  const { data: gruposActividad } = useQuery({ queryKey: ['gruposActividad'], queryFn: () => catalogsApi.gruposActividad() });
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<CompanyForm>({
     defaultValues: emptyForm,
@@ -62,15 +92,47 @@ export default function CompaniesPage() {
       localidad: c.localidad ?? '',
       departamento: c.departamento ?? '',
       actividadPrincipal: c.actividadPrincipal ?? '',
-      grupoActividad: c.grupoActividad ?? '',
       bseRate: c.bseRate,
+      numeroBps: c.numeroBps ?? '',
+      numeroBse: c.numeroBse ?? '',
+      tipoAporte: c.tipoAporte != null ? String(c.tipoAporte) : '',
+      tipoContribuyente: c.tipoContribuyente != null ? String(c.tipoContribuyente) : '',
+      grupoActividadNum: c.grupoActividadNum != null ? String(c.grupoActividadNum) : '',
+      subgrupo: c.subgrupo ?? '',
+      naturalezaJuridica: c.naturalezaJuridica ?? '',
+      convenioColectivo: c.convenioColectivo ?? '',
+      inicioActividadMtss: c.inicioActividadMtss ? c.inicioActividadMtss.slice(0, 10) : '',
+      fechaInscripcionBps: c.fechaInscripcionBps ? c.fechaInscripcionBps.slice(0, 10) : '',
+      exoApoJub: c.exoApoJub ?? 0,
+      exoFonasa: c.exoFonasa ?? 0,
+      exoFrl: c.exoFrl ?? 0,
+      exoCcm: c.exoCcm ?? 0,
+      diasLicenciaAnio: c.diasLicenciaAnio ?? 20,
+      primerDiaExtraDesdeAnio: c.primerDiaExtraDesdeAnio ?? 5,
+      maxDiasExtras: c.maxDiasExtras ?? 35,
+      diasTrabajadosMes: c.diasTrabajadosMes ?? 30,
+      observaciones: c.observaciones ?? '',
     });
     setModalOpen(true);
   };
 
   const mutation = useMutation({
     mutationFn: (data: CompanyForm) => {
-      const payload = { ...data, bseRate: Number(data.bseRate) };
+      const payload: Partial<Company> = {
+        ...data,
+        bseRate: Number(data.bseRate),
+        tipoAporte: data.tipoAporte ? Number(data.tipoAporte) : null,
+        tipoContribuyente: data.tipoContribuyente ? Number(data.tipoContribuyente) : null,
+        grupoActividadNum: data.grupoActividadNum ? Number(data.grupoActividadNum) : null,
+        exoApoJub: Number(data.exoApoJub),
+        exoFonasa: Number(data.exoFonasa),
+        exoFrl: Number(data.exoFrl),
+        exoCcm: Number(data.exoCcm),
+        diasLicenciaAnio: Number(data.diasLicenciaAnio),
+        primerDiaExtraDesdeAnio: Number(data.primerDiaExtraDesdeAnio),
+        maxDiasExtras: Number(data.maxDiasExtras),
+        diasTrabajadosMes: Number(data.diasTrabajadosMes),
+      };
       return editing
         ? companiesApi.update(editing.id, payload)
         : companiesApi.create(payload);
@@ -169,8 +231,8 @@ export default function CompaniesPage() {
       {/* Modal */}
       {modalOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-auto">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white z-10">
               <h2 className="text-lg font-bold text-gray-900">
                 {editing ? 'Editar Empresa' : 'Nueva Empresa'}
               </h2>
@@ -179,7 +241,7 @@ export default function CompaniesPage() {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
+            <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-6">
               {formError && (
                 <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
                   <AlertCircle size={16} className="flex-shrink-0" />
@@ -187,67 +249,165 @@ export default function CompaniesPage() {
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2">
-                  <label className="form-label">Razón Social *</label>
-                  <input {...register('razonSocial', { required: 'Requerido' })} className="form-input" placeholder="Mi Empresa S.A." />
-                  {errors.razonSocial && <p className="form-error">{errors.razonSocial.message}</p>}
+              {/* Datos generales */}
+              <section className="space-y-4">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400">Datos generales</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2">
+                    <label className="form-label">Razón Social *</label>
+                    <input {...register('razonSocial', { required: 'Requerido' })} className="form-input" placeholder="Mi Empresa S.A." />
+                    {errors.razonSocial && <p className="form-error">{errors.razonSocial.message}</p>}
+                  </div>
+                  <div>
+                    <label className="form-label">RUT *</label>
+                    <input {...register('rut', { required: 'Requerido' })} className="form-input" placeholder="218765432019" />
+                    {errors.rut && <p className="form-error">{errors.rut.message}</p>}
+                  </div>
+                  <div>
+                    <label className="form-label">Nombre de Fantasía</label>
+                    <input {...register('nombreFantasia')} className="form-input" />
+                  </div>
+                  <div>
+                    <label className="form-label">Email</label>
+                    <input {...register('email')} type="email" className="form-input" placeholder="contacto@empresa.uy" />
+                  </div>
+                  <div>
+                    <label className="form-label">Teléfono</label>
+                    <input {...register('telefono')} className="form-input" />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="form-label">Domicilio</label>
+                    <input {...register('domicilio')} className="form-input" />
+                  </div>
+                  <div>
+                    <label className="form-label">Localidad</label>
+                    <input {...register('localidad')} className="form-input" />
+                  </div>
+                  <div>
+                    <label className="form-label">Departamento</label>
+                    <input {...register('departamento')} className="form-input" placeholder="Montevideo" />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="form-label">Actividad Principal</label>
+                    <input {...register('actividadPrincipal')} className="form-input" />
+                  </div>
                 </div>
+              </section>
 
-                <div>
-                  <label className="form-label">RUT *</label>
-                  <input {...register('rut', { required: 'Requerido' })} className="form-input" placeholder="218765432019" />
-                  {errors.rut && <p className="form-error">{errors.rut.message}</p>}
+              {/* BPS / MTSS / BSE */}
+              <section className="space-y-4">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400">BPS / MTSS / BSE</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="form-label">Tipo de Aporte</label>
+                    <select {...register('tipoAporte')} className="form-input">
+                      <option value="">— Seleccionar —</option>
+                      {tiposAporte?.map((t) => <option key={t.codigo} value={t.codigo}>{t.codigo} - {t.nombre}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="form-label">Tipo de Contribuyente</label>
+                    <select {...register('tipoContribuyente')} className="form-input">
+                      <option value="">— Seleccionar —</option>
+                      {tiposContribuyente?.map((t) => <option key={t.codigo} value={t.codigo}>{t.codigo} - {t.nombre}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="form-label">Grupo de Actividad (Consejo de Salarios)</label>
+                    <select {...register('grupoActividadNum')} className="form-input">
+                      <option value="">— Seleccionar —</option>
+                      {gruposActividad?.map((g) => <option key={g.numero} value={g.numero}>{g.numero} - {g.nombre}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="form-label">Subgrupo</label>
+                    <input {...register('subgrupo')} className="form-input" placeholder="Número o nombre del subgrupo" />
+                  </div>
+                  <div>
+                    <label className="form-label">N° BPS (empresa)</label>
+                    <input {...register('numeroBps')} className="form-input" />
+                  </div>
+                  <div>
+                    <label className="form-label">N° BSE / Carpeta</label>
+                    <input {...register('numeroBse')} className="form-input" />
+                  </div>
+                  <div>
+                    <label className="form-label">Tasa BSE (basis points)</label>
+                    <input {...register('bseRate', { valueAsNumber: true, min: 0, max: 10000 })} type="number" className="form-input" />
+                    <p className="text-xs text-gray-400 mt-1">25 = 0,25%</p>
+                  </div>
+                  <div>
+                    <label className="form-label">Naturaleza Jurídica</label>
+                    <input {...register('naturalezaJuridica')} className="form-input" />
+                  </div>
+                  <div>
+                    <label className="form-label">Convenio Colectivo</label>
+                    <input {...register('convenioColectivo')} className="form-input" />
+                  </div>
+                  <div></div>
+                  <div>
+                    <label className="form-label">Inicio Actividad MTSS</label>
+                    <input {...register('inicioActividadMtss')} type="date" className="form-input" />
+                  </div>
+                  <div>
+                    <label className="form-label">Fecha Inscripción BPS</label>
+                    <input {...register('fechaInscripcionBps')} type="date" className="form-input" />
+                  </div>
                 </div>
+              </section>
 
-                <div>
-                  <label className="form-label">Nombre de Fantasía</label>
-                  <input {...register('nombreFantasia')} className="form-input" />
+              {/* Exoneraciones */}
+              <section className="space-y-4">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400">Exoneraciones de aportes patronales (basis points, 10000 = 100%)</h3>
+                <div className="grid grid-cols-4 gap-4">
+                  <div>
+                    <label className="form-label">Apo. Jubilatorio</label>
+                    <input {...register('exoApoJub', { valueAsNumber: true })} type="number" className="form-input" />
+                  </div>
+                  <div>
+                    <label className="form-label">FONASA (S.E.)</label>
+                    <input {...register('exoFonasa', { valueAsNumber: true })} type="number" className="form-input" />
+                  </div>
+                  <div>
+                    <label className="form-label">FRL</label>
+                    <input {...register('exoFrl', { valueAsNumber: true })} type="number" className="form-input" />
+                  </div>
+                  <div>
+                    <label className="form-label">CCM</label>
+                    <input {...register('exoCcm', { valueAsNumber: true })} type="number" className="form-input" />
+                  </div>
                 </div>
+              </section>
 
-                <div>
-                  <label className="form-label">Email</label>
-                  <input {...register('email')} type="email" className="form-input" placeholder="contacto@empresa.uy" />
+              {/* Licencia */}
+              <section className="space-y-4">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400">Configuración de licencia</h3>
+                <div className="grid grid-cols-4 gap-4">
+                  <div>
+                    <label className="form-label">Días licencia/año</label>
+                    <input {...register('diasLicenciaAnio', { valueAsNumber: true })} type="number" className="form-input" />
+                  </div>
+                  <div>
+                    <label className="form-label">1er día extra desde año</label>
+                    <input {...register('primerDiaExtraDesdeAnio', { valueAsNumber: true })} type="number" className="form-input" />
+                  </div>
+                  <div>
+                    <label className="form-label">Máx. días (con extras)</label>
+                    <input {...register('maxDiasExtras', { valueAsNumber: true })} type="number" className="form-input" />
+                  </div>
+                  <div>
+                    <label className="form-label">Días trabajados/mes</label>
+                    <input {...register('diasTrabajadosMes', { valueAsNumber: true })} type="number" className="form-input" />
+                  </div>
                 </div>
+              </section>
 
-                <div>
-                  <label className="form-label">Teléfono</label>
-                  <input {...register('telefono')} className="form-input" />
-                </div>
-
-                <div className="col-span-2">
-                  <label className="form-label">Domicilio</label>
-                  <input {...register('domicilio')} className="form-input" />
-                </div>
-
-                <div>
-                  <label className="form-label">Localidad</label>
-                  <input {...register('localidad')} className="form-input" />
-                </div>
-
-                <div>
-                  <label className="form-label">Departamento</label>
-                  <input {...register('departamento')} className="form-input" placeholder="Montevideo" />
-                </div>
-
-                <div>
-                  <label className="form-label">Actividad Principal</label>
-                  <input {...register('actividadPrincipal')} className="form-input" />
-                </div>
-
-                <div>
-                  <label className="form-label">Grupo de Actividad (Consejo de Salarios)</label>
-                  <input {...register('grupoActividad')} className="form-input" />
-                </div>
-
-                <div>
-                  <label className="form-label">Tasa BSE (basis points)</label>
-                  <input {...register('bseRate', { valueAsNumber: true, min: 0, max: 10000 })} type="number" className="form-input" />
-                  <p className="text-xs text-gray-400 mt-1">25 = 0,25%. Seguro de accidentes laborales (BSE).</p>
-                </div>
+              <div>
+                <label className="form-label">Observaciones</label>
+                <textarea {...register('observaciones')} className="form-input" rows={2} />
               </div>
 
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
                 <button type="button" onClick={() => setModalOpen(false)} className="btn-secondary">Cancelar</button>
                 <button type="submit" disabled={mutation.isPending} className="btn-primary">
                   {mutation.isPending ? 'Guardando...' : editing ? 'Guardar cambios' : 'Crear empresa'}

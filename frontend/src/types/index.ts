@@ -20,6 +20,12 @@ export interface User {
   lastLoginAt?: string;
 }
 
+// ── Catálogos BPS / MTSS ──
+export interface TipoAporte { codigo: number; nombre: string; }
+export interface TipoContribuyente { codigo: number; nombre: string; }
+export interface SubgrupoActividad { id: string; grupoNumero: number; numero: number; nombre: string; }
+export interface GrupoActividad { numero: number; nombre: string; subgrupos?: SubgrupoActividad[]; }
+
 export interface Company {
   id: string;
   rut: string;
@@ -33,6 +39,28 @@ export interface Company {
   actividadPrincipal?: string;
   grupoActividad?: string;
   bseRate: number;
+  // Datos BPS / MTSS / BSE (GNS)
+  numeroBps?: string;
+  numeroBse?: string;
+  tipoAporte?: number | null;
+  tipoContribuyente?: number | null;
+  grupoActividadNum?: number | null;
+  subgrupo?: string;
+  naturalezaJuridica?: string;
+  convenioColectivo?: string;
+  inicioActividadMtss?: string;
+  fechaInscripcionBps?: string;
+  // Exoneraciones (basis points)
+  exoApoJub?: number;
+  exoFonasa?: number;
+  exoFrl?: number;
+  exoCcm?: number;
+  // Configuración de licencia
+  diasLicenciaAnio?: number;
+  primerDiaExtraDesdeAnio?: number;
+  maxDiasExtras?: number;
+  diasTrabajadosMes?: number;
+  observaciones?: string;
   active: boolean;
   _count?: { employees: number };
 }

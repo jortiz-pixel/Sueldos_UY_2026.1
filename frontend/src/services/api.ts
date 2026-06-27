@@ -1,5 +1,5 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
-import { AuthResponse, User, Company, Employee, PayrollPeriod, Liquidation, NominaItem, PayrollParameters } from '../types';
+import { AuthResponse, User, Company, Employee, PayrollPeriod, Liquidation, NominaItem, PayrollParameters, TipoAporte, TipoContribuyente, GrupoActividad } from '../types';
 
 const BASE_URL = import.meta.env.VITE_API_URL || '';
 
@@ -70,6 +70,15 @@ export const companiesApi = {
   delete: (id: string) => api.delete(`/companies/${id}`).then((r) => r.data),
   getUsers: (id: string) => api.get(`/companies/${id}/users`).then((r) => r.data),
   createUser: (id: string, data: object) => api.post(`/companies/${id}/users`, data).then((r) => r.data),
+};
+
+// =============================================================
+// Catalogs (BPS / MTSS)
+// =============================================================
+export const catalogsApi = {
+  tiposAporte: () => api.get<TipoAporte[]>('/catalogs/tipos-aporte').then((r) => r.data),
+  tiposContribuyente: () => api.get<TipoContribuyente[]>('/catalogs/tipos-contribuyente').then((r) => r.data),
+  gruposActividad: () => api.get<GrupoActividad[]>('/catalogs/grupos-actividad').then((r) => r.data),
 };
 
 // =============================================================
