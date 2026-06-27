@@ -9,6 +9,7 @@ import { calcularAportesObreros, calcularAportesPatronales, calcularHorasExtra }
 import { calcularIrpfMensual, calcularIrpfSimplificado } from './irpf.service';
 import { parametersService } from './parameters.service';
 import { resolverContratoVigente, datosLaboralesEfectivos } from './contract.service';
+import { evaluarConcepto, ConceptoContext } from './concept.engine';
 import { AppError } from '../middleware/errorHandler';
 
 export interface LiquidacionInput {
@@ -20,6 +21,7 @@ export interface LiquidacionInput {
   horasExtraDiurnas?: number;
   horasExtraNocturnas?: number;
   comisiones?: bigint;
+  cantidadesConcepto?: Record<string, number>;
   otrosHaberes?: Array<{ concepto: string; descripcion: string; amount: bigint }>;
   otrosDescuentos?: Array<{ concepto: string; descripcion: string; amount: bigint }>;
   userId?: string;
@@ -138,12 +140,51 @@ export async function generarLiquidacionMensual(
     });
   }
 
+  // ── MOTOR DE CONCEPTOS: cargar conceptos activos de la empresa ──
+  const conceptos = await prisma.concepto.findMany({
+    where: { companyId: employee.companyId, activo: true },
+    orderBy: [{ orden: 'asc' }, { codigo: 'asc' }],
+  });
+
+  // Base gravada acumulada (los haberes base existentes se consideran gravados)
+  let gravadoHaberes = items
+    .filter((i) => i.itemType === ItemType.HABER)
+    .reduce((sum, i) => sum + i.amount, 0n);
+
+  const ctxConcepto: ConceptoContext = {
+    salarioNominal: labor.salarioNominal,
+    sueldoBasico: salarioBase,
+    haberesGravados: gravadoHaberes,
+    cantidades: input.cantidadesConcepto,
+  };
+
+  // Conceptos HABER (en orden); los gravados suman a la base de aportes
+  for (const c of conceptos.filter((c) => c.tipoOperacion === ItemType.HABER)) {
+    ctxConcepto.haberesGravados = gravadoHaberes;
+    const amount = evaluarConcepto(c, ctxConcepto);
+    if (amount <= 0n) continue;
+    items.push({
+      employeeId: input.employeeId,
+      itemType: ItemType.HABER,
+      concepto: c.codigo,
+      descripcion: c.nombre,
+      baseCalculo: null,
+      rate: c.valorRate ?? null,
+      amount,
+      calculationDetail: { motor: 'CONCEPTO', tipoCalculo: c.tipoCalculo, gravado: c.gravado, baseCalculo: c.baseCalculo } as unknown as Prisma.JsonValue,
+    });
+    if (c.gravado) gravadoHaberes += amount;
+  }
+
   const totalHaberes = items
     .filter((i) => i.itemType === ItemType.HABER)
     .reduce((sum, i) => sum + i.amount, 0n);
 
+  // Base sobre la que se calculan aportes obreros, IRPF y aportes patronales
+  const baseGravada = gravadoHaberes;
+
   const aportesObreros = calcularAportesObreros({
-    salarioNominal: totalHaberes,
+    salarioNominal: baseGravada,
     hijosACargo: employee.hijosACargo,
     conyugeACargo: employee.conyugeACargo,
     params,
@@ -155,10 +196,10 @@ export async function generarLiquidacionMensual(
     itemType: ItemType.DESCUENTO_OBRERO,
     concepto: 'BPS_JUBILATORIO',
     descripcion: `BPS Jubilatorio (${params.bpsJubilatorioRate / 100}%)`,
-    baseCalculo: totalHaberes,
+    baseCalculo: baseGravada,
     rate: params.bpsJubilatorioRate,
     amount: aportesObreros.jubilatorio,
-    calculationDetail: { base: totalHaberes.toString(), rateBp: params.bpsJubilatorioRate } as unknown as Prisma.JsonValue,
+    calculationDetail: { base: baseGravada.toString(), rateBp: params.bpsJubilatorioRate } as unknown as Prisma.JsonValue,
   });
 
   items.push({
@@ -166,11 +207,11 @@ export async function generarLiquidacionMensual(
     itemType: ItemType.DESCUENTO_OBRERO,
     concepto: 'FONASA',
     descripcion: `FONASA/DISSE (${aportesObreros.detail.fonasaRateEfectivo / 100}%)`,
-    baseCalculo: totalHaberes,
+    baseCalculo: baseGravada,
     rate: aportesObreros.detail.fonasaRateEfectivo,
     amount: aportesObreros.fonasaTotal,
     calculationDetail: {
-      base: totalHaberes.toString(),
+      base: baseGravada.toString(),
       baseRate: aportesObreros.detail.fonasaBaseRate,
       hijosRate: aportesObreros.detail.fonasaHijosRate,
       conyugeRate: aportesObreros.detail.fonasaConyugeRate,
@@ -184,10 +225,10 @@ export async function generarLiquidacionMensual(
     itemType: ItemType.DESCUENTO_OBRERO,
     concepto: 'FRL',
     descripcion: `FRL — Fondo de Reconversión Laboral (${params.frlObreroRate / 100}%)`,
-    baseCalculo: totalHaberes,
+    baseCalculo: baseGravada,
     rate: params.frlObreroRate,
     amount: aportesObreros.frl,
-    calculationDetail: { base: totalHaberes.toString(), rateBp: params.frlObreroRate } as unknown as Prisma.JsonValue,
+    calculationDetail: { base: baseGravada.toString(), rateBp: params.frlObreroRate } as unknown as Prisma.JsonValue,
   });
 
   let irpfRetencion = 0n;
@@ -198,7 +239,7 @@ export async function generarLiquidacionMensual(
     irpfDetail = { metodo: 'SIMPLIFICADO', ficto: employee.irpfFicto.toString() };
   } else {
     const irpfResult = calcularIrpfMensual({
-      salarioNominal: totalHaberes,
+      salarioNominal: baseGravada,
       fonasaMensual: aportesObreros.fonasaTotal,
       bpsMensual: aportesObreros.jubilatorio,
       hijosACargo: employee.hijosACargo,
@@ -231,7 +272,7 @@ export async function generarLiquidacionMensual(
       itemType: ItemType.DESCUENTO_OBRERO,
       concepto: 'IRPF',
       descripcion: 'IRPF — Impuesto a la Renta de las Personas Físicas (Cat. II)',
-      baseCalculo: totalHaberes,
+      baseCalculo: baseGravada,
       rate: null,
       amount: irpfRetencion,
       calculationDetail: irpfDetail,
@@ -251,8 +292,29 @@ export async function generarLiquidacionMensual(
     });
   }
 
+  // Conceptos DESCUENTO_OBRERO (motor)
+  for (const c of conceptos.filter((c) => c.tipoOperacion === ItemType.DESCUENTO_OBRERO)) {
+    const amount = evaluarConcepto(c, {
+      salarioNominal: labor.salarioNominal,
+      sueldoBasico: salarioBase,
+      haberesGravados: baseGravada,
+      cantidades: input.cantidadesConcepto,
+    });
+    if (amount <= 0n) continue;
+    items.push({
+      employeeId: input.employeeId,
+      itemType: ItemType.DESCUENTO_OBRERO,
+      concepto: c.codigo,
+      descripcion: c.nombre,
+      baseCalculo: null,
+      rate: c.valorRate ?? null,
+      amount,
+      calculationDetail: { motor: 'CONCEPTO', tipoCalculo: c.tipoCalculo } as unknown as Prisma.JsonValue,
+    });
+  }
+
   const aportesPatronales = calcularAportesPatronales({
-    salarioNominal: totalHaberes,
+    salarioNominal: baseGravada,
     params,
     bseRateEmpresa: bseRate,
     fonasaPatronalRate,
@@ -263,10 +325,10 @@ export async function generarLiquidacionMensual(
     itemType: ItemType.APORTE_PATRONAL,
     concepto: 'BPS_IVS_PATRONAL',
     descripcion: `BPS IVS Patronal (${params.bpsIvsPatronalRate / 100}%)`,
-    baseCalculo: totalHaberes,
+    baseCalculo: baseGravada,
     rate: params.bpsIvsPatronalRate,
     amount: aportesPatronales.bpsIvs,
-    calculationDetail: { base: totalHaberes.toString(), rateBp: params.bpsIvsPatronalRate } as unknown as Prisma.JsonValue,
+    calculationDetail: { base: baseGravada.toString(), rateBp: params.bpsIvsPatronalRate } as unknown as Prisma.JsonValue,
   });
 
   items.push({
@@ -274,10 +336,10 @@ export async function generarLiquidacionMensual(
     itemType: ItemType.APORTE_PATRONAL,
     concepto: 'FONASA_PATRONAL',
     descripcion: `FONASA/DISSE Patronal (${fonasaPatronalRate / 100}%)`,
-    baseCalculo: totalHaberes,
+    baseCalculo: baseGravada,
     rate: fonasaPatronalRate,
     amount: aportesPatronales.fonasa,
-    calculationDetail: { base: totalHaberes.toString(), rateBp: fonasaPatronalRate } as unknown as Prisma.JsonValue,
+    calculationDetail: { base: baseGravada.toString(), rateBp: fonasaPatronalRate } as unknown as Prisma.JsonValue,
   });
 
   items.push({
@@ -285,7 +347,7 @@ export async function generarLiquidacionMensual(
     itemType: ItemType.APORTE_PATRONAL,
     concepto: 'FRL_PATRONAL',
     descripcion: `FRL Patronal (${params.frlPatronalRate / 100}%)`,
-    baseCalculo: totalHaberes,
+    baseCalculo: baseGravada,
     rate: params.frlPatronalRate,
     amount: aportesPatronales.frl,
     calculationDetail: null,
@@ -297,10 +359,31 @@ export async function generarLiquidacionMensual(
       itemType: ItemType.APORTE_PATRONAL,
       concepto: 'BSE',
       descripcion: `BSE — Seguro de Accidentes del Trabajo (${bseRate / 100}%)`,
-      baseCalculo: totalHaberes,
+      baseCalculo: baseGravada,
       rate: bseRate,
       amount: aportesPatronales.bse,
       calculationDetail: null,
+    });
+  }
+
+  // Conceptos APORTE_PATRONAL / INFORMATIVO (motor)
+  for (const c of conceptos.filter((c) => c.tipoOperacion === ItemType.APORTE_PATRONAL || c.tipoOperacion === ItemType.INFORMATIVO)) {
+    const amount = evaluarConcepto(c, {
+      salarioNominal: labor.salarioNominal,
+      sueldoBasico: salarioBase,
+      haberesGravados: baseGravada,
+      cantidades: input.cantidadesConcepto,
+    });
+    if (amount <= 0n) continue;
+    items.push({
+      employeeId: input.employeeId,
+      itemType: c.tipoOperacion,
+      concepto: c.codigo,
+      descripcion: c.nombre,
+      baseCalculo: null,
+      rate: c.valorRate ?? null,
+      amount,
+      calculationDetail: { motor: 'CONCEPTO', tipoCalculo: c.tipoCalculo } as unknown as Prisma.JsonValue,
     });
   }
 
@@ -317,6 +400,7 @@ export async function generarLiquidacionMensual(
   const parametersSnapshot = {
     asOfDate: asOfDate.toISOString(),
     contratoId: contrato?.id ?? null,
+    baseGravada: baseGravada.toString(),
     bpc: params.bpc.toString(),
     bpsJubilatorioRate: params.bpsJubilatorioRate,
     fonasaBasicRate: params.fonasaBasicRate,

@@ -12,6 +12,7 @@ import { liquidationRouter } from './routes/liquidation.routes';
 import { parametersRouter } from './routes/parameters.routes';
 import { reportsRouter } from './routes/reports.routes';
 import { catalogsRouter } from './routes/catalogs.routes';
+import { conceptsRouter } from './routes/concepts.routes';
 import { errorHandler } from './middleware/errorHandler';
 import { logger } from './utils/logger';
 
@@ -64,6 +65,7 @@ app.use('/api/liquidation', liquidationRouter);
 app.use('/api/parameters', parametersRouter);
 app.use('/api/reports', reportsRouter);
 app.use('/api/catalogs', catalogsRouter);
+app.use('/api/concepts', conceptsRouter);
 
 // Health check
 app.get('/health', (_req, res) => {
