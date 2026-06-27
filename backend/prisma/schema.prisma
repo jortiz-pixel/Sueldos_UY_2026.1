@@ -188,7 +188,7 @@ model Employee {
   email            String?
   telefono         String?
 
-  // Employment
+  // Employment (datos vigentes — legado; el detalle versionado vive en Contrato)
   fechaIngreso     DateTime
   fechaEgreso      DateTime?
   cargo            String?
@@ -219,6 +219,7 @@ model Employee {
   updatedAt        DateTime    @updatedAt
 
   company          Company     @relation(fields: [companyId], references: [id])
+  contratos        Contrato[]
   history          EmployeeHistory[]
   payrollItems     PayrollItem[]
   vacationAccruals VacationAccrual[]
@@ -227,6 +228,44 @@ model Employee {
 
   @@unique([companyId, ci])
   @@map("employees")
+}
+
+// =============================================================
+// CONTRATOS (versionados por vigencia) — GNS Personal
+// Un empleado tiene N contratos a lo largo del tiempo.
+// =============================================================
+
+model Contrato {
+  id               String     @id @default(cuid())
+  employeeId       String
+  numero           Int        @default(1)   // orden del contrato
+  vigenciaDesde    DateTime                  // desde cuándo aplica esta versión
+  vigenciaHasta    DateTime?                 // null = vigente
+  fechaIngreso     DateTime                  // fecha reconocida de ingreso
+  tipoContrato     String?                   // PERMANENTE, ZAFRAL, etc.
+  cargo            String?
+  sector           String?
+  categoria        String?
+  nivel            String?
+  salaryType       SalaryType @default(MENSUAL)
+  cobra            String?                   // MES / DIA / HORA
+  salarioNominal   BigInt
+  jornal           BigInt?
+  horasDia         Int?
+  regimenHorario   String?
+  sucursal         String?
+  moneda           String     @default("UYU")
+  grupoActividadNum Int?
+  subgrupo         String?
+  observacion      String?
+  activo           Boolean    @default(true)
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  employee         Employee   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId, vigenciaDesde])
+  @@map("contracts")
 }
 
 model EmployeeHistory {
