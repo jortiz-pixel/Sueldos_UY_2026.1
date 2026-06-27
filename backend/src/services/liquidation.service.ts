@@ -8,6 +8,7 @@ import { salarioProporcional } from '../utils/money';
 import { calcularAportesObreros, calcularAportesPatronales, calcularHorasExtra } from './bps.service';
 import { calcularIrpfMensual, calcularIrpfSimplificado } from './irpf.service';
 import { parametersService } from './parameters.service';
+import { resolverContratoVigente, datosLaboralesEfectivos } from './contract.service';
 import { AppError } from '../middleware/errorHandler';
 
 export interface LiquidacionInput {
@@ -46,14 +47,18 @@ export async function generarLiquidacionMensual(
   });
   if (!employee) throw new AppError(404, 'Empleado no encontrado');
 
+  // Contrato vigente del período (fallback al dato legado del empleado)
+  const contrato = await resolverContratoVigente(input.employeeId, asOfDate);
+  const labor = datosLaboralesEfectivos(employee, contrato);
+
   const params = await parametersService.getPayrollParameters(asOfDate);
   const bseRate = employee.company.bseRate;
   const fonasaPatronalRate = 500;
 
   const diasTrabajados = input.diasTrabajados ?? 30;
-  const salarioBase = employee.salaryType === 'MENSUAL'
-    ? salarioProporcional(employee.salarioNominal, diasTrabajados, 30)
-    : (employee.jornal ?? 0n) * BigInt(diasTrabajados);
+  const salarioBase = labor.salaryType === 'MENSUAL'
+    ? salarioProporcional(labor.salarioNominal, diasTrabajados, 30)
+    : (labor.jornal ?? 0n) * BigInt(diasTrabajados);
 
   const items: Omit<PayrollItem, 'id' | 'liquidationId' | 'createdAt'>[] = [];
 
@@ -61,22 +66,23 @@ export async function generarLiquidacionMensual(
     employeeId: input.employeeId,
     itemType: ItemType.HABER,
     concepto: 'SUELDO_BASICO',
-    descripcion: employee.salaryType === 'MENSUAL'
+    descripcion: labor.salaryType === 'MENSUAL'
       ? `Sueldo básico ${diasTrabajados < 30 ? `(${diasTrabajados}/30 días)` : ''}`
       : `Jornal (${diasTrabajados} días)`,
-    baseCalculo: employee.salarioNominal,
+    baseCalculo: labor.salarioNominal,
     rate: diasTrabajados < 30 ? Math.round(diasTrabajados * 10000 / 30) : null,
     amount: salarioBase,
     calculationDetail: {
-      salarioNominal: employee.salarioNominal.toString(),
+      salarioNominal: labor.salarioNominal.toString(),
       diasTrabajados,
       diasMes: 30,
+      contratoId: contrato?.id ?? null,
     } as unknown as Prisma.JsonValue,
   });
 
   if ((input.horasExtraDiurnas ?? 0) > 0 || (input.horasExtraNocturnas ?? 0) > 0) {
     const he = calcularHorasExtra(
-      employee.salarioNominal,
+      labor.salarioNominal,
       input.horasExtraDiurnas ?? 0,
       input.horasExtraNocturnas ?? 0,
     );
@@ -310,6 +316,7 @@ export async function generarLiquidacionMensual(
 
   const parametersSnapshot = {
     asOfDate: asOfDate.toISOString(),
+    contratoId: contrato?.id ?? null,
     bpc: params.bpc.toString(),
     bpsJubilatorioRate: params.bpsJubilatorioRate,
     fonasaBasicRate: params.fonasaBasicRate,

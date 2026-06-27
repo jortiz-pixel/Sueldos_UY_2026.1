@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import { UserRole, SalaryType, EstadoCivil } from '@prisma/client';
+import { UserRole, SalaryType, EstadoCivil, Contrato } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { authenticate, requireRole } from '../middleware/auth';
 import { AppError, NotFoundError } from '../middleware/errorHandler';
@@ -35,6 +35,35 @@ const employeeSchema = z.object({
   bpsNumero: z.string().optional(),
   fonasaFamilia: z.boolean().default(false),
 });
+
+const contractSchema = z.object({
+  vigenciaDesde: z.string(),
+  fechaIngreso: z.string().optional(),
+  tipoContrato: z.string().optional(),
+  cargo: z.string().optional(),
+  sector: z.string().optional(),
+  categoria: z.string().optional(),
+  nivel: z.string().optional(),
+  salaryType: z.nativeEnum(SalaryType).default(SalaryType.MENSUAL),
+  cobra: z.string().optional(),
+  salarioNominal: z.string().transform((v) => BigInt(v)),
+  jornal: z.string().transform((v) => BigInt(v)).optional(),
+  horasDia: z.number().int().optional(),
+  regimenHorario: z.string().optional(),
+  sucursal: z.string().optional(),
+  moneda: z.string().default('UYU'),
+  grupoActividadNum: z.number().int().optional().nullable(),
+  subgrupo: z.string().optional(),
+  observacion: z.string().optional(),
+});
+
+function serializeContrato(c: Contrato) {
+  return {
+    ...c,
+    salarioNominal: c.salarioNominal.toString(),
+    jornal: c.jornal != null ? c.jornal.toString() : null,
+  };
+}
 
 /** Verifica que el usuario tiene acceso a la empresa */
 function checkCompanyAccess(req: Request, companyId: string): void {
@@ -131,6 +160,22 @@ employeesRouter.post('/', authenticate, requireRole(UserRole.ADMIN, UserRole.OPE
       },
     });
 
+    // Contrato inicial (versión 1)
+    await prisma.contrato.create({
+      data: {
+        employeeId: employee.id,
+        numero: 1,
+        vigenciaDesde: employee.fechaIngreso,
+        fechaIngreso: employee.fechaIngreso,
+        cargo: employee.cargo,
+        categoria: employee.categoria,
+        nivel: employee.nivel,
+        salaryType: employee.salaryType,
+        salarioNominal: employee.salarioNominal,
+        jornal: employee.jornal,
+      },
+    });
+
     // Initialize vacation accrual for current year
     const currentYear = new Date().getFullYear();
     const antiguedad = calcularAntiguedad(employee.fechaIngreso);
@@ -195,6 +240,123 @@ employeesRouter.delete('/:id', authenticate, requireRole(UserRole.ADMIN, UserRol
   } catch (err) { next(err); }
 });
 
+// =============================================================
+// CONTRATOS del empleado
+// =============================================================
+
+// GET /api/employees/:id/contracts
+employeesRouter.get('/:id/contracts', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const employee = await prisma.employee.findUnique({ where: { id: req.params.id } });
+    if (!employee) throw new NotFoundError('Empleado');
+    checkCompanyAccess(req, employee.companyId);
+
+    const contratos = await prisma.contrato.findMany({
+      where: { employeeId: req.params.id },
+      orderBy: { vigenciaDesde: 'desc' },
+    });
+    res.json(contratos.map(serializeContrato));
+  } catch (err) { next(err); }
+});
+
+// POST /api/employees/:id/contracts
+employeesRouter.post('/:id/contracts', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const employee = await prisma.employee.findUnique({ where: { id: req.params.id } });
+    if (!employee) throw new NotFoundError('Empleado');
+    checkCompanyAccess(req, employee.companyId);
+
+    const data = contractSchema.parse(req.body);
+    const vigenciaDesde = new Date(data.vigenciaDesde);
+
+    // Cerrar el contrato vigente anterior (vigenciaHasta = día previo)
+    const vigente = await prisma.contrato.findFirst({
+      where: { employeeId: req.params.id, vigenciaHasta: null, activo: true },
+      orderBy: { vigenciaDesde: 'desc' },
+    });
+    if (vigente) {
+      const hasta = new Date(vigenciaDesde);
+      hasta.setDate(hasta.getDate() - 1);
+      await prisma.contrato.update({ where: { id: vigente.id }, data: { vigenciaHasta: hasta } });
+    }
+
+    const count = await prisma.contrato.count({ where: { employeeId: req.params.id } });
+
+    const contrato = await prisma.contrato.create({
+      data: {
+        employeeId: req.params.id,
+        numero: count + 1,
+        vigenciaDesde,
+        fechaIngreso: data.fechaIngreso ? new Date(data.fechaIngreso) : employee.fechaIngreso,
+        tipoContrato: data.tipoContrato,
+        cargo: data.cargo,
+        sector: data.sector,
+        categoria: data.categoria,
+        nivel: data.nivel,
+        salaryType: data.salaryType,
+        cobra: data.cobra,
+        salarioNominal: data.salarioNominal,
+        jornal: data.jornal,
+        horasDia: data.horasDia,
+        regimenHorario: data.regimenHorario,
+        sucursal: data.sucursal,
+        moneda: data.moneda,
+        grupoActividadNum: data.grupoActividadNum ?? undefined,
+        subgrupo: data.subgrupo,
+        observacion: data.observacion,
+      },
+    });
+
+    // Sincronizar el dato "vigente" legado del empleado (para listados/reportes)
+    await prisma.employee.update({
+      where: { id: req.params.id },
+      data: {
+        salaryType: data.salaryType,
+        salarioNominal: data.salarioNominal,
+        jornal: data.jornal ?? null,
+        cargo: data.cargo ?? employee.cargo,
+        categoria: data.categoria ?? employee.categoria,
+        nivel: data.nivel ?? employee.nivel,
+      },
+    });
+
+    res.status(201).json(serializeContrato(contrato));
+  } catch (err) { next(err); }
+});
+
+// PUT /api/employees/:id/contracts/:contractId
+employeesRouter.put('/:id/contracts/:contractId', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const employee = await prisma.employee.findUnique({ where: { id: req.params.id } });
+    if (!employee) throw new NotFoundError('Empleado');
+    checkCompanyAccess(req, employee.companyId);
+
+    const data = contractSchema.partial().parse(req.body);
+    const contrato = await prisma.contrato.update({
+      where: { id: req.params.contractId },
+      data: {
+        ...data,
+        vigenciaDesde: data.vigenciaDesde ? new Date(data.vigenciaDesde) : undefined,
+        fechaIngreso: data.fechaIngreso ? new Date(data.fechaIngreso) : undefined,
+        grupoActividadNum: data.grupoActividadNum ?? undefined,
+      },
+    });
+    res.json(serializeContrato(contrato));
+  } catch (err) { next(err); }
+});
+
+// DELETE /api/employees/:id/contracts/:contractId (desactivar)
+employeesRouter.delete('/:id/contracts/:contractId', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const employee = await prisma.employee.findUnique({ where: { id: req.params.id } });
+    if (!employee) throw new NotFoundError('Empleado');
+    checkCompanyAccess(req, employee.companyId);
+
+    await prisma.contrato.update({ where: { id: req.params.contractId }, data: { activo: false } });
+    res.json({ message: 'Contrato desactivado' });
+  } catch (err) { next(err); }
+});
+
 // GET /api/employees/:id/history
 employeesRouter.get('/:id/history', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -222,7 +384,18 @@ employeesRouter.get('/:id/liquidations', authenticate, async (req: Request, res:
       orderBy: [{ year: 'desc' }, { month: 'desc' }],
       include: { items: true },
     });
-    res.json(liquidations);
+    res.json(liquidations.map((l) => ({
+      ...l,
+      totalHaberes: l.totalHaberes.toString(),
+      totalDescuentos: l.totalDescuentos.toString(),
+      totalPatronal: l.totalPatronal.toString(),
+      liquidoPercibir: l.liquidoPercibir.toString(),
+      items: l.items.map((i) => ({
+        ...i,
+        baseCalculo: i.baseCalculo?.toString() ?? null,
+        amount: i.amount.toString(),
+      })),
+    })));
   } catch (err) { next(err); }
 });
 
