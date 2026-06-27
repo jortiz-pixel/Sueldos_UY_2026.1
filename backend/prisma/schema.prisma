@@ -14,6 +14,44 @@ datasource db {
 }
 
 // =============================================================
+// CATÁLOGOS GLOBALES (BPS / MTSS / DGI)
+// =============================================================
+
+model TipoAporte {
+  codigo Int    @id
+  nombre String
+
+  @@map("tipos_aporte")
+}
+
+model TipoContribuyente {
+  codigo Int    @id
+  nombre String
+
+  @@map("tipos_contribuyente")
+}
+
+model GrupoActividad {
+  numero    Int                 @id
+  nombre    String
+  subgrupos SubgrupoActividad[]
+
+  @@map("grupos_actividad")
+}
+
+model SubgrupoActividad {
+  id          String @id @default(cuid())
+  grupoNumero Int
+  numero      Int
+  nombre      String
+
+  grupo       GrupoActividad @relation(fields: [grupoNumero], references: [numero])
+
+  @@unique([grupoNumero, numero])
+  @@map("subgrupos_actividad")
+}
+
+// =============================================================
 // MULTI-TENANT: Companies
 // =============================================================
 
@@ -28,8 +66,35 @@ model Company {
   telefono         String?
   email            String?
   actividadPrincipal String?
-  grupoActividad   String?  // Consejo de Salarios group
+  grupoActividad   String?  // Consejo de Salarios group (texto libre, legado)
   bseRate          Int      @default(0)  // BSE rate in basis points (e.g. 25 = 0.25%)
+
+  // ── Datos BPS / MTSS / BSE (GNS Personal) ──
+  numeroBps           String?
+  numeroBse           String?
+  tipoAporte          Int?      // código -> tipos_aporte
+  tipoContribuyente   Int?      // código -> tipos_contribuyente
+  grupoActividadNum   Int?      // número -> grupos_actividad (Consejo de Salarios)
+  subgrupo            String?
+  naturalezaJuridica  String?
+  convenioColectivo   String?
+  inicioActividadMtss DateTime?
+  fechaInscripcionBps DateTime?
+
+  // ── Exoneraciones de aportes patronales (en basis points) ──
+  exoApoJub  Int @default(0)  // % exoneración aporte jubilatorio patronal
+  exoFonasa  Int @default(0)  // % exoneración FONASA patronal (S.E.)
+  exoFrl     Int @default(0)  // % exoneración FRL patronal
+  exoCcm     Int @default(0)  // % exoneración CCM
+
+  // ── Configuración de licencia ──
+  diasLicenciaAnio        Int @default(20)  // días de licencia por año
+  primerDiaExtraDesdeAnio Int @default(5)   // primer día extra desde año de antigüedad
+  maxDiasExtras           Int @default(35)  // máximo total de días (con extras)
+  diasTrabajadosMes       Int @default(30)  // días trabajados al mes por contrato
+
+  observaciones    String?
+
   active           Boolean  @default(true)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
