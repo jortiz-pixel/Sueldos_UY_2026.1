@@ -1,7 +1,7 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, FileText, BarChart2,
-  Settings, LogOut, Building2, ChevronRight,
+  Settings, LogOut, Building2, ChevronRight, Calculator,
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -9,6 +9,7 @@ const navItems = [
   { to: '/', label: 'Panel', icon: LayoutDashboard, end: true },
   { to: '/companies', label: 'Empresas', icon: Building2 },
   { to: '/employees', label: 'Empleados', icon: Users },
+  { to: '/concepts', label: 'Conceptos', icon: Calculator },
   { to: '/liquidation', label: 'Liquidaciones', icon: FileText },
   { to: '/reports', label: 'Reportes', icon: BarChart2 },
   { to: '/parameters', label: 'Parámetros', icon: Settings },
@@ -25,9 +26,7 @@ export default function Layout() {
 
   return (
     <div className="flex h-screen bg-gray-50">
-      {/* Sidebar */}
       <aside className="w-64 bg-[#003DA5] flex flex-col">
-        {/* Logo */}
         <div className="px-6 py-5 border-b border-blue-800">
           <div className="flex items-center gap-2">
             <Building2 className="text-white" size={24} />
@@ -38,7 +37,6 @@ export default function Layout() {
           </div>
         </div>
 
-        {/* Nav */}
         <nav className="flex-1 px-3 py-4 space-y-1">
           {navItems.map(({ to, label, icon: Icon, end }) => (
             <NavLink
@@ -47,9 +45,7 @@ export default function Layout() {
               end={end}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                  isActive
-                    ? 'bg-white/20 text-white'
-                    : 'text-blue-100 hover:bg-white/10 hover:text-white'
+                  isActive ? 'bg-white/20 text-white' : 'text-blue-100 hover:bg-white/10 hover:text-white'
                 }`
               }
             >
@@ -59,13 +55,10 @@ export default function Layout() {
           ))}
         </nav>
 
-        {/* User */}
         <div className="px-4 py-4 border-t border-blue-800">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-8 h-8 bg-blue-400 rounded-full flex items-center justify-center">
-              <span className="text-white text-xs font-bold">
-                {user?.nombre?.[0]}{user?.apellido?.[0]}
-              </span>
+              <span className="text-white text-xs font-bold">{user?.nombre?.[0]}{user?.apellido?.[0]}</span>
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-white text-xs font-medium truncate">{user?.nombre} {user?.apellido}</p>
@@ -82,9 +75,7 @@ export default function Layout() {
         </div>
       </aside>
 
-      {/* Main content */}
       <main className="flex-1 flex flex-col overflow-hidden">
-        {/* Top bar */}
         <header className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2 text-sm text-gray-500">
             <Building2 size={14} />
@@ -95,8 +86,6 @@ export default function Layout() {
             {new Date().toLocaleDateString('es-UY', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
           </div>
         </header>
-
-        {/* Page content */}
         <div className="flex-1 overflow-auto p-6">
           <Outlet />
         </div>

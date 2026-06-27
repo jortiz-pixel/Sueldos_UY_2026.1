@@ -1,16 +1,8 @@
 /**
  * SEED SCRIPT — Datos iniciales para demostración
- *
- * Crea:
- * - Catálogos BPS/MTSS (tipo de aporte, tipo de contribuyente, grupos de actividad)
- * - 1 empresa (industria y comercio)
- * - Parámetros BPS/IRPF vigentes 2024
- * - Escala IRPF 2024 (8 tramos, Categoría II)
- * - 3 empleados con situaciones familiares diferentes
- * - Usuario admin + usuario operator + viewer
  */
 
-import { PrismaClient, UserRole, SalaryType, EstadoCivil } from '@prisma/client';
+import { PrismaClient, UserRole, SalaryType, EstadoCivil, ItemType } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
@@ -18,7 +10,7 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('🌱 Iniciando seed...\n');
 
-  // ── 0. Catálogos BPS / MTSS ───────────────────────────────────
+  // ── 0. Catálogos BPS / MTSS ──
   const tiposAporte = [
     { codigo: 1, nombre: 'Industria y Comercio' },
     { codigo: 2, nombre: 'Civil' },
@@ -51,7 +43,6 @@ async function main() {
     await prisma.tipoContribuyente.upsert({ where: { codigo: t.codigo }, update: { nombre: t.nombre }, create: t });
   }
 
-  // Grupos de actividad (Consejos de Salarios MTSS-BPS) — lista base, editable
   const grupos = [
     { numero: 1, nombre: 'Procesamiento y conservación de alimentos, bebidas y tabaco' },
     { numero: 2, nombre: 'Industria frigorífica' },
@@ -78,7 +69,6 @@ async function main() {
     await prisma.grupoActividad.upsert({ where: { numero: g.numero }, update: { nombre: g.nombre }, create: g });
   }
 
-  // Subgrupos de ejemplo (Grupo 12 — Hoteles, restoranes y bares)
   const subgrupos = [
     { grupoNumero: 12, numero: 1, nombre: 'Hoteles, apart hoteles y moteles' },
     { grupoNumero: 12, numero: 2, nombre: 'Restoranes, parrilladas y rotiserías' },
@@ -94,7 +84,7 @@ async function main() {
 
   console.log(`✅ Catálogos cargados: ${tiposAporte.length} tipos de aporte, ${tiposContribuyente.length} tipos de contribuyente, ${grupos.length} grupos de actividad`);
 
-  // ── 1. Empresa ────────────────────────────────────────────────
+  // ── 1. Empresa ──
   const company = await prisma.company.upsert({
     where: { rut: '219876543210' },
     update: {},
@@ -109,61 +99,38 @@ async function main() {
       telefono: '2901 0000',
       actividadPrincipal: 'Servicios informáticos',
       grupoActividad: 'Grupo 10 — Comercio',
-      bseRate: 25,  // 0.25% BSE
-      tipoAporte: 1,         // Industria y Comercio
-      tipoContribuyente: 3,  // SA
-      grupoActividadNum: 10, // Comercio en general
+      bseRate: 25,
+      tipoAporte: 1,
+      tipoContribuyente: 3,
+      grupoActividadNum: 10,
       naturalezaJuridica: 'Sociedad Anónima',
       numeroBps: 'BPS-EMP-001',
     },
   });
   console.log(`✅ Empresa: ${company.razonSocial} (${company.id})`);
 
-  // ── 2. Usuarios ───────────────────────────────────────────────
+  // ── 2. Usuarios ──
   const adminPass = await bcrypt.hash('Admin1234!', 12);
   const opPass = await bcrypt.hash('Operator1234!', 12);
 
   const admin = await prisma.user.upsert({
     where: { email: 'admin@sueldos.uy' },
     update: {},
-    create: {
-      email: 'admin@sueldos.uy',
-      passwordHash: adminPass,
-      nombre: 'Administrador',
-      apellido: 'Sistema',
-      role: UserRole.ADMIN,
-    },
+    create: { email: 'admin@sueldos.uy', passwordHash: adminPass, nombre: 'Administrador', apellido: 'Sistema', role: UserRole.ADMIN },
   });
-
   const operator = await prisma.user.upsert({
     where: { email: 'liquidador@empresa.uy' },
     update: {},
-    create: {
-      email: 'liquidador@empresa.uy',
-      passwordHash: opPass,
-      nombre: 'Liquidador',
-      apellido: 'Demo',
-      role: UserRole.OPERATOR,
-      companyId: company.id,
-    },
+    create: { email: 'liquidador@empresa.uy', passwordHash: opPass, nombre: 'Liquidador', apellido: 'Demo', role: UserRole.OPERATOR, companyId: company.id },
   });
-
   const viewer = await prisma.user.upsert({
     where: { email: 'consulta@empresa.uy' },
     update: {},
-    create: {
-      email: 'consulta@empresa.uy',
-      passwordHash: await bcrypt.hash('Viewer1234!', 12),
-      nombre: 'Consulta',
-      apellido: 'Demo',
-      role: UserRole.VIEWER,
-      companyId: company.id,
-    },
+    create: { email: 'consulta@empresa.uy', passwordHash: await bcrypt.hash('Viewer1234!', 12), nombre: 'Consulta', apellido: 'Demo', role: UserRole.VIEWER, companyId: company.id },
   });
-
   console.log(`✅ Usuarios: ${admin.email}, ${operator.email}, ${viewer.email}`);
 
-  // ── 3. Parámetros BPS/IRPF 2024 ──────────────────────────────
+  // ── 3. Parámetros BPS/IRPF ──
   const effectiveDate2024 = new Date('2024-01-01T00:00:00.000Z');
   const effectiveDate2025 = new Date('2025-01-01T00:00:00.000Z');
 
@@ -183,7 +150,6 @@ async function main() {
     { key: 'IRPF_HIJOS_DISCAPACITADOS_BPC', value: '26', description: 'Deducción IRPF por hijo discapacitado (26 BPC anuales)' },
     { key: 'IRPF_CONYUGE_BPC', value: '6', description: 'Deducción IRPF por cónyuge a cargo (6 BPC anuales)' },
   ];
-
   const params2025 = [
     { key: 'BPC', value: '7622', description: 'BPC 2025 (en pesos) — actualizar con valor oficial' },
   ];
@@ -192,195 +158,117 @@ async function main() {
     await prisma.payrollParameter.upsert({
       where: { id: `seed_2024_${p.key}` },
       update: { value: p.value, description: p.description },
-      create: {
-        id: `seed_2024_${p.key}`,
-        key: p.key,
-        value: p.value,
-        description: p.description,
-        effectiveDate: effectiveDate2024,
-        companyId: null,
-      },
+      create: { id: `seed_2024_${p.key}`, key: p.key, value: p.value, description: p.description, effectiveDate: effectiveDate2024, companyId: null },
     });
   }
-
   for (const p of params2025) {
     await prisma.payrollParameter.upsert({
       where: { id: `seed_2025_${p.key}` },
       update: { value: p.value, description: p.description },
-      create: {
-        id: `seed_2025_${p.key}`,
-        key: p.key,
-        value: p.value,
-        description: p.description,
-        effectiveDate: effectiveDate2025,
-        companyId: null,
-      },
+      create: { id: `seed_2025_${p.key}`, key: p.key, value: p.value, description: p.description, effectiveDate: effectiveDate2025, companyId: null },
     });
   }
-
   console.log(`✅ Parámetros BPS/IRPF 2024-2025 cargados`);
 
-  // ── 4. Escala IRPF — Categoría II (Uruguay 2024/2025) ─────────
-  // Eliminar escala anterior si existe (incluye versiones previas con tasas erróneas)
+  // ── 4. Escala IRPF (8 tramos) ──
   await prisma.irpfBracket.deleteMany({ where: { effectiveDate: effectiveDate2024 } });
-
   await prisma.irpfBracket.createMany({
     data: [
-      //  fromBpc toBpc   rate (bp)
-      { fromBpc: 0,    toBpc: 84,   rate: 0,    effectiveDate: effectiveDate2024 },  // 0%
-      { fromBpc: 84,   toBpc: 120,  rate: 1000, effectiveDate: effectiveDate2024 },  // 10%
-      { fromBpc: 120,  toBpc: 180,  rate: 1500, effectiveDate: effectiveDate2024 },  // 15%
-      { fromBpc: 180,  toBpc: 600,  rate: 2400, effectiveDate: effectiveDate2024 },  // 24%
-      { fromBpc: 600,  toBpc: 900,  rate: 2500, effectiveDate: effectiveDate2024 },  // 25%
-      { fromBpc: 900,  toBpc: 1380, rate: 2700, effectiveDate: effectiveDate2024 },  // 27%
-      { fromBpc: 1380, toBpc: 2100, rate: 3100, effectiveDate: effectiveDate2024 },  // 31%
-      { fromBpc: 2100, toBpc: null, rate: 3600, effectiveDate: effectiveDate2024 },  // 36%
+      { fromBpc: 0,    toBpc: 84,   rate: 0,    effectiveDate: effectiveDate2024 },
+      { fromBpc: 84,   toBpc: 120,  rate: 1000, effectiveDate: effectiveDate2024 },
+      { fromBpc: 120,  toBpc: 180,  rate: 1500, effectiveDate: effectiveDate2024 },
+      { fromBpc: 180,  toBpc: 600,  rate: 2400, effectiveDate: effectiveDate2024 },
+      { fromBpc: 600,  toBpc: 900,  rate: 2500, effectiveDate: effectiveDate2024 },
+      { fromBpc: 900,  toBpc: 1380, rate: 2700, effectiveDate: effectiveDate2024 },
+      { fromBpc: 1380, toBpc: 2100, rate: 3100, effectiveDate: effectiveDate2024 },
+      { fromBpc: 2100, toBpc: null, rate: 3600, effectiveDate: effectiveDate2024 },
     ],
   });
-
   console.log(`✅ Escala IRPF 2024 cargada (8 tramos: 0/10/15/24/25/27/31/36%)`);
 
-  // ── 5. Laudo ──────────────────────────────────────────────────
+  // ── 5. Laudo ──
   await prisma.laudo.upsert({
     where: { id: 'seed_laudo_1' },
     update: {},
     create: {
-      id: 'seed_laudo_1',
-      companyId: company.id,
-      grupoActividad: 'Grupo 10',
-      subgrupo: 'Subgrupo 3',
-      categoria: 'Empleado',
-      nivel: 'A',
-      descripcion: 'Empleado administrativo nivel A',
-      salarioMinimo: BigInt(3000000),  // $30,000.00 (en centésimos)
-      effectiveDate: effectiveDate2024,
+      id: 'seed_laudo_1', companyId: company.id, grupoActividad: 'Grupo 10', subgrupo: 'Subgrupo 3',
+      categoria: 'Empleado', nivel: 'A', descripcion: 'Empleado administrativo nivel A',
+      salarioMinimo: BigInt(3000000), effectiveDate: effectiveDate2024,
     },
   });
-
   console.log(`✅ Laudo mínimo cargado`);
 
-  // ── 6. Empleados ──────────────────────────────────────────────
+  // ── 5b. Conceptos de ejemplo (INACTIVOS — no afectan liquidaciones hasta activarlos) ──
+  const conceptosDemo = [
+    { codigo: 'PRES', nombre: 'Presentismo', orden: 50, tipoOperacion: ItemType.HABER, tipoCalculo: 'PORCENTAJE', baseCalculo: 'SUELDO_BASICO', valorRate: 500, valorFijo: null, gravado: true, codBps: 1, activo: false },
+    { codigo: 'VIAT', nombre: 'Viático no gravado', orden: 60, tipoOperacion: ItemType.HABER, tipoCalculo: 'VALOR_FIJO', baseCalculo: null, valorRate: null, valorFijo: BigInt(200000), gravado: false, codBps: null, activo: false },
+    { codigo: 'ADEL', nombre: 'Adelanto de sueldo', orden: 210, tipoOperacion: ItemType.DESCUENTO_OBRERO, tipoCalculo: 'VALOR_FIJO', baseCalculo: null, valorRate: null, valorFijo: BigInt(0), gravado: false, codBps: null, activo: false },
+  ];
+  for (const c of conceptosDemo) {
+    await prisma.concepto.upsert({
+      where: { companyId_codigo: { companyId: company.id, codigo: c.codigo } },
+      update: {},
+      create: { ...c, companyId: company.id },
+    });
+  }
+  console.log(`✅ Conceptos de ejemplo cargados (inactivos): ${conceptosDemo.map((c) => c.codigo).join(', ')}`);
 
-  // Empleado 1: Ana García — mensual, $80,000, sin cargas, alto IRPF
+  // ── 6. Empleados ──
   const emp1 = await prisma.employee.upsert({
     where: { companyId_ci: { companyId: company.id, ci: '12345678' } },
     update: {},
     create: {
-      companyId: company.id,
-      ci: '12345678',
-      nombre: 'Ana',
-      apellido: 'García',
-      estadoCivil: EstadoCivil.SOLTERO,
-      fechaIngreso: new Date('2015-03-01'),
-      cargo: 'Gerente de Sistemas',
-      categoria: 'Empleado',
-      nivel: 'A',
-      salaryType: SalaryType.MENSUAL,
-      salarioNominal: BigInt(8000000),   // $80,000.00
-      conyugeACargo: false,
-      hijosACargo: 0,
-      hijosDiscapacitados: 0,
-      irpfMetodo: 'PROYECCION',
-      fonasaFamilia: false,
-      bpsNumero: 'BPS001234',
+      companyId: company.id, ci: '12345678', nombre: 'Ana', apellido: 'García',
+      estadoCivil: EstadoCivil.SOLTERO, fechaIngreso: new Date('2015-03-01'),
+      cargo: 'Gerente de Sistemas', categoria: 'Empleado', nivel: 'A',
+      salaryType: SalaryType.MENSUAL, salarioNominal: BigInt(8000000),
+      conyugeACargo: false, hijosACargo: 0, hijosDiscapacitados: 0,
+      irpfMetodo: 'PROYECCION', fonasaFamilia: false, bpsNumero: 'BPS001234',
     },
   });
-
-  // Empleado 2: Carlos López — mensual, $45,000, con cónyuge + 2 hijos
   const emp2 = await prisma.employee.upsert({
     where: { companyId_ci: { companyId: company.id, ci: '23456789' } },
     update: {},
     create: {
-      companyId: company.id,
-      ci: '23456789',
-      nombre: 'Carlos',
-      apellido: 'López',
-      estadoCivil: EstadoCivil.CASADO,
-      fechaIngreso: new Date('2020-06-15'),
-      cargo: 'Analista Senior',
-      categoria: 'Empleado',
-      nivel: 'A',
-      salaryType: SalaryType.MENSUAL,
-      salarioNominal: BigInt(4500000),   // $45,000.00
-      conyugeACargo: true,
-      hijosACargo: 2,
-      hijosDiscapacitados: 0,
-      irpfMetodo: 'PROYECCION',
-      fonasaFamilia: true,
-      bpsNumero: 'BPS002345',
+      companyId: company.id, ci: '23456789', nombre: 'Carlos', apellido: 'López',
+      estadoCivil: EstadoCivil.CASADO, fechaIngreso: new Date('2020-06-15'),
+      cargo: 'Analista Senior', categoria: 'Empleado', nivel: 'A',
+      salaryType: SalaryType.MENSUAL, salarioNominal: BigInt(4500000),
+      conyugeACargo: true, hijosACargo: 2, hijosDiscapacitados: 0,
+      irpfMetodo: 'PROYECCION', fonasaFamilia: true, bpsNumero: 'BPS002345',
     },
   });
-
-  // Empleado 3: María Rodríguez — jornalera, jornal $1,500/día, 1 hijo
   const emp3 = await prisma.employee.upsert({
     where: { companyId_ci: { companyId: company.id, ci: '34567890' } },
     update: {},
     create: {
-      companyId: company.id,
-      ci: '34567890',
-      nombre: 'María',
-      apellido: 'Rodríguez',
-      estadoCivil: EstadoCivil.SOLTERO,
-      fechaIngreso: new Date('2023-01-10'),
-      cargo: 'Operaria',
-      categoria: 'Empleado',
-      nivel: 'A',
-      salaryType: SalaryType.JORNALERO,
-      salarioNominal: BigInt(150000),    // Equivalente mensual $1,500/día × 25
-      jornal: BigInt(150000),            // $1,500 por día
-      conyugeACargo: false,
-      hijosACargo: 1,
-      hijosDiscapacitados: 0,
-      irpfMetodo: 'PROYECCION',
-      fonasaFamilia: true,               // tiene 1 hijo a cargo
-      bpsNumero: 'BPS003456',
+      companyId: company.id, ci: '34567890', nombre: 'María', apellido: 'Rodríguez',
+      estadoCivil: EstadoCivil.SOLTERO, fechaIngreso: new Date('2023-01-10'),
+      cargo: 'Operaria', categoria: 'Empleado', nivel: 'A',
+      salaryType: SalaryType.JORNALERO, salarioNominal: BigInt(150000), jornal: BigInt(150000),
+      conyugeACargo: false, hijosACargo: 1, hijosDiscapacitados: 0,
+      irpfMetodo: 'PROYECCION', fonasaFamilia: true, bpsNumero: 'BPS003456',
     },
   });
 
-  console.log(`✅ Empleados creados:`);
-  console.log(`   - ${emp1.apellido}, ${emp1.nombre}: $${Number(emp1.salarioNominal) / 100} mensual`);
-  console.log(`   - ${emp2.apellido}, ${emp2.nombre}: $${Number(emp2.salarioNominal) / 100} mensual (2 hijos, cónyuge)`);
-  console.log(`   - ${emp3.apellido}, ${emp3.nombre}: $${Number(emp3.jornal ?? 0) / 100}/día jornalero`);
+  console.log(`✅ Empleados creados: ${emp1.apellido}, ${emp2.apellido}, ${emp3.apellido}`);
 
-  // Accrual de vacaciones
   const currentYear = new Date().getFullYear();
   for (const emp of [emp1, emp2, emp3]) {
-    const antiguedad = Math.floor(
-      (new Date().getTime() - emp.fechaIngreso.getTime()) / (1000 * 60 * 60 * 24 * 365.25),
-    );
+    const antiguedad = Math.floor((new Date().getTime() - emp.fechaIngreso.getTime()) / (1000 * 60 * 60 * 24 * 365.25));
     const diasLicencia = antiguedad >= 10 ? 30 : antiguedad >= 5 ? 25 : 20;
     await prisma.vacationAccrual.upsert({
       where: { employeeId_year: { employeeId: emp.id, year: currentYear } },
       update: {},
-      create: {
-        employeeId: emp.id,
-        year: currentYear,
-        diasCorresponden: diasLicencia,
-        diasTomados: 0,
-        diasPendientes: diasLicencia,
-      },
+      create: { employeeId: emp.id, year: currentYear, diasCorresponden: diasLicencia, diasTomados: 0, diasPendientes: diasLicencia },
     });
   }
-
   console.log(`✅ Accruals de vacaciones inicializados`);
 
-  // ── Resumen ───────────────────────────────────────────────────
   console.log('\n🎉 Seed completado exitosamente!\n');
-  console.log('📋 CREDENCIALES DE ACCESO:');
-  console.log('   Admin:    admin@sueldos.uy      / Admin1234!');
-  console.log('   Operator: liquidador@empresa.uy / Operator1234!');
-  console.log('   Viewer:   consulta@empresa.uy   / Viewer1234!');
-  console.log('\n📊 EMPLEADOS DE PRUEBA:');
-  console.log('   Ana García     (CI: 12345678) — $80,000/mes, sin cargas');
-  console.log('   Carlos López   (CI: 23456789) — $45,000/mes, cónyuge + 2 hijos');
-  console.log('   María Rodríguez(CI: 34567890) — $1,500/día jornalera, 1 hijo');
+  console.log('📋 CREDENCIALES: admin@sueldos.uy / Admin1234!  ·  liquidador@empresa.uy / Operator1234!  ·  consulta@empresa.uy / Viewer1234!');
 }
 
 main()
-  .catch((e) => {
-    console.error('❌ Error en seed:', e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+  .catch((e) => { console.error('❌ Error en seed:', e); process.exit(1); })
+  .finally(async () => { await prisma.$disconnect(); });

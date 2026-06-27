@@ -1,26 +1,19 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
-import { AuthResponse, User, Company, Employee, PayrollPeriod, Liquidation, NominaItem, PayrollParameters, TipoAporte, TipoContribuyente, GrupoActividad, Contrato } from '../types';
+import { AuthResponse, User, Company, Employee, PayrollPeriod, Liquidation, NominaItem, PayrollParameters, TipoAporte, TipoContribuyente, GrupoActividad, Contrato, Concepto } from '../types';
 
 const BASE_URL = import.meta.env.VITE_API_URL || '';
 
-// =============================================================
-// Axios instance with interceptors
-// =============================================================
 const api: AxiosInstance = axios.create({
   baseURL: `${BASE_URL}/api`,
   headers: { 'Content-Type': 'application/json' },
 });
 
-// Attach access token to every request
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('accessToken');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
+  if (token) { config.headers.Authorization = `Bearer ${token}`; }
   return config;
 });
 
-// Auto-refresh on 401
 api.interceptors.response.use(
   (res) => res,
   async (error: AxiosError) => {
@@ -44,9 +37,6 @@ api.interceptors.response.use(
   },
 );
 
-// =============================================================
-// Auth
-// =============================================================
 export const authApi = {
   login: (email: string, password: string) =>
     api.post<AuthResponse>('/auth/login', { email, password }).then((r) => r.data),
@@ -59,9 +49,6 @@ export const authApi = {
     api.put('/auth/change-password', { currentPassword, newPassword }).then((r) => r.data),
 };
 
-// =============================================================
-// Companies
-// =============================================================
 export const companiesApi = {
   list: () => api.get<Company[]>('/companies').then((r) => r.data),
   get: (id: string) => api.get<Company>(`/companies/${id}`).then((r) => r.data),
@@ -72,18 +59,19 @@ export const companiesApi = {
   createUser: (id: string, data: object) => api.post(`/companies/${id}/users`, data).then((r) => r.data),
 };
 
-// =============================================================
-// Catalogs (BPS / MTSS)
-// =============================================================
 export const catalogsApi = {
   tiposAporte: () => api.get<TipoAporte[]>('/catalogs/tipos-aporte').then((r) => r.data),
   tiposContribuyente: () => api.get<TipoContribuyente[]>('/catalogs/tipos-contribuyente').then((r) => r.data),
   gruposActividad: () => api.get<GrupoActividad[]>('/catalogs/grupos-actividad').then((r) => r.data),
 };
 
-// =============================================================
-// Employees
-// =============================================================
+export const conceptsApi = {
+  list: (companyId: string) => api.get<Concepto[]>('/concepts', { params: { companyId } }).then((r) => r.data),
+  create: (data: object) => api.post<Concepto>('/concepts', data).then((r) => r.data),
+  update: (id: string, data: object) => api.put<Concepto>(`/concepts/${id}`, data).then((r) => r.data),
+  delete: (id: string) => api.delete(`/concepts/${id}`).then((r) => r.data),
+};
+
 export const employeesApi = {
   list: (params: { companyId?: string; search?: string; page?: number; limit?: number; includeInactive?: boolean }) =>
     api.get<{ data: Employee[]; pagination: { total: number; page: number; limit: number; pages: number } }>(
@@ -98,9 +86,6 @@ export const employeesApi = {
   vacation: (id: string) => api.get(`/employees/${id}/vacation`).then((r) => r.data),
 };
 
-// =============================================================
-// Contracts (versionados por empleado)
-// =============================================================
 export const contractsApi = {
   list: (employeeId: string) => api.get<Contrato[]>(`/employees/${employeeId}/contracts`).then((r) => r.data),
   create: (employeeId: string, data: object) => api.post<Contrato>(`/employees/${employeeId}/contracts`, data).then((r) => r.data),
@@ -108,9 +93,6 @@ export const contractsApi = {
   delete: (employeeId: string, contractId: string) => api.delete(`/employees/${employeeId}/contracts/${contractId}`).then((r) => r.data),
 };
 
-// =============================================================
-// Liquidation
-// =============================================================
 export const liquidationApi = {
   listPeriods: (params: { companyId?: string; year?: number }) =>
     api.get<PayrollPeriod[]>('/liquidation/periods', { params }).then((r) => r.data),
@@ -131,9 +113,6 @@ export const liquidationApi = {
     api.get(`/liquidation/period/${periodId}`).then((r) => r.data),
 };
 
-// =============================================================
-// Parameters
-// =============================================================
 export const parametersApi = {
   current: (date?: string) =>
     api.get<PayrollParameters>('/parameters', { params: { date } }).then((r) => r.data),
@@ -147,9 +126,6 @@ export const parametersApi = {
   createLaudo: (data: object) => api.post('/parameters/laudos', data).then((r) => r.data),
 };
 
-// =============================================================
-// Reports
-// =============================================================
 export const reportsApi = {
   nominaMensual: (params: { companyId?: string; year: number; month: number }) =>
     api.get<{ period: PayrollPeriod; nomina: NominaItem[]; summary: object }>(

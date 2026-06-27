@@ -20,7 +20,6 @@ export interface User {
   lastLoginAt?: string;
 }
 
-// ── Catálogos BPS / MTSS ──
 export interface TipoAporte { codigo: number; nombre: string; }
 export interface TipoContribuyente { codigo: number; nombre: string; }
 export interface SubgrupoActividad { id: string; grupoNumero: number; numero: number; nombre: string; }
@@ -79,7 +78,7 @@ export interface Employee {
   categoria?: string;
   nivel?: string;
   salaryType: SalaryType;
-  salarioNominal: string;   // centésimos as string (BigInt serialized)
+  salarioNominal: string;
   jornal?: string;
   conyugeACargo: boolean;
   hijosACargo: number;
@@ -91,7 +90,6 @@ export interface Employee {
   diasLicenciaCorresponden?: number;
 }
 
-// ── Contrato versionado ──
 export interface Contrato {
   id: string;
   employeeId: string;
@@ -106,7 +104,7 @@ export interface Contrato {
   nivel?: string;
   salaryType: SalaryType;
   cobra?: string;
-  salarioNominal: string;  // centésimos as string
+  salarioNominal: string;
   jornal?: string | null;
   horasDia?: number;
   regimenHorario?: string;
@@ -115,6 +113,25 @@ export interface Contrato {
   grupoActividadNum?: number | null;
   subgrupo?: string;
   observacion?: string;
+  activo: boolean;
+}
+
+export interface Concepto {
+  id: string;
+  companyId: string;
+  codigo: string;
+  nombre: string;
+  nombreReducido?: string;
+  orden: number;
+  tipoOperacion: ItemType;
+  tipoCalculo: 'VALOR_FIJO' | 'PORCENTAJE' | 'CANTIDAD_VALOR';
+  baseCalculo?: 'NOMINAL' | 'SUELDO_BASICO' | 'HABERES_GRAVADOS' | null;
+  valorRate?: number | null;
+  valorFijo?: string | null;
+  gravado: boolean;
+  codBps?: number | null;
+  visibleRecibo: boolean;
+  incluyeLicencia: boolean;
   activo: boolean;
 }
 
@@ -206,7 +223,6 @@ export interface ApiError {
   details?: unknown;
 }
 
-// Utility: format cents string to pesos display
 export function formatPesos(ctmsStr: string): string {
   const ctms = parseInt(ctmsStr, 10);
   const pesos = ctms / 100;
