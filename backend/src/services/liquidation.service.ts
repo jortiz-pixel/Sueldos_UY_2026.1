@@ -43,18 +43,22 @@ export async function generarLiquidacionMensual(
 ): Promise<LiquidacionResult> {
   const asOfDate = new Date(input.year, input.month - 1, 1);
 
-  const employee = await prisma.employee.findUnique({
-    where: { id: input.employeeId },
+  // La empresa empleadora de esta liquidación es la del período
+  const period = await prisma.payrollPeriod.findUnique({
+    where: { id: input.periodId },
     include: { company: true },
   });
+  if (!period) throw new AppError(404, 'Período no encontrado');
+
+  const employee = await prisma.employee.findUnique({ where: { id: input.employeeId } });
   if (!employee) throw new AppError(404, 'Empleado no encontrado');
 
-  // Contrato vigente del período (fallback al dato legado del empleado)
-  const contrato = await resolverContratoVigente(input.employeeId, asOfDate);
+  // Contrato vigente de la persona PARA ESTA EMPRESA en el período (fallback al dato legado)
+  const contrato = await resolverContratoVigente(input.employeeId, asOfDate, period.companyId);
   const labor = datosLaboralesEfectivos(employee, contrato);
 
   const params = await parametersService.getPayrollParameters(asOfDate);
-  const bseRate = employee.company.bseRate;
+  const bseRate = period.company.bseRate;
   const fonasaPatronalRate = 500;
 
   const diasTrabajados = input.diasTrabajados ?? 30;
@@ -140,13 +144,12 @@ export async function generarLiquidacionMensual(
     });
   }
 
-  // ── MOTOR DE CONCEPTOS: cargar conceptos activos de la empresa ──
+  // MOTOR DE CONCEPTOS: conceptos activos de la empresa empleadora
   const conceptos = await prisma.concepto.findMany({
-    where: { companyId: employee.companyId, activo: true },
+    where: { companyId: period.companyId, activo: true },
     orderBy: [{ orden: 'asc' }, { codigo: 'asc' }],
   });
 
-  // Base gravada acumulada (los haberes base existentes se consideran gravados)
   let gravadoHaberes = items
     .filter((i) => i.itemType === ItemType.HABER)
     .reduce((sum, i) => sum + i.amount, 0n);
@@ -158,7 +161,6 @@ export async function generarLiquidacionMensual(
     cantidades: input.cantidadesConcepto,
   };
 
-  // Conceptos HABER (en orden); los gravados suman a la base de aportes
   for (const c of conceptos.filter((c) => c.tipoOperacion === ItemType.HABER)) {
     ctxConcepto.haberesGravados = gravadoHaberes;
     const amount = evaluarConcepto(c, ctxConcepto);
@@ -180,7 +182,6 @@ export async function generarLiquidacionMensual(
     .filter((i) => i.itemType === ItemType.HABER)
     .reduce((sum, i) => sum + i.amount, 0n);
 
-  // Base sobre la que se calculan aportes obreros, IRPF y aportes patronales
   const baseGravada = gravadoHaberes;
 
   const aportesObreros = calcularAportesObreros({
@@ -292,7 +293,6 @@ export async function generarLiquidacionMensual(
     });
   }
 
-  // Conceptos DESCUENTO_OBRERO (motor)
   for (const c of conceptos.filter((c) => c.tipoOperacion === ItemType.DESCUENTO_OBRERO)) {
     const amount = evaluarConcepto(c, {
       salarioNominal: labor.salarioNominal,
@@ -366,7 +366,6 @@ export async function generarLiquidacionMensual(
     });
   }
 
-  // Conceptos APORTE_PATRONAL / INFORMATIVO (motor)
   for (const c of conceptos.filter((c) => c.tipoOperacion === ItemType.APORTE_PATRONAL || c.tipoOperacion === ItemType.INFORMATIVO)) {
     const amount = evaluarConcepto(c, {
       salarioNominal: labor.salarioNominal,
@@ -399,15 +398,11 @@ export async function generarLiquidacionMensual(
 
   const parametersSnapshot = {
     asOfDate: asOfDate.toISOString(),
+    companyId: period.companyId,
     contratoId: contrato?.id ?? null,
     baseGravada: baseGravada.toString(),
     bpc: params.bpc.toString(),
     bpsJubilatorioRate: params.bpsJubilatorioRate,
-    fonasaBasicRate: params.fonasaBasicRate,
-    fonasaBasicHighRate: params.fonasaBasicHighRate,
-    fonasaThresholdBpc: params.fonasaThresholdBpc,
-    fonasaHijosRate: params.fonasaHijosRate,
-    fonasaConyugeRate: params.fonasaConyugeRate,
     fonasaRateEfectivo: aportesObreros.detail.fonasaRateEfectivo,
     frlObreroRate: params.frlObreroRate,
     bpsIvsPatronalRate: params.bpsIvsPatronalRate,

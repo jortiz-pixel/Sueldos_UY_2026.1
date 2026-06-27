@@ -37,6 +37,7 @@ export async function calcularAguinaldo(input: AguinaldoInput): Promise<{
     include: { company: true },
   });
   if (!employee) throw new AppError(404, 'Empleado no encontrado');
+  const bseRate = employee.company?.bseRate ?? 0;
 
   const esPrimerSemestre = input.month <= 6;
   const mesInicioSemestre = esPrimerSemestre ? 1 : 7;
@@ -100,14 +101,14 @@ export async function calcularAguinaldo(input: AguinaldoInput): Promise<{
     salarioNominal: aguinaldoBruto,
     fonasaFamilia: employee.fonasaFamilia,
     params,
-    bseRateEmpresa: employee.company.bseRate,
+    bseRateEmpresa: bseRate,
   });
 
   const aportesPatronales = calcularAportesPatronales({
     salarioNominal: aguinaldoBruto,
     fonasaFamilia: employee.fonasaFamilia,
     params,
-    bseRateEmpresa: employee.company.bseRate,
+    bseRateEmpresa: bseRate,
   });
 
   const irpf = calcularIrpfAguinaldo(
