@@ -20,6 +20,7 @@ interface EmployeeForm {
   hijosACargo: number;
   hijosDiscapacitados: number;
   irpfMetodo: 'PROYECCION' | 'SIMPLIFICADO';
+  fonasaFamilia: boolean;
   observaciones?: string;
   // Contrato (solo alta)
   companyId: string;
@@ -36,7 +37,7 @@ const emptyForm: EmployeeForm = {
   ci: '', nombre: '', apellido: '', fechaNacimiento: '', estadoCivil: 'SOLTERO',
   email: '', telefono: '', domicilio: '',
   conyugeACargo: false, hijosACargo: 0, hijosDiscapacitados: 0,
-  irpfMetodo: 'PROYECCION', observaciones: '',
+  irpfMetodo: 'PROYECCION', fonasaFamilia: false, observaciones: '',
   companyId: '', fechaIngreso: '', cargo: '', categoria: '', nivel: '',
   salaryType: 'MENSUAL', salarioNominalPesos: 0, jornalPesos: 0,
 };
@@ -76,7 +77,8 @@ export default function EmployeeFormPage() {
         email: employee.email ?? '', telefono: employee.telefono ?? '', domicilio: employee.domicilio ?? '',
         conyugeACargo: employee.conyugeACargo, hijosACargo: employee.hijosACargo,
         hijosDiscapacitados: employee.hijosDiscapacitados,
-        irpfMetodo: employee.irpfMetodo, observaciones: employee.observaciones ?? '',
+        irpfMetodo: employee.irpfMetodo, fonasaFamilia: employee.fonasaFamilia,
+        observaciones: employee.observaciones ?? '',
       });
     }
   }, [employee, reset]);
@@ -90,7 +92,8 @@ export default function EmployeeFormPage() {
         email: data.email || undefined, telefono: data.telefono || undefined, domicilio: data.domicilio || undefined,
         conyugeACargo: data.conyugeACargo, hijosACargo: Number(data.hijosACargo),
         hijosDiscapacitados: Number(data.hijosDiscapacitados),
-        irpfMetodo: data.irpfMetodo, observaciones: data.observaciones || undefined,
+        irpfMetodo: data.irpfMetodo, fonasaFamilia: data.fonasaFamilia,
+        observaciones: data.observaciones || undefined,
       };
       if (isEdit) {
         return employeesApi.update(id!, persona);
