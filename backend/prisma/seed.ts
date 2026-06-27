@@ -2,6 +2,7 @@
  * SEED SCRIPT — Datos iniciales para demostración
  *
  * Crea:
+ * - Catálogos BPS/MTSS (tipo de aporte, tipo de contribuyente, grupos de actividad)
  * - 1 empresa (industria y comercio)
  * - Parámetros BPS/IRPF vigentes 2024
  * - Escala IRPF 2024 (8 tramos, Categoría II)
@@ -16,6 +17,82 @@ const prisma = new PrismaClient();
 
 async function main() {
   console.log('🌱 Iniciando seed...\n');
+
+  // ── 0. Catálogos BPS / MTSS ───────────────────────────────────
+  const tiposAporte = [
+    { codigo: 1, nombre: 'Industria y Comercio' },
+    { codigo: 2, nombre: 'Civil' },
+    { codigo: 3, nombre: 'Rural' },
+    { codigo: 4, nombre: 'Construcción' },
+    { codigo: 5, nombre: 'Notarial' },
+    { codigo: 6, nombre: 'Bancaria' },
+    { codigo: 7, nombre: 'Trabajo a domicilio' },
+    { codigo: 11, nombre: 'Profesional' },
+    { codigo: 13, nombre: 'Caja Policial' },
+    { codigo: 48, nombre: 'Servicio doméstico' },
+  ];
+  for (const t of tiposAporte) {
+    await prisma.tipoAporte.upsert({ where: { codigo: t.codigo }, update: { nombre: t.nombre }, create: t });
+  }
+
+  const tiposContribuyente = [
+    { codigo: 2, nombre: 'SRL — Sociedad de Responsabilidad Limitada' },
+    { codigo: 3, nombre: 'SA — Sociedad Anónima' },
+    { codigo: 4, nombre: 'Sociedad de hecho' },
+    { codigo: 5, nombre: 'Sociedad Colectiva' },
+    { codigo: 6, nombre: 'Sociedad en Comandita' },
+    { codigo: 7, nombre: 'Capital e Industria' },
+    { codigo: 8, nombre: 'Sociedad Civil' },
+    { codigo: 9, nombre: 'Asociación Civil' },
+    { codigo: 10, nombre: 'Cooperativa' },
+    { codigo: 84, nombre: 'SAS — Sociedad por Acciones Simplificada (con dependientes)' },
+  ];
+  for (const t of tiposContribuyente) {
+    await prisma.tipoContribuyente.upsert({ where: { codigo: t.codigo }, update: { nombre: t.nombre }, create: t });
+  }
+
+  // Grupos de actividad (Consejos de Salarios MTSS-BPS) — lista base, editable
+  const grupos = [
+    { numero: 1, nombre: 'Procesamiento y conservación de alimentos, bebidas y tabaco' },
+    { numero: 2, nombre: 'Industria frigorífica' },
+    { numero: 3, nombre: 'Pesca' },
+    { numero: 4, nombre: 'Industria química, del medicamento, farmacéutica, combustibles y anexos' },
+    { numero: 5, nombre: 'Industria de la construcción y actividades complementarias' },
+    { numero: 6, nombre: 'Industria de la madera, celulosa y papel' },
+    { numero: 7, nombre: 'Industria del vidrio, cerámica, caucho, plástico y minerales no metálicos' },
+    { numero: 8, nombre: 'Industria metalúrgica, productos metálicos, maquinarias y equipos' },
+    { numero: 9, nombre: 'Industria de la vestimenta, textil, cuero y calzado' },
+    { numero: 10, nombre: 'Comercio en general' },
+    { numero: 11, nombre: 'Comercio minorista de la alimentación' },
+    { numero: 12, nombre: 'Hoteles, restoranes y bares' },
+    { numero: 13, nombre: 'Transporte y almacenamiento' },
+    { numero: 14, nombre: 'Intermediación financiera, seguros y pensiones' },
+    { numero: 15, nombre: 'Servicios de salud, anexos y conexos' },
+    { numero: 16, nombre: 'Servicios culturales, de esparcimiento y comunicaciones' },
+    { numero: 17, nombre: 'Industria gráfica' },
+    { numero: 18, nombre: 'Servicios profesionales, técnicos, especializados y no incluidos en otros grupos' },
+    { numero: 19, nombre: 'Servicios de enseñanza' },
+    { numero: 20, nombre: 'Entidades gremiales, sociales y deportivas' },
+  ];
+  for (const g of grupos) {
+    await prisma.grupoActividad.upsert({ where: { numero: g.numero }, update: { nombre: g.nombre }, create: g });
+  }
+
+  // Subgrupos de ejemplo (Grupo 12 — Hoteles, restoranes y bares)
+  const subgrupos = [
+    { grupoNumero: 12, numero: 1, nombre: 'Hoteles, apart hoteles y moteles' },
+    { grupoNumero: 12, numero: 2, nombre: 'Restoranes, parrilladas y rotiserías' },
+    { grupoNumero: 12, numero: 7, nombre: 'Cafés, bares y pubs' },
+  ];
+  for (const s of subgrupos) {
+    await prisma.subgrupoActividad.upsert({
+      where: { grupoNumero_numero: { grupoNumero: s.grupoNumero, numero: s.numero } },
+      update: { nombre: s.nombre },
+      create: s,
+    });
+  }
+
+  console.log(`✅ Catálogos cargados: ${tiposAporte.length} tipos de aporte, ${tiposContribuyente.length} tipos de contribuyente, ${grupos.length} grupos de actividad`);
 
   // ── 1. Empresa ────────────────────────────────────────────────
   const company = await prisma.company.upsert({
@@ -33,6 +110,11 @@ async function main() {
       actividadPrincipal: 'Servicios informáticos',
       grupoActividad: 'Grupo 10 — Comercio',
       bseRate: 25,  // 0.25% BSE
+      tipoAporte: 1,         // Industria y Comercio
+      tipoContribuyente: 3,  // SA
+      grupoActividadNum: 10, // Comercio en general
+      naturalezaJuridica: 'Sociedad Anónima',
+      numeroBps: 'BPS-EMP-001',
     },
   });
   console.log(`✅ Empresa: ${company.razonSocial} (${company.id})`);
