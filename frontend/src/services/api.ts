@@ -93,6 +93,7 @@ export const contractsApi = {
   delete: (employeeId: string, contractId: string) => api.delete(`/employees/${employeeId}/contracts/${contractId}`).then((r) => r.data),
   listByCompany: (companyId: string) =>
     api.get('/contracts', { params: { companyId } }).then((r) => r.data as Array<Contrato & { employee: { id: string; ci: string; nombre: string; apellido: string } }>),
+  persons: () => api.get('/contracts/persons').then((r) => r.data as Array<{ id: string; ci: string; nombre: string; apellido: string }>),
 };
 
 export const liquidationApi = {

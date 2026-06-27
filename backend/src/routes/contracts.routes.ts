@@ -6,7 +6,24 @@ import { AppError } from '../middleware/errorHandler';
 
 export const contractsRouter = Router();
 
-// GET /api/contracts?companyId=  — contratos (vínculos) de una empresa, con la persona
+// GET /api/contracts/persons — personas para el selector (padrón accesible)
+contractsRouter.get('/persons', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const isAdmin = req.user!.role === UserRole.ADMIN;
+    const where = isAdmin
+      ? { active: true }
+      : { active: true, contratos: { some: { companyId: req.user!.companyId ?? '' } } };
+    const persons = await prisma.employee.findMany({
+      where,
+      select: { id: true, ci: true, nombre: true, apellido: true },
+      orderBy: [{ apellido: 'asc' }, { nombre: 'asc' }],
+      take: 500,
+    });
+    res.json(persons);
+  } catch (err) { next(err); }
+});
+
+// GET /api/contracts?companyId= — contratos (vínculos) de una empresa, con la persona
 contractsRouter.get('/', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const companyId = (req.query.companyId as string) || req.user!.companyId;
