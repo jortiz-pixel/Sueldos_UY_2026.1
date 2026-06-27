@@ -4,12 +4,9 @@
  * Crea:
  * - 1 empresa (industria y comercio)
  * - Parámetros BPS/IRPF vigentes 2024
- * - Escala IRPF 2024
- * - 3 empleados con situaciones familiares diferentes:
- *   1. Ana García: mensual, sin cargas, máximo IRPF
- *   2. Carlos López: mensual, con cónyuge + 2 hijos
- *   3. María Rodríguez: jornalera, sin cargas, primer tramo IRPF
- * - Usuario admin + usuario operator
+ * - Escala IRPF 2024 (8 tramos, Categoría II)
+ * - 3 empleados con situaciones familiares diferentes
+ * - Usuario admin + usuario operator + viewer
  */
 
 import { PrismaClient, UserRole, SalaryType, EstadoCivil } from '@prisma/client';
@@ -91,8 +88,12 @@ async function main() {
   const params2024 = [
     { key: 'BPC', value: '6756', description: 'Base Prestaciones y Contribuciones 2024 (en pesos)' },
     { key: 'BPS_JUBILATORIO_RATE_BP', value: '1500', description: 'Tasa BPS jubilatorio obrero (15%) en basis points' },
-    { key: 'FONASA_BASIC_RATE_BP', value: '300', description: 'Tasa FONASA básico obrero (3%) en basis points' },
-    { key: 'FONASA_FAMILIA_RATE_BP', value: '200', description: 'Tasa FONASA familia adicional (2%) en basis points' },
+    { key: 'FONASA_BASIC_RATE_BP', value: '300', description: 'FONASA base obrero (3%) — ingreso <= 2.5 BPC' },
+    { key: 'FONASA_BASIC_HIGH_RATE_BP', value: '450', description: 'FONASA base obrero (4.5%) — ingreso > 2.5 BPC' },
+    { key: 'FONASA_THRESHOLD_BPC', value: '2.5', description: 'Umbral de ingreso (en BPC) para tasa FONASA básica vs. alta' },
+    { key: 'FONASA_HIJOS_RATE_BP', value: '150', description: 'FONASA adicional por hijos a cargo (+1.5%)' },
+    { key: 'FONASA_CONYUGE_RATE_BP', value: '200', description: 'FONASA adicional por cónyuge a cargo (+2%)' },
+    { key: 'FONASA_FAMILIA_RATE_BP', value: '200', description: '(compat) FONASA familia adicional (2%) en basis points' },
     { key: 'FRL_OBRERO_RATE_BP', value: '12.5', description: 'Tasa FRL obrero (0.125%) en basis points' },
     { key: 'FRL_PATRONAL_RATE_BP', value: '2.5', description: 'Tasa FRL patronal (0.025%) en basis points' },
     { key: 'BPS_IVS_PATRONAL_RATE_BP', value: '750', description: 'Tasa BPS IVS patronal (7.5%) en basis points' },
@@ -108,7 +109,7 @@ async function main() {
   for (const p of params2024) {
     await prisma.payrollParameter.upsert({
       where: { id: `seed_2024_${p.key}` },
-      update: {},
+      update: { value: p.value, description: p.description },
       create: {
         id: `seed_2024_${p.key}`,
         key: p.key,
@@ -123,7 +124,7 @@ async function main() {
   for (const p of params2025) {
     await prisma.payrollParameter.upsert({
       where: { id: `seed_2025_${p.key}` },
-      update: {},
+      update: { value: p.value, description: p.description },
       create: {
         id: `seed_2025_${p.key}`,
         key: p.key,
@@ -137,24 +138,25 @@ async function main() {
 
   console.log(`✅ Parámetros BPS/IRPF 2024-2025 cargados`);
 
-  // ── 4. Escala IRPF 2024 ───────────────────────────────────────
-  // Eliminar escala anterior si existe
+  // ── 4. Escala IRPF — Categoría II (Uruguay 2024/2025) ─────────
+  // Eliminar escala anterior si existe (incluye versiones previas con tasas erróneas)
   await prisma.irpfBracket.deleteMany({ where: { effectiveDate: effectiveDate2024 } });
 
   await prisma.irpfBracket.createMany({
     data: [
       //  fromBpc toBpc   rate (bp)
-      { fromBpc: 0,    toBpc: 84,   rate: 0,    effectiveDate: effectiveDate2024 },
+      { fromBpc: 0,    toBpc: 84,   rate: 0,    effectiveDate: effectiveDate2024 },  // 0%
       { fromBpc: 84,   toBpc: 120,  rate: 1000, effectiveDate: effectiveDate2024 },  // 10%
       { fromBpc: 120,  toBpc: 180,  rate: 1500, effectiveDate: effectiveDate2024 },  // 15%
-      { fromBpc: 180,  toBpc: 600,  rate: 2000, effectiveDate: effectiveDate2024 },  // 20%
-      { fromBpc: 600,  toBpc: 900,  rate: 2200, effectiveDate: effectiveDate2024 },  // 22%
-      { fromBpc: 900,  toBpc: 1380, rate: 2500, effectiveDate: effectiveDate2024 },  // 25%
-      { fromBpc: 1380, toBpc: null, rate: 3000, effectiveDate: effectiveDate2024 },  // 30%
+      { fromBpc: 180,  toBpc: 600,  rate: 2400, effectiveDate: effectiveDate2024 },  // 24%
+      { fromBpc: 600,  toBpc: 900,  rate: 2500, effectiveDate: effectiveDate2024 },  // 25%
+      { fromBpc: 900,  toBpc: 1380, rate: 2700, effectiveDate: effectiveDate2024 },  // 27%
+      { fromBpc: 1380, toBpc: 2100, rate: 3100, effectiveDate: effectiveDate2024 },  // 31%
+      { fromBpc: 2100, toBpc: null, rate: 3600, effectiveDate: effectiveDate2024 },  // 36%
     ],
   });
 
-  console.log(`✅ Escala IRPF 2024 cargada (7 tramos)`);
+  console.log(`✅ Escala IRPF 2024 cargada (8 tramos: 0/10/15/24/25/27/31/36%)`);
 
   // ── 5. Laudo ──────────────────────────────────────────────────
   await prisma.laudo.upsert({
@@ -227,7 +229,7 @@ async function main() {
     },
   });
 
-  // Empleado 3: María Rodríguez — jornalera, jornal $1,500/día, sin cargas
+  // Empleado 3: María Rodríguez — jornalera, jornal $1,500/día, 1 hijo
   const emp3 = await prisma.employee.upsert({
     where: { companyId_ci: { companyId: company.id, ci: '34567890' } },
     update: {},
