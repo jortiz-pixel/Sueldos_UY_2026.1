@@ -224,6 +224,7 @@ model Employee {
 
   company          Company?    @relation(fields: [companyId], references: [id])
   contratos        Contrato[]
+  liquidations     Liquidation[]
   history          EmployeeHistory[]
   payrollItems     PayrollItem[]
   vacationAccruals VacationAccrual[]
