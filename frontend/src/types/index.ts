@@ -85,6 +85,7 @@ export interface Employee {
   hijosDiscapacitados: number;
   irpfMetodo: 'PROYECCION' | 'SIMPLIFICADO';
   fonasaFamilia: boolean;
+  observaciones?: string;
   active: boolean;
   antiguedadAnios?: number;
   diasLicenciaCorresponden?: number;
@@ -236,6 +237,35 @@ export function formatPesos(ctmsStr: string): string {
 
 export function ctmsToPesos(ctmsStr: string): number {
   return parseInt(ctmsStr, 10) / 100;
+}
+
+// ── Cédula de Identidad uruguaya ──
+export function soloDigitos(ci: string): string {
+  return (ci || '').replace(/\D/g, '');
+}
+
+/** Formatea la cédula: 41318048 -> 4.131.804-8 */
+export function formatCedula(ci: string): string {
+  const d = soloDigitos(ci);
+  if (d.length < 2) return ci;
+  const base = d.slice(0, -1);
+  const check = d.slice(-1);
+  const grouped = base.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return `${grouped}-${check}`;
+}
+
+/** Valida la cédula uruguaya por su dígito verificador */
+export function validarCedula(ci: string): boolean {
+  const d = soloDigitos(ci);
+  if (d.length < 7 || d.length > 8) return false;
+  const base = d.slice(0, -1).padStart(7, '0');
+  const check = parseInt(d.slice(-1), 10);
+  const weights = [2, 9, 8, 7, 6, 3, 4];
+  let sum = 0;
+  for (let i = 0; i < 7; i++) sum += parseInt(base[i], 10) * weights[i];
+  const r = sum % 10;
+  const calc = r === 0 ? 0 : 10 - r;
+  return calc === check;
 }
 
 export const MESES = [

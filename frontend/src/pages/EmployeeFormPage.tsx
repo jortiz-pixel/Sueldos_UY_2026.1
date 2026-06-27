@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form';
 import { ArrowLeft, AlertCircle } from 'lucide-react';
 import { employeesApi, companiesApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
-import { SalaryType, EstadoCivil } from '../types';
+import { SalaryType, EstadoCivil, formatCedula, validarCedula } from '../types';
 
 interface EmployeeForm {
   ci: string;
@@ -16,14 +16,11 @@ interface EmployeeForm {
   email?: string;
   telefono?: string;
   domicilio?: string;
-  localidad?: string;
-  departamento?: string;
   conyugeACargo: boolean;
   hijosACargo: number;
   hijosDiscapacitados: number;
   irpfMetodo: 'PROYECCION' | 'SIMPLIFICADO';
-  bpsNumero?: string;
-  fonasaFamilia: boolean;
+  observaciones?: string;
   // Contrato (solo alta)
   companyId: string;
   fechaIngreso: string;
@@ -37,9 +34,9 @@ interface EmployeeForm {
 
 const emptyForm: EmployeeForm = {
   ci: '', nombre: '', apellido: '', fechaNacimiento: '', estadoCivil: 'SOLTERO',
-  email: '', telefono: '', domicilio: '', localidad: '', departamento: '',
+  email: '', telefono: '', domicilio: '',
   conyugeACargo: false, hijosACargo: 0, hijosDiscapacitados: 0,
-  irpfMetodo: 'PROYECCION', bpsNumero: '', fonasaFamilia: false,
+  irpfMetodo: 'PROYECCION', observaciones: '',
   companyId: '', fechaIngreso: '', cargo: '', categoria: '', nivel: '',
   salaryType: 'MENSUAL', salarioNominalPesos: 0, jornalPesos: 0,
 };
@@ -61,6 +58,7 @@ export default function EmployeeFormPage() {
 
   const { register, handleSubmit, reset, watch, formState: { errors } } = useForm<EmployeeForm>({ defaultValues: emptyForm });
   const salaryType = watch('salaryType');
+  const ciValue = watch('ci');
 
   useEffect(() => {
     if (!isEdit && companies && companies.length > 0) {
@@ -78,34 +76,27 @@ export default function EmployeeFormPage() {
         email: employee.email ?? '', telefono: employee.telefono ?? '', domicilio: employee.domicilio ?? '',
         conyugeACargo: employee.conyugeACargo, hijosACargo: employee.hijosACargo,
         hijosDiscapacitados: employee.hijosDiscapacitados,
-        irpfMetodo: employee.irpfMetodo, fonasaFamilia: employee.fonasaFamilia,
-        bpsNumero: '',
+        irpfMetodo: employee.irpfMetodo, observaciones: employee.observaciones ?? '',
       });
     }
   }, [employee, reset]);
 
   const mutation = useMutation({
     mutationFn: (data: EmployeeForm) => {
-      if (isEdit) {
-        const personPayload = {
-          ci: data.ci, nombre: data.nombre, apellido: data.apellido,
-          fechaNacimiento: data.fechaNacimiento ? new Date(data.fechaNacimiento).toISOString() : undefined,
-          estadoCivil: data.estadoCivil,
-          email: data.email || undefined, telefono: data.telefono || undefined, domicilio: data.domicilio || undefined,
-          conyugeACargo: data.conyugeACargo, hijosACargo: Number(data.hijosACargo),
-          hijosDiscapacitados: Number(data.hijosDiscapacitados),
-          irpfMetodo: data.irpfMetodo, bpsNumero: data.bpsNumero || undefined, fonasaFamilia: data.fonasaFamilia,
-        };
-        return employeesApi.update(id!, personPayload);
-      }
-      const payload = {
+      const persona = {
         ci: data.ci, nombre: data.nombre, apellido: data.apellido,
         fechaNacimiento: data.fechaNacimiento ? new Date(data.fechaNacimiento).toISOString() : undefined,
         estadoCivil: data.estadoCivil,
         email: data.email || undefined, telefono: data.telefono || undefined, domicilio: data.domicilio || undefined,
         conyugeACargo: data.conyugeACargo, hijosACargo: Number(data.hijosACargo),
         hijosDiscapacitados: Number(data.hijosDiscapacitados),
-        irpfMetodo: data.irpfMetodo, bpsNumero: data.bpsNumero || undefined, fonasaFamilia: data.fonasaFamilia,
+        irpfMetodo: data.irpfMetodo, observaciones: data.observaciones || undefined,
+      };
+      if (isEdit) {
+        return employeesApi.update(id!, persona);
+      }
+      return employeesApi.create({
+        ...persona,
         contrato: {
           companyId: data.companyId,
           fechaIngreso: new Date(data.fechaIngreso).toISOString(),
@@ -117,8 +108,7 @@ export default function EmployeeFormPage() {
           jornal: data.salaryType === 'JORNALERO' && data.jornalPesos
             ? String(Math.round(Number(data.jornalPesos) * 100)) : undefined,
         },
-      };
-      return employeesApi.create(payload);
+      });
     },
     onSuccess: (emp) => {
       queryClient.invalidateQueries({ queryKey: ['employees'] });
@@ -148,12 +138,17 @@ export default function EmployeeFormPage() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="form-label">Cédula de Identidad *</label>
-              <input {...register('ci', { required: 'Requerido' })} className="form-input" placeholder="12345678" />
-              {errors.ci && <p className="form-error">{errors.ci.message}</p>}
-            </div>
-            <div>
-              <label className="form-label">N° BPS</label>
-              <input {...register('bpsNumero')} className="form-input" />
+              <input
+                {...register('ci', {
+                  required: 'Requerido',
+                  validate: (v) => validarCedula(v) || 'Cédula inválida — verificá el dígito verificador',
+                })}
+                className="form-input"
+                placeholder="41318048"
+              />
+              {errors.ci
+                ? <p className="form-error">{errors.ci.message}</p>
+                : (ciValue && validarCedula(ciValue) && <p className="text-xs text-green-600 mt-1">{formatCedula(ciValue)}</p>)}
             </div>
             <div>
               <label className="form-label">Nombre *</label>
@@ -223,6 +218,11 @@ export default function EmployeeFormPage() {
               </label>
             </div>
           </div>
+        </section>
+
+        <section className="space-y-2">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400">Observaciones</h3>
+          <textarea {...register('observaciones')} rows={3} className="form-input" placeholder="Notas libres sobre la persona..." />
         </section>
 
         {isEdit ? (

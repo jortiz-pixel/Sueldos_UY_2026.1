@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { Plus, Search, UserCheck, UserX, Eye, Pencil } from 'lucide-react';
 import { employeesApi, companiesApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
-import { Employee } from '../types';
+import { Employee, formatCedula } from '../types';
 
 const ESTADO_CIVIL: Record<string, string> = {
   SOLTERO: 'Soltero/a', CASADO: 'Casado/a', CONCUBINATO: 'Concubinato',
@@ -40,7 +40,6 @@ export default function EmployeesPage() {
 
   return (
     <div className="space-y-5">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Personas</h1>
@@ -56,7 +55,6 @@ export default function EmployeesPage() {
         )}
       </div>
 
-      {/* Filters */}
       <div className="card p-4 flex gap-4">
         <div className="flex-1 relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
@@ -79,14 +77,13 @@ export default function EmployeesPage() {
         </label>
       </div>
 
-      {/* Table */}
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="table-header">
                 <th className="px-4 py-3 text-left">Persona</th>
-                <th className="px-4 py-3 text-left">CI</th>
+                <th className="px-4 py-3 text-left">Cédula</th>
                 <th className="px-4 py-3 text-left">Estado civil</th>
                 <th className="px-4 py-3 text-left">Cargas familiares</th>
                 <th className="px-4 py-3 text-left">Estado</th>
@@ -95,13 +92,9 @@ export default function EmployeesPage() {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {isLoading ? (
-                <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-gray-400">Cargando...</td>
-                </tr>
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">Cargando...</td></tr>
               ) : !data?.data.length ? (
-                <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-gray-400">Sin resultados</td>
-                </tr>
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">Sin resultados</td></tr>
               ) : data.data.map((emp: Employee) => (
                 <tr key={emp.id} className="hover:bg-gray-50 transition-colors">
                   <td className="table-cell">
@@ -117,7 +110,7 @@ export default function EmployeesPage() {
                       </div>
                     </div>
                   </td>
-                  <td className="table-cell font-mono text-xs">{emp.ci}</td>
+                  <td className="table-cell font-mono text-xs">{formatCedula(emp.ci)}</td>
                   <td className="table-cell text-xs">{ESTADO_CIVIL[emp.estadoCivil] ?? emp.estadoCivil}</td>
                   <td className="table-cell text-xs text-gray-500">
                     {[
@@ -134,19 +127,11 @@ export default function EmployeesPage() {
                   </td>
                   <td className="table-cell">
                     <div className="flex items-center gap-2">
-                      <Link
-                        to={`/employees/${emp.id}`}
-                        className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                        title="Ver ficha y contratos"
-                      >
+                      <Link to={`/employees/${emp.id}`} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Ver ficha y contratos">
                         <Eye size={15} />
                       </Link>
                       {isOperator && (
-                        <Link
-                          to={`/employees/${emp.id}/edit`}
-                          className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                          title="Editar persona"
-                        >
+                        <Link to={`/employees/${emp.id}/edit`} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Editar persona">
                           <Pencil size={15} />
                         </Link>
                       )}
@@ -171,23 +156,14 @@ export default function EmployeesPage() {
           </table>
         </div>
 
-        {/* Pagination */}
         {data && data.pagination.pages > 1 && (
           <div className="px-4 py-3 border-t border-gray-100 flex items-center justify-between text-sm">
             <span className="text-gray-500">
               Mostrando {(page - 1) * 20 + 1}–{Math.min(page * 20, data.pagination.total)} de {data.pagination.total}
             </span>
             <div className="flex gap-2">
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="btn-secondary btn-sm"
-              >← Anterior</button>
-              <button
-                onClick={() => setPage((p) => Math.min(data.pagination.pages, p + 1))}
-                disabled={page === data.pagination.pages}
-                className="btn-secondary btn-sm"
-              >Siguiente →</button>
+              <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="btn-secondary btn-sm">← Anterior</button>
+              <button onClick={() => setPage((p) => Math.min(data.pagination.pages, p + 1))} disabled={page === data.pagination.pages} className="btn-secondary btn-sm">Siguiente →</button>
             </div>
           </div>
         )}
