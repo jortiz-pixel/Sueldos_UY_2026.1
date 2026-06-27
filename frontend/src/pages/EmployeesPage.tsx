@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { Plus, Search, UserCheck, UserX, Eye } from 'lucide-react';
-import { employeesApi } from '../services/api';
+import { Plus, Search, UserCheck, UserX, Eye, Pencil } from 'lucide-react';
+import { employeesApi, companiesApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { Employee, formatPesos } from '../types';
 
@@ -13,15 +13,19 @@ export default function EmployeesPage() {
   const [page, setPage] = useState(1);
   const [includeInactive, setIncludeInactive] = useState(false);
 
+  const { data: companies } = useQuery({ queryKey: ['companies'], queryFn: () => companiesApi.list() });
+  const companyId = user?.companyId ?? companies?.[0]?.id ?? '';
+
   const { data, isLoading } = useQuery({
-    queryKey: ['employees', user?.companyId, search, page, includeInactive],
+    queryKey: ['employees', companyId, search, page, includeInactive],
     queryFn: () => employeesApi.list({
-      companyId: user?.companyId,
+      companyId,
       search: search || undefined,
       page,
       limit: 20,
       includeInactive,
     }),
+    enabled: !!companyId,
   });
 
   const deleteMutation = useMutation({
@@ -144,6 +148,15 @@ export default function EmployeesPage() {
                       >
                         <Eye size={15} />
                       </Link>
+                      {isOperator && (
+                        <Link
+                          to={`/employees/${emp.id}/edit`}
+                          className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          title="Editar"
+                        >
+                          <Pencil size={15} />
+                        </Link>
+                      )}
                       {isOperator && emp.active && (
                         <button
                           onClick={() => {
