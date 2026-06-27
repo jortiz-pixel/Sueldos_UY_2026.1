@@ -63,7 +63,7 @@ export interface Company {
 
 export interface Employee {
   id: string;
-  companyId: string;
+  companyId?: string | null;
   ci: string;
   nombre: string;
   apellido: string;
@@ -93,6 +93,7 @@ export interface Employee {
 export interface Contrato {
   id: string;
   employeeId: string;
+  companyId?: string | null;
   numero: number;
   vigenciaDesde: string;
   vigenciaHasta?: string | null;

@@ -18,6 +18,14 @@ interface EmployeeForm {
   domicilio?: string;
   localidad?: string;
   departamento?: string;
+  conyugeACargo: boolean;
+  hijosACargo: number;
+  hijosDiscapacitados: number;
+  irpfMetodo: 'PROYECCION' | 'SIMPLIFICADO';
+  bpsNumero?: string;
+  fonasaFamilia: boolean;
+  // Contrato (solo alta)
+  companyId: string;
   fechaIngreso: string;
   cargo?: string;
   categoria?: string;
@@ -25,21 +33,15 @@ interface EmployeeForm {
   salaryType: SalaryType;
   salarioNominalPesos: number;
   jornalPesos?: number;
-  conyugeACargo: boolean;
-  hijosACargo: number;
-  hijosDiscapacitados: number;
-  irpfMetodo: 'PROYECCION' | 'SIMPLIFICADO';
-  bpsNumero?: string;
-  fonasaFamilia: boolean;
 }
 
 const emptyForm: EmployeeForm = {
   ci: '', nombre: '', apellido: '', fechaNacimiento: '', estadoCivil: 'SOLTERO',
   email: '', telefono: '', domicilio: '', localidad: '', departamento: '',
-  fechaIngreso: '', cargo: '', categoria: '', nivel: '',
-  salaryType: 'MENSUAL', salarioNominalPesos: 0, jornalPesos: 0,
   conyugeACargo: false, hijosACargo: 0, hijosDiscapacitados: 0,
   irpfMetodo: 'PROYECCION', bpsNumero: '', fonasaFamilia: false,
+  companyId: '', fechaIngreso: '', cargo: '', categoria: '', nivel: '',
+  salaryType: 'MENSUAL', salarioNominalPesos: 0, jornalPesos: 0,
 };
 
 export default function EmployeeFormPage() {
@@ -50,7 +52,6 @@ export default function EmployeeFormPage() {
   const { user } = useAuth();
 
   const { data: companies } = useQuery({ queryKey: ['companies'], queryFn: () => companiesApi.list() });
-  const companyId = user?.companyId ?? companies?.[0]?.id ?? '';
 
   const { data: employee } = useQuery({
     queryKey: ['employee', id],
@@ -62,55 +63,62 @@ export default function EmployeeFormPage() {
   const salaryType = watch('salaryType');
 
   useEffect(() => {
+    if (!isEdit && companies && companies.length > 0) {
+      reset((prev) => ({ ...prev, companyId: user?.companyId ?? companies[0].id }));
+    }
+  }, [companies, isEdit, user, reset]);
+
+  useEffect(() => {
     if (employee) {
       reset({
+        ...emptyForm,
         ci: employee.ci, nombre: employee.nombre, apellido: employee.apellido,
         fechaNacimiento: employee.fechaNacimiento ? employee.fechaNacimiento.slice(0, 10) : '',
         estadoCivil: employee.estadoCivil,
-        email: employee.email ?? '', telefono: employee.telefono ?? '',
-        domicilio: employee.domicilio ?? '', localidad: '', departamento: '',
-        fechaIngreso: employee.fechaIngreso.slice(0, 10),
-        cargo: employee.cargo ?? '', categoria: employee.categoria ?? '', nivel: employee.nivel ?? '',
-        salaryType: employee.salaryType,
-        salarioNominalPesos: Number(employee.salarioNominal) / 100,
-        jornalPesos: employee.jornal ? Number(employee.jornal) / 100 : 0,
+        email: employee.email ?? '', telefono: employee.telefono ?? '', domicilio: employee.domicilio ?? '',
         conyugeACargo: employee.conyugeACargo, hijosACargo: employee.hijosACargo,
         hijosDiscapacitados: employee.hijosDiscapacitados,
         irpfMetodo: employee.irpfMetodo, fonasaFamilia: employee.fonasaFamilia,
+        bpsNumero: '',
       });
     }
   }, [employee, reset]);
 
   const mutation = useMutation({
     mutationFn: (data: EmployeeForm) => {
+      if (isEdit) {
+        const personPayload = {
+          ci: data.ci, nombre: data.nombre, apellido: data.apellido,
+          fechaNacimiento: data.fechaNacimiento ? new Date(data.fechaNacimiento).toISOString() : undefined,
+          estadoCivil: data.estadoCivil,
+          email: data.email || undefined, telefono: data.telefono || undefined, domicilio: data.domicilio || undefined,
+          conyugeACargo: data.conyugeACargo, hijosACargo: Number(data.hijosACargo),
+          hijosDiscapacitados: Number(data.hijosDiscapacitados),
+          irpfMetodo: data.irpfMetodo, bpsNumero: data.bpsNumero || undefined, fonasaFamilia: data.fonasaFamilia,
+        };
+        return employeesApi.update(id!, personPayload);
+      }
       const payload = {
-        companyId,
-        ci: data.ci,
-        nombre: data.nombre,
-        apellido: data.apellido,
+        ci: data.ci, nombre: data.nombre, apellido: data.apellido,
         fechaNacimiento: data.fechaNacimiento ? new Date(data.fechaNacimiento).toISOString() : undefined,
         estadoCivil: data.estadoCivil,
-        email: data.email || undefined,
-        telefono: data.telefono || undefined,
-        domicilio: data.domicilio || undefined,
-        localidad: data.localidad || undefined,
-        departamento: data.departamento || undefined,
-        fechaIngreso: new Date(data.fechaIngreso).toISOString(),
-        cargo: data.cargo || undefined,
-        categoria: data.categoria || undefined,
-        nivel: data.nivel || undefined,
-        salaryType: data.salaryType,
-        salarioNominal: String(Math.round(Number(data.salarioNominalPesos) * 100)),
-        jornal: data.salaryType === 'JORNALERO' && data.jornalPesos
-          ? String(Math.round(Number(data.jornalPesos) * 100)) : undefined,
-        conyugeACargo: data.conyugeACargo,
-        hijosACargo: Number(data.hijosACargo),
+        email: data.email || undefined, telefono: data.telefono || undefined, domicilio: data.domicilio || undefined,
+        conyugeACargo: data.conyugeACargo, hijosACargo: Number(data.hijosACargo),
         hijosDiscapacitados: Number(data.hijosDiscapacitados),
-        irpfMetodo: data.irpfMetodo,
-        bpsNumero: data.bpsNumero || undefined,
-        fonasaFamilia: data.fonasaFamilia,
+        irpfMetodo: data.irpfMetodo, bpsNumero: data.bpsNumero || undefined, fonasaFamilia: data.fonasaFamilia,
+        contrato: {
+          companyId: data.companyId,
+          fechaIngreso: new Date(data.fechaIngreso).toISOString(),
+          cargo: data.cargo || undefined,
+          categoria: data.categoria || undefined,
+          nivel: data.nivel || undefined,
+          salaryType: data.salaryType,
+          salarioNominal: String(Math.round(Number(data.salarioNominalPesos) * 100)),
+          jornal: data.salaryType === 'JORNALERO' && data.jornalPesos
+            ? String(Math.round(Number(data.jornalPesos) * 100)) : undefined,
+        },
       };
-      return isEdit ? employeesApi.update(id!, payload) : employeesApi.create(payload);
+      return employeesApi.create(payload);
     },
     onSuccess: (emp) => {
       queryClient.invalidateQueries({ queryKey: ['employees'] });
@@ -124,14 +132,14 @@ export default function EmployeeFormPage() {
     <div className="space-y-5 max-w-3xl">
       <div className="flex items-center gap-3">
         <Link to="/employees" className="btn-secondary btn-sm"><ArrowLeft size={14} />Volver</Link>
-        <h1 className="text-xl font-bold text-gray-900">{isEdit ? 'Editar Empleado' : 'Nuevo Empleado'}</h1>
+        <h1 className="text-xl font-bold text-gray-900">{isEdit ? 'Editar Persona' : 'Nueva Persona + Contrato'}</h1>
       </div>
 
       <form onSubmit={handleSubmit((d) => mutation.mutate(d))} className="card p-6 space-y-6">
-        {(mutation.isError) && (
+        {mutation.isError && (
           <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
             <AlertCircle size={16} className="flex-shrink-0" />
-            {errorMsg || 'Error al guardar el empleado. Verifique los datos.'}
+            {errorMsg || 'Error al guardar. Verifique los datos.'}
           </div>
         )}
 
@@ -187,46 +195,6 @@ export default function EmployeeFormPage() {
         </section>
 
         <section className="space-y-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400">Datos laborales</h3>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="form-label">Fecha de ingreso *</label>
-              <input {...register('fechaIngreso', { required: 'Requerido' })} type="date" className="form-input" />
-              {errors.fechaIngreso && <p className="form-error">{errors.fechaIngreso.message}</p>}
-            </div>
-            <div>
-              <label className="form-label">Cargo</label>
-              <input {...register('cargo')} className="form-input" />
-            </div>
-            <div>
-              <label className="form-label">Categoría</label>
-              <input {...register('categoria')} className="form-input" />
-            </div>
-            <div>
-              <label className="form-label">Nivel</label>
-              <input {...register('nivel')} className="form-input" />
-            </div>
-            <div>
-              <label className="form-label">Tipo de remuneración</label>
-              <select {...register('salaryType')} className="form-input">
-                <option value="MENSUAL">Mensual</option>
-                <option value="JORNALERO">Jornalero</option>
-              </select>
-            </div>
-            <div>
-              <label className="form-label">Sueldo nominal mensual ($) *</label>
-              <input {...register('salarioNominalPesos', { valueAsNumber: true, required: true, min: 0 })} type="number" step="0.01" className="form-input" />
-            </div>
-            {salaryType === 'JORNALERO' && (
-              <div>
-                <label className="form-label">Jornal diario ($)</label>
-                <input {...register('jornalPesos', { valueAsNumber: true, min: 0 })} type="number" step="0.01" className="form-input" />
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section className="space-y-4">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400">Cargas e IRPF</h3>
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -257,10 +225,64 @@ export default function EmployeeFormPage() {
           </div>
         </section>
 
+        {isEdit ? (
+          <p className="text-xs text-gray-500 bg-gray-50 rounded-lg p-3">
+            Los datos laborales (empresa, sueldo, cargo) se editan desde los <b>Contratos</b> en la ficha de la persona.
+          </p>
+        ) : (
+          <section className="space-y-4">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400">Primer contrato (vínculo con la empresa)</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2">
+                <label className="form-label">Empresa *</label>
+                <select {...register('companyId', { required: 'Requerido' })} className="form-input">
+                  <option value="">— Seleccionar empresa —</option>
+                  {companies?.map((co) => <option key={co.id} value={co.id}>{co.razonSocial}</option>)}
+                </select>
+                {errors.companyId && <p className="form-error">{errors.companyId.message}</p>}
+              </div>
+              <div>
+                <label className="form-label">Fecha de ingreso *</label>
+                <input {...register('fechaIngreso', { required: 'Requerido' })} type="date" className="form-input" />
+                {errors.fechaIngreso && <p className="form-error">{errors.fechaIngreso.message}</p>}
+              </div>
+              <div>
+                <label className="form-label">Cargo</label>
+                <input {...register('cargo')} className="form-input" />
+              </div>
+              <div>
+                <label className="form-label">Categoría</label>
+                <input {...register('categoria')} className="form-input" />
+              </div>
+              <div>
+                <label className="form-label">Nivel</label>
+                <input {...register('nivel')} className="form-input" />
+              </div>
+              <div>
+                <label className="form-label">Tipo de remuneración</label>
+                <select {...register('salaryType')} className="form-input">
+                  <option value="MENSUAL">Mensual</option>
+                  <option value="JORNALERO">Jornalero</option>
+                </select>
+              </div>
+              <div>
+                <label className="form-label">Sueldo nominal mensual ($) *</label>
+                <input {...register('salarioNominalPesos', { valueAsNumber: true, required: true, min: 0 })} type="number" step="0.01" className="form-input" />
+              </div>
+              {salaryType === 'JORNALERO' && (
+                <div>
+                  <label className="form-label">Jornal diario ($)</label>
+                  <input {...register('jornalPesos', { valueAsNumber: true, min: 0 })} type="number" step="0.01" className="form-input" />
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
         <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
           <Link to="/employees" className="btn-secondary">Cancelar</Link>
-          <button type="submit" disabled={mutation.isPending || !companyId} className="btn-primary">
-            {mutation.isPending ? 'Guardando...' : isEdit ? 'Guardar cambios' : 'Crear empleado'}
+          <button type="submit" disabled={mutation.isPending} className="btn-primary">
+            {mutation.isPending ? 'Guardando...' : isEdit ? 'Guardar cambios' : 'Crear persona y contrato'}
           </button>
         </div>
       </form>
