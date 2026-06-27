@@ -1,5 +1,5 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
-import { AuthResponse, User, Company, Employee, PayrollPeriod, Liquidation, NominaItem, PayrollParameters, TipoAporte, TipoContribuyente, GrupoActividad } from '../types';
+import { AuthResponse, User, Company, Employee, PayrollPeriod, Liquidation, NominaItem, PayrollParameters, TipoAporte, TipoContribuyente, GrupoActividad, Contrato } from '../types';
 
 const BASE_URL = import.meta.env.VITE_API_URL || '';
 
@@ -99,23 +99,28 @@ export const employeesApi = {
 };
 
 // =============================================================
+// Contracts (versionados por empleado)
+// =============================================================
+export const contractsApi = {
+  list: (employeeId: string) => api.get<Contrato[]>(`/employees/${employeeId}/contracts`).then((r) => r.data),
+  create: (employeeId: string, data: object) => api.post<Contrato>(`/employees/${employeeId}/contracts`, data).then((r) => r.data),
+  update: (employeeId: string, contractId: string, data: object) => api.put<Contrato>(`/employees/${employeeId}/contracts/${contractId}`, data).then((r) => r.data),
+  delete: (employeeId: string, contractId: string) => api.delete(`/employees/${employeeId}/contracts/${contractId}`).then((r) => r.data),
+};
+
+// =============================================================
 // Liquidation
 // =============================================================
 export const liquidationApi = {
-  // Periods
   listPeriods: (params: { companyId?: string; year?: number }) =>
     api.get<PayrollPeriod[]>('/liquidation/periods', { params }).then((r) => r.data),
   createPeriod: (data: { companyId: string; year: number; month: number }) =>
     api.post<PayrollPeriod>('/liquidation/periods', data).then((r) => r.data),
-
-  // Generate
   generate: (data: object) => api.post('/liquidation/generate', data).then((r) => r.data),
   generateBatch: (data: object) => api.post('/liquidation/generate-batch', data).then((r) => r.data),
   generateAguinaldo: (data: object) => api.post('/liquidation/aguinaldo', data).then((r) => r.data),
   generateLicencia: (data: object) => api.post('/liquidation/licencia', data).then((r) => r.data),
   generateFinal: (data: object) => api.post('/liquidation/final', data).then((r) => r.data),
-
-  // CRUD
   preview: (id: string) => api.get<Liquidation>(`/liquidation/${id}/preview`).then((r) => r.data),
   confirm: (id: string) => api.post(`/liquidation/${id}/confirm`).then((r) => r.data),
   cancel: (id: string) => api.post(`/liquidation/${id}/cancel`).then((r) => r.data),

@@ -39,7 +39,6 @@ export interface Company {
   actividadPrincipal?: string;
   grupoActividad?: string;
   bseRate: number;
-  // Datos BPS / MTSS / BSE (GNS)
   numeroBps?: string;
   numeroBse?: string;
   tipoAporte?: number | null;
@@ -50,12 +49,10 @@ export interface Company {
   convenioColectivo?: string;
   inicioActividadMtss?: string;
   fechaInscripcionBps?: string;
-  // Exoneraciones (basis points)
   exoApoJub?: number;
   exoFonasa?: number;
   exoFrl?: number;
   exoCcm?: number;
-  // Configuración de licencia
   diasLicenciaAnio?: number;
   primerDiaExtraDesdeAnio?: number;
   maxDiasExtras?: number;
@@ -92,6 +89,33 @@ export interface Employee {
   active: boolean;
   antiguedadAnios?: number;
   diasLicenciaCorresponden?: number;
+}
+
+// ── Contrato versionado ──
+export interface Contrato {
+  id: string;
+  employeeId: string;
+  numero: number;
+  vigenciaDesde: string;
+  vigenciaHasta?: string | null;
+  fechaIngreso: string;
+  tipoContrato?: string;
+  cargo?: string;
+  sector?: string;
+  categoria?: string;
+  nivel?: string;
+  salaryType: SalaryType;
+  cobra?: string;
+  salarioNominal: string;  // centésimos as string
+  jornal?: string | null;
+  horasDia?: number;
+  regimenHorario?: string;
+  sucursal?: string;
+  moneda: string;
+  grupoActividadNum?: number | null;
+  subgrupo?: string;
+  observacion?: string;
+  activo: boolean;
 }
 
 export interface PayrollPeriod {

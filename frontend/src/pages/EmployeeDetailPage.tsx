@@ -1,8 +1,11 @@
+import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Calendar, User, DollarSign, FileText } from 'lucide-react';
-import { employeesApi } from '../services/api';
-import { formatPesos, MESES } from '../types';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, Calendar, User, DollarSign, FileText, Briefcase, Plus, X, AlertCircle } from 'lucide-react';
+import { useForm } from 'react-hook-form';
+import { employeesApi, contractsApi } from '../services/api';
+import { useAuth } from '../hooks/useAuth';
+import { formatPesos, MESES, Contrato, SalaryType } from '../types';
 
 function Field({ label, value }: { label: string; value: string | number | boolean | null | undefined }) {
   if (value === null || value === undefined || value === '') return null;
@@ -14,12 +17,38 @@ function Field({ label, value }: { label: string; value: string | number | boole
   );
 }
 
+interface ContractForm {
+  vigenciaDesde: string;
+  tipoContrato?: string;
+  cargo?: string;
+  sector?: string;
+  categoria?: string;
+  nivel?: string;
+  salaryType: SalaryType;
+  salarioNominalPesos: number;
+  jornalPesos?: number;
+  horasDia?: number;
+  regimenHorario?: string;
+  sucursal?: string;
+  observacion?: string;
+}
+
 export default function EmployeeDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const { isOperator } = useAuth();
+  const queryClient = useQueryClient();
+  const [modalOpen, setModalOpen] = useState(false);
+  const [formError, setFormError] = useState('');
 
   const { data: employee, isLoading } = useQuery({
     queryKey: ['employee', id],
     queryFn: () => employeesApi.get(id!),
+    enabled: !!id,
+  });
+
+  const { data: contratos } = useQuery({
+    queryKey: ['employee-contracts', id],
+    queryFn: () => contractsApi.list(id!),
     enabled: !!id,
   });
 
@@ -35,10 +64,60 @@ export default function EmployeeDetailPage() {
     enabled: !!id,
   });
 
+  const { register, handleSubmit, reset, watch, formState: { errors } } = useForm<ContractForm>({
+    defaultValues: { vigenciaDesde: '', salaryType: 'MENSUAL', salarioNominalPesos: 0 },
+  });
+  const salaryType = watch('salaryType');
+
+  const createMutation = useMutation({
+    mutationFn: (data: ContractForm) => {
+      const payload = {
+        vigenciaDesde: data.vigenciaDesde,
+        tipoContrato: data.tipoContrato || undefined,
+        cargo: data.cargo || undefined,
+        sector: data.sector || undefined,
+        categoria: data.categoria || undefined,
+        nivel: data.nivel || undefined,
+        salaryType: data.salaryType,
+        salarioNominal: String(Math.round(Number(data.salarioNominalPesos) * 100)),
+        jornal: data.jornalPesos ? String(Math.round(Number(data.jornalPesos) * 100)) : undefined,
+        horasDia: data.horasDia ? Number(data.horasDia) : undefined,
+        regimenHorario: data.regimenHorario || undefined,
+        sucursal: data.sucursal || undefined,
+        observacion: data.observacion || undefined,
+      };
+      return contractsApi.create(id!, payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['employee-contracts', id] });
+      queryClient.invalidateQueries({ queryKey: ['employee', id] });
+      setModalOpen(false);
+    },
+    onError: (err: unknown) => {
+      const message = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      setFormError(message || 'Error al guardar el contrato.');
+    },
+  });
+
+  const openNew = () => {
+    setFormError('');
+    reset({
+      vigenciaDesde: new Date().toISOString().slice(0, 10),
+      salaryType: employee?.salaryType ?? 'MENSUAL',
+      cargo: employee?.cargo ?? '',
+      categoria: employee?.categoria ?? '',
+      nivel: employee?.nivel ?? '',
+      salarioNominalPesos: employee ? Number(employee.salarioNominal) / 100 : 0,
+      jornalPesos: employee?.jornal ? Number(employee.jornal) / 100 : undefined,
+    });
+    setModalOpen(true);
+  };
+
   if (isLoading) return <div className="text-center py-12 text-gray-400">Cargando...</div>;
   if (!employee) return <div className="text-center py-12 text-gray-400">Empleado no encontrado</div>;
 
   const antiguedad = employee.antiguedadAnios ?? 0;
+  const fmtFecha = (s?: string | null) => s ? new Date(s).toLocaleDateString('es-UY') : 'Vigente';
 
   return (
     <div className="space-y-5 max-w-5xl">
@@ -65,7 +144,7 @@ export default function EmployeeDetailPage() {
         <div className="card p-5 lg:col-span-2 space-y-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-3">
             <User size={16} />
-            Datos Personales y Laborales
+            Datos Personales
           </div>
           <div className="grid grid-cols-2 gap-4">
             <Field label="Nombre completo" value={`${employee.nombre} ${employee.apellido}`} />
@@ -76,24 +155,20 @@ export default function EmployeeDetailPage() {
             <Field label="Domicilio" value={employee.domicilio} />
             <Field label="Fecha de ingreso" value={new Date(employee.fechaIngreso).toLocaleDateString('es-UY')} />
             <Field label="Antigüedad" value={`${antiguedad} año(s)`} />
-            <Field label="Cargo" value={employee.cargo} />
-            <Field label="Categoría" value={employee.categoria} />
           </div>
 
           <div className="border-t border-gray-100 pt-4">
             <div className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-3">
               <DollarSign size={16} />
-              Situación Salarial
+              Situación Salarial (vigente)
             </div>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Tipo de salario" value={employee.salaryType === 'MENSUAL' ? 'Mensual' : 'Jornalero'} />
               <Field label="Salario nominal" value={formatPesos(employee.salarioNominal)} />
               {employee.jornal && <Field label="Jornal diario" value={formatPesos(employee.jornal)} />}
               <Field label="Método IRPF" value={employee.irpfMetodo} />
-              <Field label="FONASA con familia" value={employee.fonasaFamilia ? 'Sí (+2%)' : 'No (solo 3%)'} />
               <Field label="Cónyuge a cargo" value={employee.conyugeACargo ? 'Sí' : 'No'} />
               <Field label="Hijos a cargo" value={employee.hijosACargo} />
-              <Field label="Hijos con discapacidad" value={employee.hijosDiscapacitados} />
             </div>
           </div>
         </div>
@@ -128,6 +203,62 @@ export default function EmployeeDetailPage() {
         </div>
       </div>
 
+      {/* Contratos */}
+      <div className="card">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+            <Briefcase size={16} />
+            Contratos (versiones)
+          </div>
+          {isOperator && (
+            <button onClick={openNew} className="btn-primary btn-sm">
+              <Plus size={14} />
+              Nuevo Contrato
+            </button>
+          )}
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="table-header">
+                <th className="px-4 py-3 text-left">N°</th>
+                <th className="px-4 py-3 text-left">Vigencia</th>
+                <th className="px-4 py-3 text-left">Cargo</th>
+                <th className="px-4 py-3 text-left">Tipo</th>
+                <th className="px-4 py-3 text-right">Salario / Jornal</th>
+                <th className="px-4 py-3 text-left">Estado</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {!contratos?.length ? (
+                <tr><td colSpan={6} className="px-4 py-6 text-center text-sm text-gray-400">Sin contratos</td></tr>
+              ) : contratos.map((c: Contrato) => (
+                <tr key={c.id} className="hover:bg-gray-50">
+                  <td className="table-cell font-mono text-xs">{c.numero}</td>
+                  <td className="table-cell text-xs">
+                    {fmtFecha(c.vigenciaDesde)} — {c.vigenciaHasta ? fmtFecha(c.vigenciaHasta) : 'Vigente'}
+                  </td>
+                  <td className="table-cell text-xs">{c.cargo || '-'}</td>
+                  <td className="table-cell">
+                    <span className={`badge ${c.salaryType === 'MENSUAL' ? 'badge-blue' : 'badge-gray'}`}>
+                      {c.salaryType === 'MENSUAL' ? 'Mensual' : 'Jornalero'}
+                    </span>
+                  </td>
+                  <td className="table-cell text-right font-mono text-xs">
+                    {c.salaryType === 'MENSUAL' ? formatPesos(c.salarioNominal) : (c.jornal ? `${formatPesos(c.jornal)}/día` : formatPesos(c.salarioNominal))}
+                  </td>
+                  <td className="table-cell">
+                    {!c.vigenciaHasta && c.activo
+                      ? <span className="badge-green badge">Vigente</span>
+                      : <span className="badge-gray badge">Histórico</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       {/* Liquidaciones recientes */}
       <div className="card">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
@@ -153,7 +284,7 @@ export default function EmployeeDetailPage() {
               {!liquidations?.length ? (
                 <tr><td colSpan={7} className="px-4 py-6 text-center text-sm text-gray-400">Sin liquidaciones</td></tr>
               ) : (
-                (liquidations as any[]).slice(0, 12).map((liq: any) => (
+                liquidations.slice(0, 12).map((liq) => (
                   <tr key={liq.id} className="hover:bg-gray-50">
                     <td className="table-cell font-medium">{MESES[liq.month]} {liq.year}</td>
                     <td className="table-cell text-xs">{liq.type}</td>
@@ -175,6 +306,95 @@ export default function EmployeeDetailPage() {
           </table>
         </div>
       </div>
+
+      {/* Modal nuevo contrato */}
+      {modalOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white z-10">
+              <h2 className="text-lg font-bold text-gray-900">Nuevo Contrato</h2>
+              <button onClick={() => setModalOpen(false)} className="p-1 text-gray-400 hover:text-gray-700"><X size={20} /></button>
+            </div>
+            <form onSubmit={handleSubmit((d) => { setFormError(''); createMutation.mutate(d); })} className="p-6 space-y-4">
+              {formError && (
+                <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                  <AlertCircle size={16} className="flex-shrink-0" />
+                  {formError}
+                </div>
+              )}
+              <p className="text-xs text-gray-500">
+                Al crear un nuevo contrato, el anterior queda como histórico (su vigencia se cierra el día previo a esta fecha).
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="form-label">Vigencia desde *</label>
+                  <input {...register('vigenciaDesde', { required: 'Requerido' })} type="date" className="form-input" />
+                  {errors.vigenciaDesde && <p className="form-error">{errors.vigenciaDesde.message}</p>}
+                </div>
+                <div>
+                  <label className="form-label">Tipo de contrato</label>
+                  <input {...register('tipoContrato')} className="form-input" placeholder="Permanente, Zafral..." />
+                </div>
+                <div>
+                  <label className="form-label">Cargo</label>
+                  <input {...register('cargo')} className="form-input" />
+                </div>
+                <div>
+                  <label className="form-label">Sector</label>
+                  <input {...register('sector')} className="form-input" />
+                </div>
+                <div>
+                  <label className="form-label">Categoría</label>
+                  <input {...register('categoria')} className="form-input" />
+                </div>
+                <div>
+                  <label className="form-label">Nivel</label>
+                  <input {...register('nivel')} className="form-input" />
+                </div>
+                <div>
+                  <label className="form-label">Tipo de remuneración</label>
+                  <select {...register('salaryType')} className="form-input">
+                    <option value="MENSUAL">Mensual</option>
+                    <option value="JORNALERO">Jornalero</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="form-label">{salaryType === 'JORNALERO' ? 'Sueldo nominal mensual ($)' : 'Sueldo nominal ($)'}</label>
+                  <input {...register('salarioNominalPesos', { valueAsNumber: true, required: true, min: 0 })} type="number" step="0.01" className="form-input" />
+                </div>
+                {salaryType === 'JORNALERO' && (
+                  <div>
+                    <label className="form-label">Jornal diario ($)</label>
+                    <input {...register('jornalPesos', { valueAsNumber: true, min: 0 })} type="number" step="0.01" className="form-input" />
+                  </div>
+                )}
+                <div>
+                  <label className="form-label">Horas x día</label>
+                  <input {...register('horasDia', { valueAsNumber: true })} type="number" className="form-input" />
+                </div>
+                <div>
+                  <label className="form-label">Régimen horario</label>
+                  <input {...register('regimenHorario')} className="form-input" />
+                </div>
+                <div>
+                  <label className="form-label">Sucursal</label>
+                  <input {...register('sucursal')} className="form-input" />
+                </div>
+                <div className="col-span-2">
+                  <label className="form-label">Observación</label>
+                  <input {...register('observacion')} className="form-input" />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+                <button type="button" onClick={() => setModalOpen(false)} className="btn-secondary">Cancelar</button>
+                <button type="submit" disabled={createMutation.isPending} className="btn-primary">
+                  {createMutation.isPending ? 'Guardando...' : 'Crear contrato'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
