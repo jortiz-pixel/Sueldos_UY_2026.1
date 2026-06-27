@@ -41,7 +41,7 @@ interface EmployeeForPdf {
     razonSocial: string;
     rut: string;
     domicilio: string | null;
-  };
+  } | null;
 }
 
 const MESES = [
@@ -78,12 +78,12 @@ export function generateReciboPDF(
     // ── Empresa ────────────────────────────────────────────────
     let y = 85;
     doc.fontSize(9).font('Helvetica-Bold').text('EMPRESA:', COL1, y);
-    doc.font('Helvetica').text(employee.company.razonSocial, COL1 + 55, y);
+    doc.font('Helvetica').text(employee.company?.razonSocial ?? '—', COL1 + 55, y);
     doc.font('Helvetica-Bold').text('RUT:', COL2, y);
-    doc.font('Helvetica').text(employee.company.rut, COL2 + 30, y);
+    doc.font('Helvetica').text(employee.company?.rut ?? '—', COL2 + 30, y);
 
     y += 14;
-    if (employee.company.domicilio) {
+    if (employee.company?.domicilio) {
       doc.font('Helvetica-Bold').text('DOMICILIO:', COL1, y);
       doc.font('Helvetica').text(employee.company.domicilio, COL1 + 65, y);
     }
