@@ -9,6 +9,7 @@ import { prisma } from '../utils/prisma';
 
 /**
  * Resuelve el contrato vigente de una persona para una fecha (y opcionalmente una empresa).
+ * Un contrato es vigente si: activo, vigenciaDesde <= fecha, y no terminó (vigenciaHasta/fechaFin).
  */
 export async function resolverContratoVigente(employeeId: string, asOfDate: Date, companyId?: string) {
   return prisma.contrato.findFirst({
@@ -17,9 +18,9 @@ export async function resolverContratoVigente(employeeId: string, asOfDate: Date
       activo: true,
       ...(companyId ? { companyId } : {}),
       vigenciaDesde: { lte: asOfDate },
-      OR: [
-        { vigenciaHasta: null },
-        { vigenciaHasta: { gte: asOfDate } },
+      AND: [
+        { OR: [{ vigenciaHasta: null }, { vigenciaHasta: { gte: asOfDate } }] },
+        { OR: [{ fechaFin: null }, { fechaFin: { gte: asOfDate } }] },
       ],
     },
     orderBy: { vigenciaDesde: 'desc' },

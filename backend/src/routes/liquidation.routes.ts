@@ -99,7 +99,7 @@ liquidationRouter.post('/generate', authenticate, requireRole(UserRole.ADMIN, Us
   } catch (err) { next(err); }
 });
 
-// POST /api/liquidation/generate-batch
+// POST /api/liquidation/generate-batch  (genera para todos los contratos VIGENTES de la empresa)
 liquidationRouter.post('/generate-batch', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const schema = z.object({
@@ -109,27 +109,37 @@ liquidationRouter.post('/generate-batch', authenticate, requireRole(UserRole.ADM
       month: z.number().int().min(1).max(12),
     });
     const { companyId, periodId, year, month } = schema.parse(req.body);
+    const asOf = new Date(year, month - 1, 1);
 
-    const employees = await prisma.employee.findMany({
-      where: { companyId, active: true },
-      select: { id: true },
+    const contratos = await prisma.contrato.findMany({
+      where: {
+        companyId,
+        activo: true,
+        vigenciaDesde: { lte: asOf },
+        AND: [
+          { OR: [{ vigenciaHasta: null }, { vigenciaHasta: { gte: asOf } }] },
+          { OR: [{ fechaFin: null }, { fechaFin: { gte: asOf } }] },
+        ],
+      },
+      select: { employeeId: true },
+      distinct: ['employeeId'],
     });
 
     const results = [];
     const errors = [];
 
-    for (const emp of employees) {
+    for (const c of contratos) {
       try {
         const result = await generarLiquidacionMensual({
-          employeeId: emp.id,
+          employeeId: c.employeeId,
           periodId,
           year,
           month,
           userId: req.user!.userId,
         });
-        results.push({ employeeId: emp.id, liquidacionId: result.liquidacionId, success: true });
+        results.push({ employeeId: c.employeeId, liquidacionId: result.liquidacionId, success: true });
       } catch (err) {
-        errors.push({ employeeId: emp.id, error: (err as Error).message });
+        errors.push({ employeeId: c.employeeId, error: (err as Error).message });
       }
     }
 
@@ -318,7 +328,7 @@ liquidationRouter.post('/:id/adjustment', authenticate, requireRole(UserRole.ADM
   } catch (err) { next(err); }
 });
 
-// GET /api/liquidation/period/:periodId
+// GET /api/liquidation/period/:periodId  (incluye datos de la persona)
 liquidationRouter.get('/period/:periodId', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const liquidations = await prisma.liquidation.findMany({
@@ -327,6 +337,7 @@ liquidationRouter.get('/period/:periodId', authenticate, async (req: Request, re
         type: LiquidationType.MENSUAL,
       },
       include: {
+        employee: { select: { id: true, ci: true, nombre: true, apellido: true } },
         items: { where: { itemType: { in: ['HABER', 'DESCUENTO_OBRERO'] } } },
       },
       orderBy: { employeeId: 'asc' },
