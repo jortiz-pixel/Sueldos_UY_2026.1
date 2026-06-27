@@ -103,9 +103,40 @@ model Company {
   payrollPeriods   PayrollPeriod[]
   users            User[]
   laudos           Laudo[]
+  conceptos        Concepto[]
   auditLogs        AuditLog[]
 
   @@map("companies")
+}
+
+// =============================================================
+// MOTOR DE CONCEPTOS (parametrizable por empresa) — GNS Personal
+// =============================================================
+
+model Concepto {
+  id              String   @id @default(cuid())
+  companyId       String
+  codigo          String   // SB, JO, PRES, VIAT, etc.
+  nombre          String
+  nombreReducido  String?
+  orden           Int      @default(100)  // orden de cálculo
+  tipoOperacion   ItemType @default(HABER) // HABER / DESCUENTO_OBRERO / APORTE_PATRONAL / INFORMATIVO
+  tipoCalculo     String   @default("VALOR_FIJO") // VALOR_FIJO | PORCENTAJE | CANTIDAD_VALOR
+  baseCalculo     String?  // (PORCENTAJE) NOMINAL | SUELDO_BASICO | HABERES_GRAVADOS
+  valorRate       Int?     // (PORCENTAJE) tasa en basis points (500 = 5%)
+  valorFijo       BigInt?  // (VALOR_FIJO) monto, o valor unitario para CANTIDAD_VALOR (centésimos)
+  gravado         Boolean  @default(true)  // suma a la base de aportes/IRPF
+  codBps          Int?     // 1 = Monto imponible mensual
+  visibleRecibo   Boolean  @default(true)
+  incluyeLicencia Boolean  @default(false)
+  activo          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, codigo])
+  @@map("concepts")
 }
 
 // =============================================================
@@ -232,23 +263,22 @@ model Employee {
 
 // =============================================================
 // CONTRATOS (versionados por vigencia) — GNS Personal
-// Un empleado tiene N contratos a lo largo del tiempo.
 // =============================================================
 
 model Contrato {
   id               String     @id @default(cuid())
   employeeId       String
-  numero           Int        @default(1)   // orden del contrato
-  vigenciaDesde    DateTime                  // desde cuándo aplica esta versión
-  vigenciaHasta    DateTime?                 // null = vigente
-  fechaIngreso     DateTime                  // fecha reconocida de ingreso
-  tipoContrato     String?                   // PERMANENTE, ZAFRAL, etc.
+  numero           Int        @default(1)
+  vigenciaDesde    DateTime
+  vigenciaHasta    DateTime?
+  fechaIngreso     DateTime
+  tipoContrato     String?
   cargo            String?
   sector           String?
   categoria        String?
   nivel            String?
   salaryType       SalaryType @default(MENSUAL)
-  cobra            String?                   // MES / DIA / HORA
+  cobra            String?
   salarioNominal   BigInt
   jornal           BigInt?
   horasDia         Int?
@@ -271,7 +301,7 @@ model Contrato {
 model EmployeeHistory {
   id           String   @id @default(cuid())
   employeeId   String
-  field        String   // Which field changed
+  field        String
   oldValue     String?
   newValue     String?
   changedBy    String?
@@ -285,17 +315,16 @@ model EmployeeHistory {
 
 // =============================================================
 // PAYROLL PARAMETERS (versioned — effective_date based)
-// All tax rates, BPC, brackets stored here — never in code
 // =============================================================
 
 model PayrollParameter {
   id             String   @id @default(cuid())
-  key            String   // e.g. "BPC", "BPS_JUBILATORIO_RATE", etc.
-  value          String   // JSON value
+  key            String
+  value          String
   description    String?
   effectiveDate  DateTime
   expiresDate    DateTime?
-  companyId      String?  // null = global/system parameter
+  companyId      String?
   createdBy      String?
   createdAt      DateTime @default(now())
 
@@ -303,15 +332,13 @@ model PayrollParameter {
   @@map("payroll_parameters")
 }
 
-// IRPF tax brackets (stored as versioned records)
 model IrpfBracket {
   id             String   @id @default(cuid())
   effectiveDate  DateTime
   expiresDate    DateTime?
-  // Tramo in BPC (annual)
-  fromBpc        Int      // lower bound in hundredths of BPC (e.g. 84 BPC = 8400)
-  toBpc          Int?     // null = no upper bound
-  rate           Int      // rate in basis points (e.g. 1000 = 10%)
+  fromBpc        Int
+  toBpc          Int?
+  rate           Int
   createdAt      DateTime @default(now())
 
   @@index([effectiveDate])
@@ -330,7 +357,7 @@ model Laudo {
   categoria      String
   nivel          String?
   descripcion    String?
-  salarioMinimo  BigInt   // In centésimos
+  salarioMinimo  BigInt
   effectiveDate  DateTime
   expiresDate    DateTime?
   createdAt      DateTime @default(now())
@@ -370,7 +397,7 @@ model PayrollPeriod {
   id          String       @id @default(cuid())
   companyId   String
   year        Int
-  month       Int          // 1-12
+  month       Int
   status      PeriodStatus @default(BORRADOR)
   confirmedAt DateTime?
   confirmedBy String?
@@ -393,19 +420,16 @@ model Liquidation {
   type            LiquidationType   @default(MENSUAL)
   status          LiquidationStatus @default(BORRADOR)
 
-  // Period info
   year            Int
   month           Int
-  diasTrabajados  Int               @default(30)  // days worked this period
-  diasHabiles     Int               @default(22)  // business days in period
+  diasTrabajados  Int               @default(30)
+  diasHabiles     Int               @default(22)
 
-  // Totals (all in centésimos)
   totalHaberes    BigInt            @default(0)
   totalDescuentos BigInt            @default(0)
   totalPatronal   BigInt            @default(0)
   liquidoPercibir BigInt            @default(0)
 
-  // Snapshot of parameters used (JSON)
   parametersSnapshot Json?
 
   confirmedAt     DateTime?
@@ -423,7 +447,7 @@ model Liquidation {
 }
 
 // =============================================================
-// PAYROLL ITEMS (individual concepts/líneas of the liquidation)
+// PAYROLL ITEMS
 // =============================================================
 
 enum ItemType {
@@ -438,12 +462,11 @@ model PayrollItem {
   liquidationId  String
   employeeId     String
   itemType       ItemType
-  concepto       String   // e.g. "SUELDO_BASICO", "BPS_JUBILATORIO", "IRPF", etc.
+  concepto       String
   descripcion    String
-  baseCalculo    BigInt?  // Base used for calculation (centésimos)
-  rate           Int?     // Rate applied in basis points
-  amount         BigInt   // Amount in centésimos
-  // Debug/audit: formula used and all intermediate values
+  baseCalculo    BigInt?
+  rate           Int?
+  amount         BigInt
   calculationDetail Json?
   createdAt      DateTime @default(now())
 
@@ -454,7 +477,7 @@ model PayrollItem {
 }
 
 // =============================================================
-// MANUAL ADJUSTMENTS (with audit trail)
+// MANUAL ADJUSTMENTS
 // =============================================================
 
 model PayrollAdjustment {
@@ -463,9 +486,9 @@ model PayrollAdjustment {
   employeeId     String
   concepto       String
   descripcion    String
-  amount         BigInt   // Can be negative (discount) in centésimos
+  amount         BigInt
   itemType       ItemType
-  reason         String   // Required: must explain the adjustment
+  reason         String
   approvedBy     String?
   createdBy      String
   createdAt      DateTime @default(now())
@@ -484,7 +507,7 @@ model VacationAccrual {
   id             String   @id @default(cuid())
   employeeId     String
   year           Int
-  diasCorresponden Int    // Days earned this year (20/25/30 per seniority)
+  diasCorresponden Int
   diasTomados    Int      @default(0)
   diasPendientes Int      @default(0)
   updatedAt      DateTime @updatedAt
@@ -503,9 +526,9 @@ model LeaveRequest {
   fechaFin       DateTime
   diasHabiles    Int
   motivo         String?
-  status         String   @default("PENDIENTE")  // PENDIENTE, APROBADO, RECHAZADO
+  status         String   @default("PENDIENTE")
   approvedBy     String?
-  liquidacionId  String?  // link to the vacation liquidation
+  liquidacionId  String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -522,8 +545,8 @@ model AuditLog {
   id         String   @id @default(cuid())
   companyId  String?
   userId     String?
-  action     String   // e.g. "CREATE_LIQUIDATION", "CONFIRM_PERIOD"
-  entity     String   // e.g. "Liquidation", "Employee"
+  action     String
+  entity     String
   entityId   String?
   oldData    Json?
   newData    Json?
