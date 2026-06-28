@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { Plus, Play, RefreshCw, CheckCircle, Eye, Download } from 'lucide-react';
-import { liquidationApi, employeesApi, companiesApi } from '../services/api';
+import { liquidationApi, employeesApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
+import { useCompany } from '../hooks/useCompany';
 import { formatPesos, MESES, PayrollPeriod, Employee } from '../types';
 
 interface LiqRow {
@@ -16,17 +17,17 @@ interface LiqRow {
 }
 
 export default function LiquidationPage() {
-  const { user, isOperator } = useAuth();
+  const { isOperator } = useAuth();
+  const { activeCompanyId: companyId } = useCompany();
   const queryClient = useQueryClient();
-  const [selectedCompany, setSelectedCompany] = useState('');
   const now = new Date();
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
   const [selectedPeriodId, setSelectedPeriodId] = useState<string | null>(null);
   const [showNewPeriod, setShowNewPeriod] = useState(false);
   const [newPeriodMonth, setNewPeriodMonth] = useState(now.getMonth() + 1);
 
-  const { data: companies } = useQuery({ queryKey: ['companies'], queryFn: () => companiesApi.list() });
-  const companyId = selectedCompany || user?.companyId || companies?.[0]?.id || '';
+  // Al cambiar de empresa (selector global), limpiar el período seleccionado.
+  useEffect(() => { setSelectedPeriodId(null); }, [companyId]);
 
   const { data: periods, isLoading: periodsLoading } = useQuery({
     queryKey: ['periods', companyId, selectedYear],
@@ -85,15 +86,6 @@ export default function LiquidationPage() {
           <h1 className="text-2xl font-bold text-gray-900">Liquidaciones</h1>
           <p className="text-gray-500 text-sm mt-0.5">Períodos y liquidaciones por empresa</p>
         </div>
-        {user?.role === 'ADMIN' && companies && companies.length > 1 && (
-          <select
-            value={companyId}
-            onChange={(e) => { setSelectedCompany(e.target.value); setSelectedPeriodId(null); }}
-            className="form-input max-w-xs"
-          >
-            {companies.map((c) => <option key={c.id} value={c.id}>{c.razonSocial}</option>)}
-          </select>
-        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">

@@ -1,9 +1,10 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, FileText, BarChart2,
-  Settings, LogOut, Building2, ChevronRight, Calculator, Briefcase, UserCog,
+  Settings, LogOut, Building2, Calculator, Briefcase, UserCog,
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
+import { useCompany } from '../../hooks/useCompany';
 
 const navItems = [
   { to: '/', label: 'Panel', icon: LayoutDashboard, end: true },
@@ -19,6 +20,7 @@ const navItems = [
 
 export default function Layout() {
   const { user, logout } = useAuth();
+  const { companies, activeCompanyId, setActiveCompanyId } = useCompany();
   const navigate = useNavigate();
 
   const handleLogout = async () => {
@@ -79,10 +81,24 @@ export default function Layout() {
 
       <main className="flex-1 flex flex-col overflow-hidden">
         <header className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-sm text-gray-500">
-            <Building2 size={14} />
-            <ChevronRight size={12} />
-            <span className="text-gray-700 font-medium">Sistema de Nómina</span>
+          <div className="flex items-center gap-3 text-sm text-gray-500">
+            <Building2 size={16} className="text-[#003DA5]" />
+            {companies.length > 0 ? (
+              <select
+                value={activeCompanyId}
+                onChange={(e) => setActiveCompanyId(e.target.value)}
+                className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-medium text-gray-700 bg-white max-w-xs"
+                title="Empresa activa"
+              >
+                {companies.map((c) => (
+                  <option key={c.companyId} value={c.companyId}>
+                    {c.nombreFantasia || c.razonSocial}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="text-gray-700 font-medium">Sistema de Nómina</span>
+            )}
           </div>
           <div className="text-xs text-gray-400">
             {new Date().toLocaleDateString('es-UY', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}

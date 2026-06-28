@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { Plus, Calculator, Pencil, Trash2, X, AlertCircle } from 'lucide-react';
-import { companiesApi, conceptsApi } from '../services/api';
+import { conceptsApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
+import { useCompany } from '../hooks/useCompany';
 import { Concepto, ItemType, formatPesos } from '../types';
 
 interface ConceptoForm {
@@ -30,14 +31,12 @@ const OP_LABEL: Record<string, string> = {
 };
 
 export default function ConceptsPage() {
-  const { user, isOperator } = useAuth();
+  const { isOperator } = useAuth();
+  const { activeCompanyId: companyId } = useCompany();
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Concepto | null>(null);
   const [formError, setFormError] = useState('');
-
-  const { data: companies } = useQuery({ queryKey: ['companies'], queryFn: () => companiesApi.list() });
-  const companyId = user?.companyId ?? companies?.[0]?.id ?? '';
 
   const { data: conceptos, isLoading } = useQuery({
     queryKey: ['concepts', companyId],

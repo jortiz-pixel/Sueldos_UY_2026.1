@@ -2,12 +2,11 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Download, BarChart2, FileText, Shield } from 'lucide-react';
 import { reportsApi } from '../services/api';
-import { useAuth } from '../hooks/useAuth';
+import { useCompany } from '../hooks/useCompany';
 import { formatPesos, MESES, NominaItem } from '../types';
 
 export default function ReportsPage() {
-  const { user } = useAuth();
-  const companyId = user?.companyId ?? '';
+  const { activeCompanyId: companyId } = useCompany();
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);

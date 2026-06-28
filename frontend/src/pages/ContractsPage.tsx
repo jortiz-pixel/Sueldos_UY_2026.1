@@ -3,8 +3,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { Link } from 'react-router-dom';
 import { Eye, Plus, X, AlertCircle, Pencil } from 'lucide-react';
-import { companiesApi, contractsApi } from '../services/api';
+import { contractsApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
+import { useCompany } from '../hooks/useCompany';
 import { formatPesos, SalaryType, Contrato } from '../types';
 
 type ContratoRow = Contrato & { employee: { id: string; ci: string; nombre: string; apellido: string } };
@@ -26,16 +27,14 @@ interface ContractForm {
 }
 
 export default function ContractsPage() {
-  const { user, isOperator } = useAuth();
+  const { isOperator } = useAuth();
+  const { activeCompanyId: companyId, companies } = useCompany();
   const queryClient = useQueryClient();
-  const [selected, setSelected] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<{ employeeId: string; contractId: string; persona: string } | null>(null);
   const [formError, setFormError] = useState('');
 
-  const { data: companies } = useQuery({ queryKey: ['companies'], queryFn: () => companiesApi.list() });
-  const companyId = selected || user?.companyId || companies?.[0]?.id || '';
-  const empresaNombre = companies?.find((c) => c.id === companyId)?.razonSocial ?? '';
+  const empresaNombre = companies.find((c) => c.companyId === companyId)?.razonSocial ?? '';
 
   const { data: contratos, isLoading } = useQuery({
     queryKey: ['contracts-company', companyId],
@@ -117,11 +116,6 @@ export default function ContractsPage() {
           <p className="text-gray-500 text-sm mt-0.5">Vínculos laborales persona ↔ empresa · {contratos?.length ?? '—'} en la empresa</p>
         </div>
         <div className="flex items-center gap-2">
-          {user?.role === 'ADMIN' && companies && companies.length > 1 && (
-            <select value={companyId} onChange={(e) => setSelected(e.target.value)} className="form-input max-w-xs">
-              {companies.map((c) => <option key={c.id} value={c.id}>{c.razonSocial}</option>)}
-            </select>
-          )}
           {isOperator && (
             <button onClick={openNew} className="btn-primary" disabled={!companyId}>
               <Plus size={16} />

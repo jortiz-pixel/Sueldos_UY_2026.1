@@ -2,12 +2,13 @@ import { useQuery } from '@tanstack/react-query';
 import { Users, FileText, DollarSign, TrendingUp, AlertCircle } from 'lucide-react';
 import { employeesApi, liquidationApi, reportsApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
+import { useCompany } from '../hooks/useCompany';
 import { formatPesos, MESES } from '../types';
 import { Link } from 'react-router-dom';
 
 export default function DashboardPage() {
   const { user } = useAuth();
-  const companyId = user?.companyId;
+  const { activeCompanyId: companyId } = useCompany();
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1;

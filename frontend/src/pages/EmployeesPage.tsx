@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { Plus, Search, UserCheck, UserX, Eye, Pencil } from 'lucide-react';
-import { employeesApi, companiesApi } from '../services/api';
+import { employeesApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
+import { useCompany } from '../hooks/useCompany';
 import { Employee, formatCedula } from '../types';
 
 const ESTADO_CIVIL: Record<string, string> = {
@@ -12,14 +13,12 @@ const ESTADO_CIVIL: Record<string, string> = {
 };
 
 export default function EmployeesPage() {
-  const { user, isOperator } = useAuth();
+  const { isOperator } = useAuth();
+  const { activeCompanyId: companyId } = useCompany();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [includeInactive, setIncludeInactive] = useState(false);
-
-  const { data: companies } = useQuery({ queryKey: ['companies'], queryFn: () => companiesApi.list() });
-  const companyId = user?.companyId ?? companies?.[0]?.id ?? '';
 
   const { data, isLoading } = useQuery({
     queryKey: ['employees', companyId, search, page, includeInactive],
