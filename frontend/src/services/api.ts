@@ -59,6 +59,39 @@ export const companiesApi = {
   createUser: (id: string, data: object) => api.post(`/companies/${id}/users`, data).then((r) => r.data),
 };
 
+export interface MyMembership {
+  companyId: string;
+  razonSocial: string;
+  nombreFantasia: string | null;
+  role: 'OWNER' | 'ADMIN' | 'OPERATOR' | 'VIEWER';
+  superadmin: boolean;
+}
+
+export interface CompanyMembership {
+  id: string;
+  role: 'OWNER' | 'ADMIN' | 'OPERATOR' | 'VIEWER';
+  estado: 'PENDIENTE' | 'ACTIVA' | 'REVOCADA';
+  user: { id: string; email: string; nombre: string; apellido: string };
+  createdAt: string;
+}
+
+export const membershipApi = {
+  my: () => api.get<MyMembership[]>('/memberships/my').then((r) => r.data),
+  listByCompany: (companyId: string) =>
+    api.get<CompanyMembership[]>('/memberships', { params: { companyId } }).then((r) => r.data),
+  share: (data: { companyId: string; email: string; role: string; nombre?: string; apellido?: string; password?: string }) =>
+    api.post('/memberships', data).then((r) => r.data),
+  update: (id: string, data: { role?: string; estado?: string }) =>
+    api.patch(`/memberships/${id}`, data).then((r) => r.data),
+};
+
+export const entitlementApi = {
+  listByCompany: (companyId: string) =>
+    api.get('/entitlements', { params: { companyId } }).then((r) => r.data),
+  set: (data: { companyId: string; module: string; estado?: string; plan?: string }) =>
+    api.put('/entitlements', data).then((r) => r.data),
+};
+
 export const catalogsApi = {
   tiposAporte: () => api.get<TipoAporte[]>('/catalogs/tipos-aporte').then((r) => r.data),
   tiposContribuyente: () => api.get<TipoContribuyente[]>('/catalogs/tipos-contribuyente').then((r) => r.data),

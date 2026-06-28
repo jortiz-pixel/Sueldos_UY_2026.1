@@ -1,7 +1,7 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, FileText, BarChart2,
-  Settings, LogOut, Building2, ChevronRight, Calculator, Briefcase,
+  Settings, LogOut, Building2, ChevronRight, Calculator, Briefcase, UserCog,
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -13,6 +13,7 @@ const navItems = [
   { to: '/concepts', label: 'Conceptos', icon: Calculator },
   { to: '/liquidation', label: 'Liquidaciones', icon: FileText },
   { to: '/reports', label: 'Reportes', icon: BarChart2 },
+  { to: '/access', label: 'Accesos', icon: UserCog },
   { to: '/parameters', label: 'Parámetros', icon: Settings },
 ];
 

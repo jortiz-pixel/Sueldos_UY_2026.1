@@ -13,6 +13,7 @@ import LiquidationPage from './pages/LiquidationPage';
 import LiquidationDetailPage from './pages/LiquidationDetailPage';
 import ReportsPage from './pages/ReportsPage';
 import ParametersPage from './pages/ParametersPage';
+import AccessPage from './pages/AccessPage';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -40,6 +41,7 @@ function AppRoutes() {
         <Route path="liquidation/:id" element={<LiquidationDetailPage />} />
         <Route path="reports" element={<ReportsPage />} />
         <Route path="parameters" element={<ParametersPage />} />
+        <Route path="access" element={<AccessPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
