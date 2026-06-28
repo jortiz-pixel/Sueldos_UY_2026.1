@@ -7,6 +7,7 @@ import {
   EntitlementStatus,
 } from '@prisma/client';
 import { prisma } from '../utils/prisma';
+import { AppError } from './errorHandler';
 
 export interface MembershipContext {
   companyId: string;
@@ -48,6 +49,37 @@ export async function resolveMembership(
   });
   if (!m || m.estado !== MembershipStatus.ACTIVA) return null;
   return { companyId, role: m.role, superadmin: false, permisos: m.permisos ?? undefined };
+}
+
+/**
+ * Lanza 403 si el usuario no tiene una membresía ACTIVA sobre la empresa.
+ * El superadmin de plataforma (User.role === ADMIN) siempre pasa.
+ * Es el reemplazo membership-aware del viejo chequeo `req.user.companyId !== x`.
+ */
+export async function assertCompanyAccess(
+  req: Request,
+  companyId: string | null | undefined,
+): Promise<void> {
+  if (!req.user) throw new AppError(401, 'No autenticado');
+  if (!companyId) throw new AppError(400, 'companyId requerido');
+  if (req.user.role === UserRole.ADMIN) return;
+  const m = await prisma.membership.findUnique({
+    where: { userId_companyId: { userId: req.user.userId, companyId } },
+  });
+  if (!m || m.estado !== MembershipStatus.ACTIVA) {
+    throw new AppError(403, 'Acceso denegado a esta empresa');
+  }
+}
+
+/** Empresas accesibles para listados: 'ALL' para superadmin, o el set de membresías activas. */
+export async function accessibleCompanyIds(req: Request): Promise<'ALL' | string[]> {
+  if (!req.user) return [];
+  if (req.user.role === UserRole.ADMIN) return 'ALL';
+  const ms = await prisma.membership.findMany({
+    where: { userId: req.user.userId, estado: MembershipStatus.ACTIVA },
+    select: { companyId: true },
+  });
+  return ms.map((m) => m.companyId);
 }
 
 /** ¿Puede el usuario administrar (compartir/revocar/configurar) esta empresa? */

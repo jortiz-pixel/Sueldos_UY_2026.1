@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { UserRole, ItemType, Concepto } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { authenticate, requireRole } from '../middleware/auth';
+import { assertCompanyAccess } from '../middleware/tenancy';
 import { AppError, NotFoundError } from '../middleware/errorHandler';
 
 export const conceptsRouter = Router();
@@ -25,10 +26,8 @@ const conceptoSchema = z.object({
   activo: z.boolean().default(true),
 });
 
-function checkCompanyAccess(req: Request, companyId: string): void {
-  if (req.user!.role !== UserRole.ADMIN && req.user!.companyId !== companyId) {
-    throw new AppError(403, 'Acceso denegado a esta empresa');
-  }
+async function checkCompanyAccess(req: Request, companyId: string): Promise<void> {
+  await assertCompanyAccess(req, companyId);
 }
 
 function serializeConcepto(c: Concepto) {
@@ -40,7 +39,7 @@ conceptsRouter.get('/', authenticate, async (req: Request, res: Response, next: 
   try {
     const companyId = (req.query.companyId as string) || req.user!.companyId;
     if (!companyId) throw new AppError(400, 'companyId requerido');
-    checkCompanyAccess(req, companyId);
+    await checkCompanyAccess(req, companyId);
 
     const conceptos = await prisma.concepto.findMany({
       where: { companyId },
@@ -54,7 +53,7 @@ conceptsRouter.get('/', authenticate, async (req: Request, res: Response, next: 
 conceptsRouter.post('/', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const data = conceptoSchema.parse(req.body);
-    checkCompanyAccess(req, data.companyId);
+    await checkCompanyAccess(req, data.companyId);
     const concepto = await prisma.concepto.create({ data });
     res.status(201).json(serializeConcepto(concepto));
   } catch (err) { next(err); }
@@ -65,7 +64,7 @@ conceptsRouter.put('/:id', authenticate, requireRole(UserRole.ADMIN, UserRole.OP
   try {
     const existing = await prisma.concepto.findUnique({ where: { id: req.params.id } });
     if (!existing) throw new NotFoundError('Concepto');
-    checkCompanyAccess(req, existing.companyId);
+    await checkCompanyAccess(req, existing.companyId);
 
     const data = conceptoSchema.partial().parse(req.body);
     const concepto = await prisma.concepto.update({ where: { id: req.params.id }, data });
@@ -78,7 +77,7 @@ conceptsRouter.delete('/:id', authenticate, requireRole(UserRole.ADMIN, UserRole
   try {
     const existing = await prisma.concepto.findUnique({ where: { id: req.params.id } });
     if (!existing) throw new NotFoundError('Concepto');
-    checkCompanyAccess(req, existing.companyId);
+    await checkCompanyAccess(req, existing.companyId);
     await prisma.concepto.delete({ where: { id: req.params.id } });
     res.json({ message: 'Concepto eliminado' });
   } catch (err) { next(err); }

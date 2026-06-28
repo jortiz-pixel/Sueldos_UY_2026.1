@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { ItemType, LiquidationType, LiquidationStatus } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { authenticate } from '../middleware/auth';
+import { assertCompanyAccess } from '../middleware/tenancy';
 import { AppError } from '../middleware/errorHandler';
 import { toPesos } from '../utils/money';
 import { generateNominaExcel } from '../services/excel.service';
@@ -13,6 +14,7 @@ reportsRouter.get('/nomina-mensual', authenticate, async (req: Request, res: Res
   try {
     const companyId = (req.query.companyId as string) || req.user!.companyId;
     if (!companyId) throw new AppError(400, 'companyId requerido');
+    await assertCompanyAccess(req, companyId);
     const year = parseInt(req.query.year as string);
     const month = parseInt(req.query.month as string);
     if (isNaN(year) || isNaN(month)) throw new AppError(400, 'year y month requeridos');
@@ -84,6 +86,7 @@ reportsRouter.get('/bps-nomina', authenticate, async (req: Request, res: Respons
   try {
     const companyId = (req.query.companyId as string) || req.user!.companyId;
     if (!companyId) throw new AppError(400, 'companyId requerido');
+    await assertCompanyAccess(req, companyId);
     const year = parseInt(req.query.year as string);
     const month = parseInt(req.query.month as string);
     if (isNaN(year) || isNaN(month)) throw new AppError(400, 'year y month requeridos');
@@ -146,6 +149,7 @@ reportsRouter.get('/irpf-summary', authenticate, async (req: Request, res: Respo
   try {
     const companyId = (req.query.companyId as string) || req.user!.companyId;
     if (!companyId) throw new AppError(400, 'companyId requerido');
+    await assertCompanyAccess(req, companyId);
     const year = parseInt(req.query.year as string || String(new Date().getFullYear()));
 
     const items = await prisma.payrollItem.findMany({
@@ -201,6 +205,7 @@ reportsRouter.get('/nomina-excel', authenticate, async (req: Request, res: Respo
   try {
     const companyId = (req.query.companyId as string) || req.user!.companyId;
     if (!companyId) throw new AppError(400, 'companyId requerido');
+    await assertCompanyAccess(req, companyId);
     const year = parseInt(req.query.year as string);
     const month = parseInt(req.query.month as string);
 

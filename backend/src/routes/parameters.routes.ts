@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { UserRole } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { authenticate, requireRole } from '../middleware/auth';
+import { assertCompanyAccess } from '../middleware/tenancy';
 import { NotFoundError } from '../middleware/errorHandler';
 import { parametersService } from '../services/parameters.service';
 
@@ -109,6 +110,7 @@ parametersRouter.get('/tax-brackets/history', authenticate, requireRole(UserRole
 parametersRouter.get('/laudos', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const companyId = (req.query.companyId as string) || req.user!.companyId;
+    await assertCompanyAccess(req, companyId);
     const laudos = await prisma.laudo.findMany({
       where: { companyId: companyId ?? '' },
       orderBy: [{ grupoActividad: 'asc' }, { categoria: 'asc' }],

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { UserRole, LiquidationType, LiquidationStatus, PeriodStatus } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { authenticate, requireRole } from '../middleware/auth';
+import { assertCompanyAccess } from '../middleware/tenancy';
 import { AppError, NotFoundError } from '../middleware/errorHandler';
 import { generarLiquidacionMensual, confirmarLiquidacion } from '../services/liquidation.service';
 import { calcularAguinaldo } from '../services/aguinaldo.service';
@@ -16,6 +17,7 @@ liquidationRouter.get('/periods', authenticate, async (req: Request, res: Respon
   try {
     const companyId = (req.query.companyId as string) || req.user!.companyId;
     if (!companyId) throw new AppError(400, 'companyId requerido');
+    await assertCompanyAccess(req, companyId);
 
     const periods = await prisma.payrollPeriod.findMany({
       where: {
@@ -40,6 +42,7 @@ liquidationRouter.post('/periods', authenticate, requireRole(UserRole.ADMIN, Use
       month: z.number().int().min(1).max(12),
     });
     const { companyId, year, month } = schema.parse(req.body);
+    await assertCompanyAccess(req, companyId);
 
     const period = await prisma.payrollPeriod.upsert({
       where: { companyId_year_month: { companyId, year, month } },
@@ -109,6 +112,7 @@ liquidationRouter.post('/generate-batch', authenticate, requireRole(UserRole.ADM
       month: z.number().int().min(1).max(12),
     });
     const { companyId, periodId, year, month } = schema.parse(req.body);
+    await assertCompanyAccess(req, companyId);
     const asOf = new Date(year, month - 1, 1);
 
     const contratos = await prisma.contrato.findMany({

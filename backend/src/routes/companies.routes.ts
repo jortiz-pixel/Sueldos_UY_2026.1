@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { UserRole } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { authenticate, requireRole } from '../middleware/auth';
+import { accessibleCompanyIds, assertCompanyAccess } from '../middleware/tenancy';
 import { AppError, NotFoundError } from '../middleware/errorHandler';
 
 export const companiesRouter = Router();
@@ -55,9 +56,8 @@ const companySchema = z.object({
 // GET /api/companies
 companiesRouter.get('/', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const where = req.user!.role === UserRole.ADMIN
-      ? {}
-      : { id: req.user!.companyId ?? '' };
+    const ids = await accessibleCompanyIds(req);
+    const where = ids === 'ALL' ? {} : { id: { in: ids } };
 
     const companies = await prisma.company.findMany({
       where: { ...where, active: true },
@@ -76,9 +76,7 @@ companiesRouter.get('/:id', authenticate, async (req: Request, res: Response, ne
       include: { _count: { select: { employees: { where: { active: true } } } } },
     });
     if (!company) throw new NotFoundError('Empresa');
-    if (req.user!.role !== UserRole.ADMIN && company.id !== req.user!.companyId) {
-      throw new AppError(403, 'Acceso denegado');
-    }
+    await assertCompanyAccess(req, company.id);
     res.json(company);
   } catch (err) { next(err); }
 });
