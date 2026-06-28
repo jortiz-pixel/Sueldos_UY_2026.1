@@ -92,6 +92,33 @@ export const entitlementApi = {
     api.put('/entitlements', data).then((r) => r.data),
 };
 
+export type AttachmentTipo = 'FOTO' | 'CEDULA' | 'LIBRETA' | 'CARNE_SALUD' | 'CV' | 'OTRO';
+
+export interface Attachment {
+  id: string;
+  companyId: string;
+  ownerType: string;
+  ownerId: string;
+  tipo: AttachmentTipo;
+  fileName: string;
+  mimeType: string;
+  tamano: number;
+  vencimiento: string | null;
+  createdAt: string;
+}
+
+export const attachmentApi = {
+  list: (params: { companyId: string; ownerType: string; ownerId: string }) =>
+    api.get<Attachment[]>('/attachments', { params }).then((r) => r.data),
+  upload: (formData: FormData) =>
+    api.post<Attachment>('/attachments', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data),
+  blob: (id: string) =>
+    api.get(`/attachments/${id}/download`, { responseType: 'blob' }).then((r) => r.data as Blob),
+  remove: (id: string) => api.delete(`/attachments/${id}`).then((r) => r.data),
+};
+
 export const catalogsApi = {
   tiposAporte: () => api.get<TipoAporte[]>('/catalogs/tipos-aporte').then((r) => r.data),
   tiposContribuyente: () => api.get<TipoContribuyente[]>('/catalogs/tipos-contribuyente').then((r) => r.data),

@@ -5,6 +5,8 @@ import { ArrowLeft, Calendar, User, DollarSign, FileText, Briefcase, Plus, X, Al
 import { useForm } from 'react-hook-form';
 import { employeesApi, contractsApi, companiesApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
+import { useCompany } from '../hooks/useCompany';
+import AttachmentsPanel from '../components/AttachmentsPanel';
 import { formatPesos, MESES, Contrato, SalaryType } from '../types';
 
 function Field({ label, value }: { label: string; value: string | number | boolean | null | undefined }) {
@@ -38,6 +40,7 @@ interface ContractForm {
 export default function EmployeeDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { user, isOperator } = useAuth();
+  const { activeCompanyId } = useCompany();
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [formError, setFormError] = useState('');
@@ -183,6 +186,8 @@ export default function EmployeeDetailPage() {
         </div>
 
         <div className="space-y-4">
+          <AttachmentsPanel companyId={activeCompanyId} ownerType="PERSONA" ownerId={employee.id} />
+
           <div className="card p-5">
             <div className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-4">
               <Calendar size={16} />
