@@ -25,6 +25,38 @@ El estado actual ya tiene piezas correctas para esto (Persona global, Contrato c
 
 ---
 
+## A · Discusión estratégica (contexto para decidir)
+
+Esta sección resume el razonamiento detrás de las decisiones. Sirve para que cada elección técnica tenga su porqué de negocio.
+
+### A.1 ¿Las empresas se construirán su propio software y dejarán de comprar?
+
+Postura: **parcialmente cierto, pero no para este producto.**
+
+- Lo que abarata la IA es **escribir** software (el v1). Lo que *no* abarata es **mantenerlo y responder por él**: corrección continua, cumplimiento regulatorio, seguridad, responsabilidad legal, conocimiento institucional.
+- La nómina es el **peor candidato** para "hágalo usted mismo": no es código difícil, es **mantenimiento regulatorio difícil** (BPC, escalas IRPF, FONASA, aportes, Consejos de Salarios… que cambian permanentemente y donde un error es una multa, no un bug feo). Un proveedor amortiza ese trabajo entre todos sus clientes; una empresa sola, no.
+- "No compartir datos" no implica construir: una empresa chica corriendo su propio software suele ser **menos** segura (sin equipo de seguridad, sin backups probados). El riesgo se mitiga del lado del proveedor (on-premise, residencia de datos, encriptación).
+
+**Conclusión:** habrá más software a medida en lo **no regulado y diferencial**; en lo **horizontal y regulado** (sueldos, impuestos, contabilidad) sigue ganando comprar. El competidor real no es el "hágalo usted mismo", es **otro proveedor con mejor producto y el mismo motor regulatorio**.
+
+### A.2 ¿Por qué SaaS / multi-cliente y no solo interno de Gro?
+
+El valor durable es el **motor regulatorio mantenido al día**. Ese costo de mantenimiento permanente **solo se justifica amortizándolo entre varios clientes**. Si fuera solo para Gro, sería difícil de sostener en el tiempo. → empuja a **producto/SaaS**.
+
+### A.3 ¿Por qué plataforma multi-módulo (no productos sueltos)?
+
+Sueldos, Facturación y Contabilidad comparten identidad, empresa y padrón de personas, y convergen en el asiento contable. Si nacen como apps separadas, "interconectarlas" después es pegar con cinta tres logins y tres padrones. Diseñar el **backbone una sola vez** es barato ahora y carísimo de retrofitear. → **plataforma AsysTax**, Sueldos como primer módulo.
+
+### A.4 ¿Por qué "núcleo común + país" y no un motor tributario universal?
+
+Cada país difiere demasiado para un motor único; pero la mayor parte del sistema es **agnóstica al mercado** (sección 3). Lo único realmente local es la matemática fiscal. La estrategia correcta es **base común + paquete de país**, validada con un segundo país antes de declararla genérica. → internacionalización sin sobre-ingeniería.
+
+### A.5 Resumen de la postura
+
+> AsysTax es una **plataforma internacional multi-módulo** cuyo valor es el **motor regulatorio confiable y mantenido**, amortizado entre clientes (SaaS), con un **núcleo común** y **paquetes por país**. Lo barato-ahora/caro-después (backbone, membresía, motor data-driven) se decide primero; el cálculo de Uruguay que ya funciona no se toca hasta que se decida implementar.
+
+---
+
 ## 1. Principios rectores
 
 1. **Plataforma antes que producto:** identidad, empresa y persona existen una sola vez para toda la suite, no una por módulo.
@@ -310,16 +342,91 @@ Cada fase es desplegable y no rompe lo anterior (migraciones aditivas, como veni
 
 ---
 
-## 16. Decisiones abiertas (para definir juntos)
+## 16. Decisiones a tomar (matriz de decisión)
 
-1. **Escala objetivo** → fija storage (local vs S3) y cola (cron vs Redis/BullMQ).
-2. **Infra** → ¿seguir en Hostinger o mover a nube (AWS/GCP) para storage + colas + escalado?
-3. **Email** → ¿SMTP de Workspace `@gro.com.uy` o proveedor transaccional?
-4. **Datos de pago** → ¿a nivel persona o contrato?
-5. **Propiedad de la base compartida** → ¿transferible? ¿qué pasa al revocar al OWNER?
-6. **Orden de mercados** → ¿cuál es el segundo país objetivo (AR/CL) y cuándo?
-7. **Alcance de la suite** → ¿Facturación o Contabilidad primero, después de Sueldos?
+Cada decisión con sus opciones, una **recomendación** y la **consecuencia** que arrastra. Pensadas para resolverse de a una.
+
+### D1 · Escala objetivo del producto  *(define todo lo demás)*
+| Opción | Implica |
+|---|---|
+| Interno de Gro (pocas empresas) | Infra simple; difícil justificar el mantenimiento regulatorio en el tiempo |
+| **Producto SaaS multi-cliente** ✅ | Amortiza el motor regulatorio; exige membresía + aislamiento serios |
+| SaaS internacional desde día 1 | Máximo alcance; máximo costo inicial — riesgo de sobre-ingeniería |
+> **Recomendación:** SaaS multi-cliente, con la abstracción internacional *diseñada* pero implementada país por país. Es la que sostiene económicamente el producto sin pagar de golpe el costo de N países.
+
+### D2 · Orden de construcción de la suite
+| Opción | Implica |
+|---|---|
+| **Sueldos profundo primero** ✅ | Consolida el módulo que ya existe; el resto se enchufa después |
+| Sueldos + Contabilidad en paralelo | Contabilidad es el sumidero natural (recibe asientos); pero duplica frente abierto |
+| Facturación antes que Contabilidad | Más demanda de mercado, pero su asiento necesita a Contabilidad para cerrar el círculo |
+> **Recomendación:** terminar Sueldos sobre el backbone, y que el **2.º módulo sea Contabilidad** (es donde convergen los asientos de todos). Facturación tercero.
+
+### D3 · Segundo país (valida la abstracción internacional)
+| Opción | Implica |
+|---|---|
+| **Argentina** | Mercado grande; regulación compleja y cambiante |
+| **Chile** | Estructura más ordenada; buen banco de pruebas para el motor |
+| Esperar / solo UY por ahora | Menor costo; no valida si la abstracción es realmente genérica |
+> **Recomendación:** definir el país objetivo *antes* de F2, porque el segundo país es el que confirma que el motor data-driven está bien diseñado. Chile suele ser el más limpio para validar; Argentina el de mayor mercado.
+
+### D4 · Infraestructura
+| Opción | Implica |
+|---|---|
+| **Seguir en Hostinger (VPS)** ✅ por ahora | Costo bajo; suficiente para arrancar SaaS chico |
+| Nube (AWS/GCP) | Storage S3, colas y escalado nativos; mayor costo y complejidad |
+> **Recomendación:** seguir en Hostinger mientras la escala sea baja, **pero** definir las interfaces (`StorageService`, cola) abstractas para migrar sin reescribir cuando haga falta.
+
+### D5 · Almacenamiento de archivos
+| Opción | Implica |
+|---|---|
+| **Volumen local + interfaz `StorageService`** ✅ | Simple hoy; migrable a S3 cambiando solo la implementación |
+| S3-compatible (MinIO/AWS) ya | Listo para escala/multi-cliente; más setup inicial |
+> **Recomendación:** local detrás de la interfaz ahora; S3 cuando D1/D4 lo pidan.
+
+### D6 · Cola de trabajos / notificaciones
+| Opción | Implica |
+|---|---|
+| **Cron simple** ✅ para arrancar | Suficiente para recordatorios e emails básicos |
+| Redis + BullMQ | Necesario para volumen multi-cliente y reintentos robustos |
+> **Recomendación:** cron al inicio detrás de una interfaz; cola real cuando crezca el volumen.
+
+### D7 · Email
+| Opción | Implica |
+|---|---|
+| SMTP de Google Workspace `@gro.com.uy` | Cero costo extra; entregabilidad/escala limitadas |
+| **Proveedor transaccional** (SES/Resend/…) | Mejor entregabilidad y escala; pequeño costo |
+> **Recomendación:** Workspace para empezar; transaccional al pasar a multi-cliente real.
+
+### D8 · Datos de pago (banco/cuenta)
+| Opción | Implica |
+|---|---|
+| A nivel **Persona** | Simple; asume que la persona cobra igual en toda empresa |
+| A nivel **Contrato** | Soporta que cobre distinto según empresa; más flexible |
+> **Recomendación:** definirlo según la realidad del negocio — si una misma persona puede cobrar por bancos distintos según la empresa, va a **Contrato**. (Decisión de dato, barata de mover si se elige bien ahora.)
+
+### D9 · Propiedad de la base compartida
+| Opción | Implica |
+|---|---|
+| OWNER fijo, no transferible | Simple; problemático si esa persona se va |
+| **OWNER transferible + reglas de revocación** ✅ | Robusto para empresas reales; algo más de lógica |
+> **Recomendación:** propiedad transferible y regla explícita de qué pasa al revocar al OWNER (otro ADMIN asume). Se diseña junto con F1.
 
 ---
 
-*Próximo paso sugerido (cuando se decida implementar):* **F1 (backbone + membresía)**, por ser la fundación de la plataforma multi-módulo, y en paralelo dejar planteada **F2** (motor data-driven) que habilita la internacionalización. Ninguna de las dos requiere tocar todavía el cálculo que ya está funcionando para Uruguay.
+### Tablero rápido para decidir
+| # | Decisión | Recomendación | Urgencia |
+|---|---|---|---|
+| D1 | Escala objetivo | SaaS multi-cliente | **Ahora** (condiciona todo) |
+| D2 | Orden de la suite | Sueldos → Contabilidad → Facturación | Media |
+| D3 | Segundo país | Definir antes de F2 (CL valida / AR mercado) | **Antes de F2** |
+| D4 | Infra | Hostinger + interfaces abstractas | Baja |
+| D5 | Storage | Local tras `StorageService` | Con F3 |
+| D6 | Cola | Cron → cola real al crecer | Con F5 |
+| D7 | Email | Workspace → transaccional | Con F5 |
+| D8 | Datos de pago | Persona o Contrato según negocio | Con F10 |
+| D9 | Propiedad base | Transferible + revocación | Con F1 |
+
+---
+
+*Próximo paso sugerido (cuando se decida implementar):* resolver **D1** (escala) y **D3** (segundo país), luego **F1 (backbone + membresía)** como fundación, dejando planteada **F2** (motor data-driven) para la internacionalización. Ninguna requiere tocar todavía el cálculo de Uruguay que ya está en producción.
