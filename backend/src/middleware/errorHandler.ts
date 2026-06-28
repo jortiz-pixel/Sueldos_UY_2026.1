@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { ZodError } from 'zod';
 import { logger } from '../utils/logger';
 
 export class AppError extends Error {
@@ -43,6 +44,17 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
       error: err.message,
       code: err.code,
       details: err.details,
+    });
+    return;
+  }
+
+  // Errores de validación de Zod (schema.parse) → 422 con mensaje claro
+  if (err instanceof ZodError) {
+    const details = err.errors.map((e) => ({ path: e.path.join('.'), message: e.message }));
+    res.status(422).json({
+      error: details[0]?.message || 'Error de validación',
+      code: 'VALIDATION_ERROR',
+      details,
     });
     return;
   }

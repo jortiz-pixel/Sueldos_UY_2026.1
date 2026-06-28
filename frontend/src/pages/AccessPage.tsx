@@ -70,8 +70,8 @@ export default function AccessPage() {
       setFormError('');
     },
     onError: (err: unknown) => {
-      const e = err as { response?: { data?: { error?: string } } };
-      setFormError(e.response?.data?.error || 'No se pudo compartir la empresa');
+      const e = err as { response?: { data?: { error?: string; details?: Array<{ message: string }> } } };
+      setFormError(e.response?.data?.details?.[0]?.message || e.response?.data?.error || 'No se pudo compartir la empresa');
     },
   });
 

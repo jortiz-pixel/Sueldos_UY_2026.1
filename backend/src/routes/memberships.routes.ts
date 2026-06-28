@@ -86,11 +86,11 @@ membershipsRouter.get('/', authenticate, async (req: Request, res: Response, nex
 // -------------------------------------------------------------------
 const shareSchema = z.object({
   companyId: z.string().min(1),
-  email: z.string().email(),
+  email: z.string().email('Email inválido'),
   role: z.nativeEnum(MembershipRole).default(MembershipRole.OPERATOR),
   nombre: z.string().min(1).optional(),
   apellido: z.string().min(1).optional(),
-  password: z.string().min(8).optional(),
+  password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres').optional(),
 });
 
 membershipsRouter.post('/', authenticate, async (req: Request, res: Response, next: NextFunction) => {
