@@ -27,8 +27,11 @@ services:
     environment:
       DATABASE_URL: "postgresql://sueldos_user:sueldos_pass@postgres:5432/sueldos_uy?schema=public"
       NODE_ENV: production
+      STORAGE_DIR: /app/storage
     ports:
       - "3000:3000"
+    volumes:
+      - uploads_data:/app/storage
     depends_on:
       postgres:
         condition: service_healthy
@@ -48,3 +51,4 @@ services:
 
 volumes:
   postgres_data:
+  uploads_data:

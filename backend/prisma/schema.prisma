@@ -96,6 +96,7 @@ model Company {
   auditLogs        AuditLog[]
   memberships      Membership[]
   entitlements     Entitlement[]
+  attachments      Attachment[]
 
   @@map("companies")
 }
@@ -204,6 +205,38 @@ model Membership {
   @@unique([userId, companyId])
   @@index([companyId])
   @@map("memberships")
+}
+
+enum AttachmentType {
+  FOTO
+  CEDULA
+  LIBRETA
+  CARNE_SALUD
+  CV
+  OTRO
+}
+
+/// Adjunto genérico (polimórfico) — foto, scans, carné de salud, CV, documentos.
+/// ownerType/ownerId apuntan a la entidad dueña (PERSONA, EMPRESA, CONTRATO…).
+model Attachment {
+  id           String         @id @default(cuid())
+  companyId    String
+  ownerType    String         // PERSONA | EMPRESA | CONTRATO | ...
+  ownerId      String
+  tipo         AttachmentType @default(OTRO)
+  fileName     String
+  mimeType     String
+  storageKey   String
+  tamano       Int
+  vencimiento  DateTime?      // carné de salud, libreta
+  uploadedById String?
+  createdAt    DateTime       @default(now())
+
+  company      Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([ownerType, ownerId])
+  @@index([companyId])
+  @@map("attachments")
 }
 
 /// Módulos que tiene contratada cada empresa (base del land-and-expand).

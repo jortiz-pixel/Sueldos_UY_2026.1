@@ -30,8 +30,8 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY prisma ./prisma/
 
-# Logs directory writable by the non-root node user
-RUN mkdir -p /app/logs && chown -R node:node /app
+# Logs + storage directories writable by the non-root node user
+RUN mkdir -p /app/logs /app/storage && chown -R node:node /app
 
 EXPOSE 3000
 
