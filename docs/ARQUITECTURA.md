@@ -1,8 +1,8 @@
 # Documento de Arquitectura — AsysTax
 
 > **Estado:** Borrador para discusión. No es plan de implementación inmediata.
-> **Producto:** **AsysTax Sueldos** — primer módulo de la plataforma **AsysTax** (suite de liquidación, facturación y contabilidad).
-> **Visión:** plataforma multi-módulo, multi-empresa e **internacional** (núcleo común + especialización por país).
+> **Producto:** **AsysTax Sueldos** — primer módulo de la plataforma **AsysTax** (suite extensible: sueldos, facturación, contabilidad, CRM, stock…).
+> **Visión:** plataforma **extensible**, multi-empresa e **internacional**, con crecimiento *land-and-expand* y **migración fácil** como diferenciador. Meta: ser líder en Latinoamérica.
 > Las decisiones marcadas con 🔵 son **fundacionales**: baratas de hacer ahora, caras de retrofitear.
 
 ---
@@ -13,13 +13,19 @@ AsysTax no es un sistema de sueldos: es una **plataforma** sobre la que viven va
 
 - **Multi-empresa (multi-tenant):** una instalación sirve a muchas empresas, con aislamiento estricto y posibilidad de compartir empresas entre usuarios.
 - **Internacional:** un **núcleo común** agnóstico al país + un **paquete de país** que aporta las reglas locales (impuestos, aportes, documentos, moneda). El valor durable es el motor regulatorio mantenido al día — eso es lo que la IA *no* abarata y lo que ninguna empresa se construye sola.
-- **Multi-módulo e interconectada:** Sueldos, Facturación y Contabilidad comparten identidad, empresa y padrón de personas, y se integran por **eventos** (el *asiento contable* como contrato de integración), no por acoplamiento de tablas.
+- **Multi-módulo e *extensible*:** Sueldos, Facturación, Contabilidad — y a futuro **CRM, Control de Stock** y los que vengan — son **módulos enchufables** sobre un backbone común. La plataforma no está cableada a un conjunto fijo de módulos: nuevos módulos se *registran*, no se incrustan.
+- **Land-and-expand:** el cliente entra por **cualquier** módulo (uno llega por Facturación, otro por Sueldos) y suma los demás **sin re-onboarding**, porque sus datos (empresa, personas, clientes, productos) ya viven en el backbone. Cada módulo es a la vez **puerta de entrada** y **objetivo de venta cruzada**.
+- **Migración fácil como diferenciador:** importar desde *cualquier* software previo con mínima fricción es un **subsistema de primera clase** y la principal palanca para ganar usuarios. Bajar el costo de cambiarse a AsysTax es la ventaja competitiva.
 
-Tres decisiones fundacionales se derivan de esto y conviene tomarlas antes de seguir construyendo:
+> **Norte:** ser el software **líder en Latinoamérica**. Eso no se logra con features sueltas sino con **cimientos firmes**: un backbone extensible, datos maestros compartidos, integración por eventos y migración sin dolor.
 
-1. 🔵 **Backbone de plataforma** (identidad + empresa + persona + eventos) compartido por todos los módulos.
+Decisiones fundacionales que se derivan de esto y conviene tomar antes de seguir construyendo:
+
+1. 🔵 **Backbone de plataforma extensible** (identidad + empresa + datos maestros + eventos + **registro de módulos**) compartido por todos los módulos.
 2. 🔵 **Membresía y permisos** de plataforma (reemplaza `User.companyId`): habilita compartir empresas y multi-empresa.
-3. 🔵 **Motor de cálculo data-driven**: la lógica fiscal vive como datos/conceptos por país, no cableada en el código.
+3. 🔵 **Entitlements por módulo**: qué módulos tiene contratada cada empresa (la base económica del land-and-expand).
+4. 🔵 **Motor de cálculo data-driven**: la lógica fiscal vive como datos/conceptos por país, no cableada en el código.
+5. 🔵 **Framework de migración/importación**: importadores por sistema de origen, con validación y *dry-run*.
 
 El estado actual ya tiene piezas correctas para esto (Persona global, Contrato como vínculo, Motor de Conceptos, aritmética en centésimos). El trabajo es **completarlas y elevarlas a nivel plataforma**, no reescribir.
 
@@ -51,26 +57,43 @@ Sueldos, Facturación y Contabilidad comparten identidad, empresa y padrón de p
 
 Cada país difiere demasiado para un motor único; pero la mayor parte del sistema es **agnóstica al mercado** (sección 3). Lo único realmente local es la matemática fiscal. La estrategia correcta es **base común + paquete de país**, validada con un segundo país antes de declararla genérica. → internacionalización sin sobre-ingeniería.
 
-### A.5 Resumen de la postura
+### A.5 Estrategia de crecimiento: land-and-expand + migración
 
-> AsysTax es una **plataforma internacional multi-módulo** cuyo valor es el **motor regulatorio confiable y mantenido**, amortizado entre clientes (SaaS), con un **núcleo común** y **paquetes por país**. Lo barato-ahora/caro-después (backbone, membresía, motor data-driven) se decide primero; el cálculo de Uruguay que ya funciona no se toca hasta que se decida implementar.
+La forma de **ganar el mercado** no es vender un producto grande, sino **entrar por una punta y expandirse**:
+
+- **Cada módulo es una puerta de entrada.** Uno llega por Facturación; otro por Sueldos; mañana por CRM. El producto debe ser excelente *por módulo*, no solo como suite.
+- **La venta cruzada es casi sin fricción** *si y solo si* los datos maestros están compartidos. Quien ya cargó su empresa, sus personas y sus clientes para Facturación, activa Sueldos con un clic y la mitad de los datos ya están. Eso **solo funciona si el backbone es común desde el día uno** — es la justificación económica de gastar en cimientos.
+- **La migración es la palanca de adquisición.** El mayor freno para cambiarse de software es el miedo a migrar los datos. Si AsysTax importa desde cualquier sistema previo con un proceso guiado y confiable, **baja la barrera de entrada** y se vuelve el diferenciador comercial. Es tan importante como las features.
+
+> Modelo mental: **no vendemos software, bajamos costos de cambio.** Costo de cambio de *venir* (migración fácil) + costo de cambio de *expandirse* (datos ya cargados) ≈ 0. Ahí está el liderazgo.
+
+### A.6 Extensibilidad: módulos previstos pero no incrustados
+
+Para que CRM, Stock y futuros módulos **encajen sin reescribir el núcleo**, la plataforma se diseña con un **registro de módulos**: cada módulo declara sus entidades, los eventos que emite/consume, sus permisos y sus importadores. El backbone no "sabe" qué módulos existen; los descubre. Esto es lo que separa una **plataforma** de "tres apps que comparten login".
+
+### A.7 Resumen de la postura
+
+> AsysTax es una **plataforma extensible, internacional y multi-módulo** cuyo valor es el **motor regulatorio confiable y mantenido** + **datos maestros compartidos** + **migración sin dolor**. Se crece por *land-and-expand* (entrar por una punta, expandir a las otras). Lo barato-ahora/caro-después (backbone extensible, membresía, entitlements, motor data-driven, framework de migración) se decide primero; el cálculo de Uruguay que ya funciona no se toca hasta decidir implementar.
 
 ---
 
 ## 1. Principios rectores
 
-1. **Plataforma antes que producto:** identidad, empresa y persona existen una sola vez para toda la suite, no una por módulo.
-2. **Dos planos de datos:** lo de la *persona* es global; lo *operativo* es por empresa (tenant).
-3. **Núcleo común vs. país:** cero lógica de un país en el código de la aplicación; lo local vive en datos.
-4. **Integración por contratos, no por tablas:** los módulos se hablan por eventos/APIs bien definidos; cada uno es dueño de su dominio.
-5. **Genérico antes que específico:** adjuntos, eventos y permisos como mecanismos reutilizables.
-6. **La liquidación es un *pipeline*:** novedades → previsualización → cálculo → recibo → **asiento contable** (evento de salida).
-7. **Todo lo sensible se audita y se encripta** (cuentas bancarias, documentos).
-8. **Aritmética en centésimos (BigInt)** — ya vigente, agnóstica a la moneda, se mantiene.
+1. **Plataforma antes que producto:** identidad, empresa y datos maestros existen una sola vez para toda la suite, no una por módulo.
+2. **Extensible por diseño:** módulos enchufables vía registro/manifiesto; agregar uno nuevo no toca el núcleo.
+3. **Datos maestros compartidos:** Persona, Tercero (cliente/proveedor) y Producto en el backbone — es lo que hace barata la venta cruzada.
+4. **Dos planos de datos:** lo de la *persona/maestro* es global; lo *operativo* es por empresa (tenant).
+5. **Núcleo común vs. país:** cero lógica de un país en el código de la aplicación; lo local vive en datos.
+6. **Integración por contratos, no por tablas:** los módulos se hablan por eventos/APIs bien definidos; cada uno es dueño de su dominio.
+7. **Migración como diferenciador:** importar desde cualquier SW previo es un subsistema central, no un extra.
+8. **Bajar costos de cambio:** fácil *venir* (migración) y fácil *expandirse* (datos ya cargados) — es la estrategia de crecimiento.
+9. **Genérico antes que específico:** adjuntos, eventos, permisos, importadores como mecanismos reutilizables.
+10. **Todo lo sensible se audita y se encripta** (cuentas bancarias, documentos).
+11. **Aritmética en centésimos (BigInt)** — ya vigente, agnóstica a la moneda, se mantiene.
 
 ---
 
-## 2. AsysTax como plataforma (la decisión de mayor alcance)
+## 2. AsysTax como plataforma extensible (la decisión de mayor alcance)
 
 AsysTax se diseña como **monolito modular**, no como microservicios: una sola plataforma, una sola base de datos con **contextos acotados** (cada módulo dueño de su esquema), backbone compartido e integración por un **bus de eventos interno**. Se opera como un sistema; los módulos están desacoplados por contratos, de modo que el día que uno necesite separarse, ya está aislado.
 
@@ -78,31 +101,115 @@ AsysTax se diseña como **monolito modular**, no como microservicios: una sola p
 
 ### 2.1 Backbone compartido (existe UNA sola vez)
 
+Lo crítico para el land-and-expand: los **datos maestros viven en el backbone**, no dentro de un módulo. Así, activar un segundo módulo reutiliza lo ya cargado.
+
 | Pieza | Compartida por | Nota |
 |---|---|---|
 | **Identidad / login / sesión** | Todos los módulos | Login único; se cambia de módulo sin re-loguearse |
 | **Membresía + permisos** | Todos los módulos | Membresía a la *empresa en AsysTax*, no a "la empresa en Sueldos" |
+| **Entitlements** (módulos contratados) | Todos los módulos | Qué módulos ve/usa cada empresa (base del land-and-expand) |
 | **Empresa (tenant)** | Todos los módulos | RUT, razón social, domicilio fiscal: una sola vez |
-| **Persona / padrón global** | Todos los módulos | Un empleado en Sueldos puede ser proveedor en Facturación |
-| **Catálogos, auditoría, almacenamiento, notificaciones** | Todos los módulos | Mecanismos comunes |
-| **Bus de eventos** | Todos los módulos | Canal de integración entre módulos |
+| **Persona (padrón de personas físicas)** | Sueldos, RR.HH., CRM | Empleado, candidato, contacto |
+| **Tercero (cliente / proveedor)** | Facturación, Contabilidad, CRM, Stock | Persona o empresa con la que se opera |
+| **Producto / Ítem (bienes y servicios)** | Facturación, Stock, Contabilidad | Catálogo de lo que se vende/mueve |
+| **Catálogos, auditoría, almacenamiento, notificaciones, calendario** | Todos los módulos | Mecanismos comunes |
+| **Bus de eventos + registro de módulos** | Todos los módulos | Canal e infraestructura de extensibilidad |
 
-**Implicación clave:** como Sueldos es el primer módulo, su base de identidad/empresa/persona debe **nacer pensada como la base de la plataforma**, no como la de una app aislada. Retrofitear esto cuando ya existan tres productos con su propio login es carísimo.
+**Implicación clave:** como Sueldos es el primer módulo, su base de identidad/empresa/datos-maestros debe **nacer pensada como la base de la plataforma**, no como la de una app aislada. Retrofitear esto con varios productos ya en producción es carísimo.
 
-### 2.2 Integración entre módulos (eventos, no tablas compartidas)
+### 2.2 Registro de módulos (cómo se enchufa un módulo nuevo)
+
+El backbone **no conoce** la lista de módulos: la descubre. Cada módulo se *registra* declarando un manifiesto:
+
+```
+ModuleManifest
+  key            SUELDOS | FACTURACION | CONTABILIDAD | CRM | STOCK | ...
+  entidades      esquema propio (contexto acotado)
+  emite          eventos que publica (ej. "liquidacion.confirmada")
+  consume        eventos que escucha (ej. "factura.emitida")
+  permisos       acciones que expone para el sistema de roles
+  importadores   migradores que aporta (ver §2.6)
+  entitlement    cómo se licencia/activa
+```
+
+Agregar CRM o Stock = publicar su manifiesto + su esquema; **no se toca el núcleo ni los otros módulos**. Esto es lo que vuelve a AsysTax una plataforma y no "apps que comparten login".
+
+### 2.3 Módulos previstos
+
+| Módulo | Estado | Se apoya en (backbone) | Converge en |
+|---|---|---|---|
+| **Sueldos** | En producción (UY) | Persona, Empresa, Contrato | Contabilidad (asiento) |
+| **Facturación** | Previsto | Tercero, Producto, Empresa | Contabilidad (asiento) + Stock (movimiento) |
+| **Contabilidad** | Previsto | Empresa, plan de cuentas | — (sumidero de asientos) |
+| **CRM** | Previsto | Persona, Tercero (clientes/leads) | Facturación (oportunidad → factura) |
+| **Control de Stock** | Previsto | Producto, Empresa | Facturación (venta descuenta stock) |
+| *(futuros)* | Abierto | Backbone + registro de módulos | según corresponda |
+
+La existencia de **Tercero** y **Producto** como datos maestros compartidos es lo que hace que CRM, Facturación y Stock se integren naturalmente (un *lead* de CRM se vuelve *cliente* de Facturación; un *producto* facturado descuenta de *Stock*).
+
+### 2.4 Integración entre módulos (eventos, no tablas compartidas)
 
 Los módulos **no leen ni escriben las tablas del otro**. Se integran por contratos. El punto de convergencia natural es **Contabilidad**, sumidero de los demás:
 
 ```
-AsysTax Sueldos      ──(liquidación confirmada)──►  Asiento  ──►  AsysTax Contabilidad
-AsysTax Facturación  ──(factura emitida)─────────►  Asiento  ──►  AsysTax Contabilidad
+AsysTax Sueldos      ──(liquidación confirmada)──►  Asiento     ──►  AsysTax Contabilidad
+AsysTax Facturación  ──(factura emitida)─────────►  Asiento     ──►  AsysTax Contabilidad
+AsysTax Facturación  ──(venta confirmada)────────►  Movimiento  ──►  AsysTax Stock
+AsysTax CRM          ──(oportunidad ganada)──────►  Pre-factura ──►  AsysTax Facturación
 ```
 
 - **Sueldos → Contabilidad:** cada liquidación confirmada emite un evento que genera el **asiento de sueldos** (gasto de remuneraciones, aportes patronales, deudas con BPS/DGI, líquido a pagar).
 - **Facturación → Contabilidad:** cada factura emite su asiento (ventas, IVA débito fiscal).
-- **El *asiento contable* es la moneda de integración.** Definido bien el contrato (cuentas, importes, fecha, referencia al documento origen), Sueldos y Facturación no necesitan saber nada del interior de Contabilidad.
+- **Facturación → Stock:** una venta descuenta inventario; una compra lo aumenta.
+- **CRM → Facturación:** una oportunidad ganada se convierte en pre-factura (el cliente ya existe como *Tercero*).
+- **El *asiento contable* (y, análogamente, el *movimiento de stock*) es la moneda de integración.** Definido bien el contrato (cuentas/ítems, importes, fecha, referencia al documento origen), ningún módulo necesita saber del interior de otro.
 
 Esto encaja con el pipeline actual: la liquidación ya termina en un recibo; ahora ese mismo final **emite un evento** que otros módulos consumen.
+
+### 2.5 🔵 Entitlements y land-and-expand (cómo se monetiza y se expande)
+
+Qué módulos tiene contratada cada empresa vive en el backbone, no en cada módulo:
+
+```
+Entitlement
+  id, companyId
+  module     SUELDOS | FACTURACION | CONTABILIDAD | CRM | STOCK | ...
+  plan       (free / básico / pro …)
+  estado     ACTIVO | TRIAL | SUSPENDIDO
+  vigenciaDesde / vigenciaHasta
+  @@unique([companyId, module])
+```
+
+- **Entrar por una punta:** el cliente activa un módulo (ej. Facturación) → un `Entitlement`. El resto de la plataforma queda visible pero "no contratado".
+- **Expandir sin fricción:** activar Sueldos = crear otro `Entitlement`. **Los datos maestros ya están cargados** (empresa, personas, terceros) → onboarding casi nulo. Ese es el corazón del modelo de crecimiento.
+- **El frontend** muestra/oculta módulos según entitlements; el **backend** los exige en cada request (igual que la membresía). Un módulo sin entitlement no procesa, aunque la UI se filtre.
+- Habilita **trials por módulo** como táctica de venta cruzada ("probá Sueldos 30 días").
+
+### 2.6 🔵 Migración / Importación — el diferenciador competitivo
+
+El mayor freno para cambiarse de software es el miedo a migrar los datos. AsysTax lo convierte en ventaja: **importar desde cualquier sistema previo con un proceso guiado, validado y reversible.**
+
+```
+MigrationJob
+  id, companyId, targetModule
+  sourceSystem   EXCEL_GENERICO | <competidor> | API_EXTERNA | ...
+  fileRef        archivo subido (usa StorageService)
+  mapping        Json   // columnas origen → campos destino
+  dryRun         bool   // valida sin escribir
+  estado         CARGADO | MAPEADO | VALIDADO | CONFIRMADO | ERROR
+  resultados     Json   // filas OK / con error, detalle por fila
+```
+
+**Pipeline de importación** (reutiliza el motor de validaciones existente — ej. dígito verificador de cédula):
+
+```
+Subir archivo → Detectar/Mapear columnas → Validar (dry-run, muestra errores por fila) → Confirmar → Importar
+```
+
+- **Importadores por origen**, registrados por cada módulo (§2.2): un *importador genérico* (Excel/CSV con mapeo manual) cubre el caso universal; importadores específicos por competidor dan experiencia "un clic".
+- **Dry-run obligatorio:** nunca se escribe sin previsualizar qué entra y qué falla. Reduce el riesgo percibido, que es lo que frena la decisión de cambiarse.
+- **Datos maestros primero:** se migran al backbone (empresas, personas, terceros, productos) y quedan disponibles para *todos* los módulos — refuerza el land-and-expand.
+- Es un **subsistema de primera clase**, no una utilidad: es la principal palanca de adquisición de usuarios.
 
 ---
 
@@ -153,12 +260,13 @@ Hoy IRPF, FONASA, BPS y las escalas están **cableados en código TypeScript** (
 
 ---
 
-## 4. Modelo de datos en dos planos
+## 4. Modelo de datos en planos
 
 | Plano | Entidades | Clave |
 |---|---|---|
-| **GLOBAL** | `Persona` (padrón, candidatos, empleados), CVs/experiencia, `Catalogo`, `JurisdictionPack` | Únicas en el sistema (Persona por documento) |
-| **POR EMPRESA (tenant)** | `Empresa`, `Membership`, `Contrato`, `Liquidacion`, `Marca`/`JornadaReal`, `LibroTrabajo`, `Evaluacion`, `Proceso`, `EventoCalendario` | `companyId` obligatorio + filtro por membresía |
+| **GLOBAL (backbone)** | `Persona`, `Tercero` (cliente/proveedor), `Producto`, CVs/experiencia, `Catalogo`, `JurisdictionPack` | Únicas en el sistema (Persona/Tercero por documento) |
+| **PLATAFORMA (tenant)** | `Empresa`, `Membership`, `Entitlement` (módulos contratados), `EventoCalendario`, `Attachment` | `companyId` obligatorio + filtro por membresía |
+| **POR MÓDULO (tenant)** | Sueldos: `Contrato`, `Liquidacion`, `Marca`/`JornadaReal`, `LibroTrabajo`, `Evaluacion`, `Proceso` · Facturación: `Factura` · Contabilidad: `Asiento` · CRM: `Lead`/`Oportunidad` · Stock: `Deposito`/`Movimiento` | `companyId` + contexto acotado del módulo |
 
 **Estado actual:** ya implementado el núcleo correcto — `Persona` global + `Contrato` como vínculo persona↔empresa. No requiere cambios; el resto se construye encima.
 
@@ -294,9 +402,9 @@ Un **Proceso** tiene etapas; las **Candidaturas** mueven personas; el desenlace 
 
 ## 13. Seguridad (transversal)
 
-- Aislamiento por tenant verificado **siempre en backend** (middleware de membresía).
+- Aislamiento por tenant verificado **siempre en backend** (middleware de membresía + entitlement).
 - Menor privilegio por membresía + permisos granulares por módulo.
-- **Auditoría** poblada (`AuditLog`): logins, cambios sensibles, compartir/revocar, confirmaciones de liquidación, asientos emitidos.
+- **Auditoría** poblada (`AuditLog`): logins, cambios sensibles, compartir/revocar, confirmaciones de liquidación, asientos emitidos, importaciones.
 - **Encriptación** de datos sensibles y URLs firmadas para archivos.
 - OAuth + 2FA opcional; rotación de refresh tokens (ya implementada); rate limiting (ya implementado).
 - Backups y plan de recuperación de datos y archivos.
@@ -306,19 +414,23 @@ Un **Proceso** tiene etapas; las **Candidaturas** mueven personas; el desenlace 
 ## 14. Diagrama de relaciones (resumen)
 
 ```
-                         ┌─────────── AsysTax Platform (backbone) ───────────┐
-Usuario ──< Identity     │  Identidad · Membresía · Empresa · Persona ·       │
-Usuario ──< Membership >─┤  Catálogos · Adjuntos · Calendario · Bus eventos   │
-                         └───────────────────────────────────────────────────┘
-                                   │                │                │
-                            AsysTax Sueldos   AsysTax Facturación  AsysTax Contabilidad
-                                   │                │                ▲
-                                   └──── Asiento ───┴──── Asiento ───┘
+        ┌──────────────────── AsysTax Platform (backbone) ────────────────────┐
+        │  Identidad · Membresía · Entitlements · Empresa(tenant) ·            │
+        │  Datos maestros: Persona · Tercero · Producto ·                      │
+        │  Catálogos · Adjuntos · Calendario · Bus de eventos · Migración ·    │
+        │  Registro de módulos                                                 │
+        └─────────────────────────────────────────────────────────────────────┘
+            │            │             │            │            │
+         Sueldos    Facturación   Contabilidad     CRM         Stock      (+futuros)
+            │            │             ▲            │            ▲
+            └─ Asiento ──┴── Asiento ──┘            └ Oportun. ─►Factura   │
+                         └────────────────── Movimiento ──────────────────┘
 
-Persona (GLOBAL) ──< Contrato >── Empresa     (vínculo laboral)
-Persona ──< Attachment / Candidatura / DatosPago
-Empresa ──< Liquidacion >── Persona ; Marca/JornadaReal ; Evaluacion ; EventoCalendario ; Concepto
-Global  : Persona, Catalogos, JurisdictionPack (UY, AR, CL...)
+Backbone (GLOBAL): Persona · Tercero · Producto · Catalogos · JurisdictionPack (UY, AR, CL...)
+Persona ──< Contrato >── Empresa            (vínculo laboral, módulo Sueldos)
+Tercero ──< Factura (Facturación) ; Lead/Oportunidad (CRM)
+Producto ──< LíneaFactura ; Movimiento (Stock)
+Empresa ──< Entitlement (módulos contratados) ; Membership ; EventoCalendario
 ```
 
 ---
@@ -327,18 +439,20 @@ Global  : Persona, Catalogos, JurisdictionPack (UY, AR, CL...)
 
 | Fase | Entrega | Desbloquea |
 |---|---|---|
-| **F1** 🔵 | Backbone de plataforma: Membresía + permisos (reemplaza `User.companyId`) | Compartir empresa, multi-empresa, base multi-módulo |
-| **F2** 🔵 | Motor de cálculo data-driven: migrar IRPF/FONASA/BPS al Motor de Conceptos → UY como primer *country pack* | Internacionalización |
-| **F3** 🔵 | Attachments + StorageService | Foto, scans, carné de salud, CVs |
-| **F4** 🔵 | Eventos + Calendario + Dashboard | Panel principal, recordatorios |
-| **F5** | EmailService + cola de jobs | Avisos de F1/F4 |
-| **F6** | Login Google (Identity) + dominio | UX de acceso |
-| **F7** | Marcas/Asistencias + pipeline de novedades | Liquidación por datos reales |
-| **F8** | Bus de eventos + contrato de **asiento contable** | Interconexión con Facturación/Contabilidad |
-| **F9** | Segundo *country pack* (AR o CL) | Valida la abstracción internacional |
-| **F10** | Selección + Evaluaciones + DatosPago + geolocalización | ATS, desempeño, pagos |
+| **F1** 🔵 | Backbone: Membresía + permisos + **Entitlements** (reemplaza `User.companyId`) | Compartir empresa, multi-empresa, land-and-expand |
+| **F2** 🔵 | **Registro de módulos** + datos maestros compartidos (Persona/Tercero/Producto) + bus de eventos | Que CRM/Stock/Facturación se enchufen sin tocar el núcleo |
+| **F3** 🔵 | **Framework de migración/importación** (genérico Excel + dry-run) | Diferenciador de adquisición; carga inicial de cualquier cliente |
+| **F4** 🔵 | Motor de cálculo data-driven: migrar IRPF/FONASA/BPS al Motor de Conceptos → UY como primer *country pack* | Internacionalización |
+| **F5** 🔵 | Attachments + StorageService | Foto, scans, carné de salud, CVs |
+| **F6** 🔵 | Eventos + Calendario + Dashboard | Panel principal, recordatorios |
+| **F7** | EmailService + cola de jobs | Avisos, trials, invitaciones |
+| **F8** | Login Google (Identity) + dominio | UX de acceso |
+| **F9** | Marcas/Asistencias + pipeline de novedades | Liquidación por datos reales |
+| **F10** | **2.º módulo: Contabilidad** + contrato de *asiento* | Cierra el circuito Sueldos→Contabilidad; valida la extensibilidad |
+| **F11** | Segundo *country pack* (AR o CL) | Valida la abstracción internacional |
+| **F12+** | Módulos: Facturación → CRM → Stock; Selección/Evaluaciones/DatosPago | Suite completa |
 
-Cada fase es desplegable y no rompe lo anterior (migraciones aditivas, como venimos trabajando).
+Cada fase es desplegable y no rompe lo anterior (migraciones aditivas, como venimos trabajando). **F1–F3 son los cimientos** que pide la visión de plataforma extensible con migración como diferenciador.
 
 ---
 
@@ -354,13 +468,28 @@ Cada decisión con sus opciones, una **recomendación** y la **consecuencia** qu
 | SaaS internacional desde día 1 | Máximo alcance; máximo costo inicial — riesgo de sobre-ingeniería |
 > **Recomendación:** SaaS multi-cliente, con la abstracción internacional *diseñada* pero implementada país por país. Es la que sostiene económicamente el producto sin pagar de golpe el costo de N países.
 
-### D2 · Orden de construcción de la suite
+### D2 · Orden de construcción de los módulos
 | Opción | Implica |
 |---|---|
-| **Sueldos profundo primero** ✅ | Consolida el módulo que ya existe; el resto se enchufa después |
-| Sueldos + Contabilidad en paralelo | Contabilidad es el sumidero natural (recibe asientos); pero duplica frente abierto |
-| Facturación antes que Contabilidad | Más demanda de mercado, pero su asiento necesita a Contabilidad para cerrar el círculo |
-> **Recomendación:** terminar Sueldos sobre el backbone, y que el **2.º módulo sea Contabilidad** (es donde convergen los asientos de todos). Facturación tercero.
+| **Sueldos profundo → Contabilidad → Facturación → CRM → Stock** ✅ | Consolida lo existente; Contabilidad cierra el circuito de asientos; el resto se enchufa |
+| Priorizar Facturación (mayor demanda de mercado) | Buena puerta de entrada comercial; pero su asiento/stock necesitan a Contabilidad/Stock para cerrar |
+| CRM temprano (capta usuarios "arriba del embudo") | Atrae leads y datos de terceros; menos atado a regulación |
+> **Recomendación:** Sueldos sobre el backbone, **2.º Contabilidad** (sumidero de asientos, valida la extensibilidad), luego Facturación, CRM y Stock. El orden fino se ajusta según dónde haya más tracción comercial (ver D10).
+
+### D10 · ¿Por qué punta entrar al mercado? (estrategia land-and-expand)
+| Opción | Implica |
+|---|---|
+| Entrar por **Sueldos** (lo que ya existe) | Aprovecha el producto actual; cross-sell hacia Facturación/CRM |
+| Entrar por **Facturación** | Mercado más amplio (toda empresa factura); cross-sell hacia Sueldos |
+| Entrar por **CRM** | Capta arriba del embudo; menor barrera regulatoria |
+> **Recomendación:** es una decisión **comercial**, no técnica — la arquitectura soporta entrar por cualquiera. Definir cuál punta tiene hoy más tracción para enfocar el primer esfuerzo de venta. Lo técnico ya está cubierto por entitlements + datos maestros compartidos.
+
+### D11 · Alcance inicial de la migración
+| Opción | Implica |
+|---|---|
+| **Importador genérico (Excel/CSV con mapeo)** ✅ primero | Cubre el 100% de los casos con esfuerzo manual del cliente |
+| Importadores específicos por competidor | Experiencia "un clic"; alto valor comercial pero hay que hacer uno por sistema |
+> **Recomendación:** genérico primero (universal), y luego importadores dedicados para los 2-3 sistemas de los que más venga la gente. Priorizar según de dónde lleguen los clientes reales.
 
 ### D3 · Segundo país (valida la abstracción internacional)
 | Opción | Implica |
@@ -368,7 +497,7 @@ Cada decisión con sus opciones, una **recomendación** y la **consecuencia** qu
 | **Argentina** | Mercado grande; regulación compleja y cambiante |
 | **Chile** | Estructura más ordenada; buen banco de pruebas para el motor |
 | Esperar / solo UY por ahora | Menor costo; no valida si la abstracción es realmente genérica |
-> **Recomendación:** definir el país objetivo *antes* de F2, porque el segundo país es el que confirma que el motor data-driven está bien diseñado. Chile suele ser el más limpio para validar; Argentina el de mayor mercado.
+> **Recomendación:** definir el país objetivo *antes* del motor data-driven (F4), porque el segundo país es el que confirma que la abstracción está bien diseñada. Chile suele ser el más limpio para validar; Argentina el de mayor mercado.
 
 ### D4 · Infraestructura
 | Opción | Implica |
@@ -418,15 +547,17 @@ Cada decisión con sus opciones, una **recomendación** y la **consecuencia** qu
 | # | Decisión | Recomendación | Urgencia |
 |---|---|---|---|
 | D1 | Escala objetivo | SaaS multi-cliente | **Ahora** (condiciona todo) |
-| D2 | Orden de la suite | Sueldos → Contabilidad → Facturación | Media |
-| D3 | Segundo país | Definir antes de F2 (CL valida / AR mercado) | **Antes de F2** |
+| D2 | Orden de módulos | Sueldos → Contabilidad → Facturación → CRM → Stock | Media |
+| D3 | Segundo país | Definir antes del *country pack* (CL valida / AR mercado) | Antes de F4 |
 | D4 | Infra | Hostinger + interfaces abstractas | Baja |
-| D5 | Storage | Local tras `StorageService` | Con F3 |
-| D6 | Cola | Cron → cola real al crecer | Con F5 |
-| D7 | Email | Workspace → transaccional | Con F5 |
-| D8 | Datos de pago | Persona o Contrato según negocio | Con F10 |
+| D5 | Storage | Local tras `StorageService` | Con F5 |
+| D6 | Cola | Cron → cola real al crecer | Con F7 |
+| D7 | Email | Workspace → transaccional | Con F7 |
+| D8 | Datos de pago | Persona o Contrato según negocio | Con F12 |
 | D9 | Propiedad base | Transferible + revocación | Con F1 |
+| D10 | Punta de entrada al mercado | Comercial: la de más tracción hoy | Cuando se venda |
+| D11 | Alcance de migración | Genérico → importadores por competidor | Con F3 |
 
 ---
 
-*Próximo paso sugerido (cuando se decida implementar):* resolver **D1** (escala) y **D3** (segundo país), luego **F1 (backbone + membresía)** como fundación, dejando planteada **F2** (motor data-driven) para la internacionalización. Ninguna requiere tocar todavía el cálculo de Uruguay que ya está en producción.
+*Próximo paso sugerido (cuando se decida implementar):* resolver **D1** (escala) y **D10** (punta de entrada comercial). Técnicamente, los **cimientos son F1–F3**: backbone + entitlements, registro de módulos + datos maestros, y framework de migración — en ese orden, porque son lo que vuelve a AsysTax una plataforma extensible con migración como diferenciador. **F4** (motor data-driven) habilita la internacionalización. Nada de esto requiere tocar todavía el cálculo de Uruguay que ya está en producción.
