@@ -94,6 +94,8 @@ model Company {
   laudos           Laudo[]
   conceptos        Concepto[]
   auditLogs        AuditLog[]
+  memberships      Membership[]
+  entitlements     Entitlement[]
 
   @@map("companies")
 }
@@ -146,8 +148,80 @@ model User {
   company      Company?  @relation(fields: [companyId], references: [id])
   refreshTokens RefreshToken[]
   auditLogs    AuditLog[]
+  memberships        Membership[] @relation("UserMemberships")
+  invitedMemberships Membership[] @relation("MembershipInvitedBy")
 
   @@map("users")
+}
+
+// =============================================================
+// F1 - Backbone de plataforma: Membresía + Entitlements
+// =============================================================
+
+enum MembershipRole {
+  OWNER
+  ADMIN
+  OPERATOR
+  VIEWER
+}
+
+enum MembershipStatus {
+  PENDIENTE
+  ACTIVA
+  REVOCADA
+}
+
+enum ModuleKey {
+  SUELDOS
+  FACTURACION
+  CONTABILIDAD
+  CRM
+  STOCK
+}
+
+enum EntitlementStatus {
+  ACTIVO
+  TRIAL
+  SUSPENDIDO
+}
+
+/// Vínculo usuario↔empresa (acceso + rol dentro de esa empresa). Reemplaza, a futuro, a User.companyId.
+model Membership {
+  id          String           @id @default(cuid())
+  userId      String
+  companyId   String
+  role        MembershipRole   @default(OPERATOR)
+  estado      MembershipStatus @default(ACTIVA)
+  permisos    Json?
+  invitedById String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  user        User    @relation("UserMemberships", fields: [userId], references: [id], onDelete: Cascade)
+  company     Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  invitedBy   User?   @relation("MembershipInvitedBy", fields: [invitedById], references: [id])
+
+  @@unique([userId, companyId])
+  @@index([companyId])
+  @@map("memberships")
+}
+
+/// Módulos que tiene contratada cada empresa (base del land-and-expand).
+model Entitlement {
+  id            String            @id @default(cuid())
+  companyId     String
+  module        ModuleKey
+  plan          String            @default("basico")
+  estado        EntitlementStatus @default(ACTIVO)
+  vigenciaDesde DateTime          @default(now())
+  vigenciaHasta DateTime?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  company       Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, module])
+  @@map("entitlements")
 }
 
 model RefreshToken {

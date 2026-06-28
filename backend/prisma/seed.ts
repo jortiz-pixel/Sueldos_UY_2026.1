@@ -2,7 +2,7 @@
  * SEED SCRIPT — Datos iniciales para demostración
  */
 
-import { PrismaClient, UserRole, SalaryType, EstadoCivil, ItemType } from '@prisma/client';
+import { PrismaClient, UserRole, SalaryType, EstadoCivil, ItemType, ModuleKey, EntitlementStatus, MembershipRole, MembershipStatus } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
@@ -75,6 +75,24 @@ async function main() {
   const operator = await prisma.user.upsert({ where: { email: 'liquidador@empresa.uy' }, update: {}, create: { email: 'liquidador@empresa.uy', passwordHash: opPass, nombre: 'Liquidador', apellido: 'Demo', role: UserRole.OPERATOR, companyId: company.id } });
   const viewer = await prisma.user.upsert({ where: { email: 'consulta@empresa.uy' }, update: {}, create: { email: 'consulta@empresa.uy', passwordHash: await bcrypt.hash('Viewer1234!', 12), nombre: 'Consulta', apellido: 'Demo', role: UserRole.VIEWER, companyId: company.id } });
   console.log(`✅ Usuarios: ${admin.email}, ${operator.email}, ${viewer.email}`);
+
+  // F1: backbone de plataforma — membresías + entitlements
+  await prisma.entitlement.upsert({
+    where: { companyId_module: { companyId: company.id, module: ModuleKey.SUELDOS } },
+    update: {},
+    create: { companyId: company.id, module: ModuleKey.SUELDOS, plan: 'basico', estado: EntitlementStatus.ACTIVO },
+  });
+  await prisma.membership.upsert({
+    where: { userId_companyId: { userId: operator.id, companyId: company.id } },
+    update: {},
+    create: { userId: operator.id, companyId: company.id, role: MembershipRole.OPERATOR, estado: MembershipStatus.ACTIVA },
+  });
+  await prisma.membership.upsert({
+    where: { userId_companyId: { userId: viewer.id, companyId: company.id } },
+    update: {},
+    create: { userId: viewer.id, companyId: company.id, role: MembershipRole.VIEWER, estado: MembershipStatus.ACTIVA },
+  });
+  console.log('✅ Membresías + entitlement SUELDOS');
 
   const effectiveDate2024 = new Date('2024-01-01T00:00:00.000Z');
   const effectiveDate2025 = new Date('2025-01-01T00:00:00.000Z');
