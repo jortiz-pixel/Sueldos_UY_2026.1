@@ -40,7 +40,7 @@ export default function ConceptsPage() {
   const [editing, setEditing] = useState<Concepto | null>(null);
   const [formError, setFormError] = useState('');
 
-  const { data: conceptos, isLoading } = useQuery({
+  const { data: conceptos } = useQuery({
     queryKey: ['concepts', companyId],
     queryFn: () => conceptsApi.list(companyId),
     enabled: !!companyId,
@@ -109,7 +109,7 @@ export default function ConceptsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Conceptos</h1>
-          <p className="text-gray-500 text-sm mt-0.5">Motor de conceptos parametrizables · {conceptos?.length ?? '—'} definidos</p>
+          <p className="text-gray-500 text-sm mt-0.5">{conceptos?.length ?? 0} personalizados + {CONCEPTOS_SISTEMA.length} del sistema</p>
         </div>
         {isOperator && (
           <button onClick={openCreate} className="btn-primary" disabled={!companyId}>
@@ -124,26 +124,22 @@ export default function ConceptsPage() {
           <table className="w-full">
             <thead>
               <tr className="table-header">
-                <th className="px-4 py-3 text-left">Orden</th>
-                <th className="px-4 py-3 text-left">Código</th>
-                <th className="px-4 py-3 text-left">Nombre</th>
+                <th className="px-4 py-3 text-left">Concepto</th>
                 <th className="px-4 py-3 text-left">Tipo</th>
                 <th className="px-4 py-3 text-left">Cálculo</th>
                 <th className="px-4 py-3 text-left">Gravado</th>
+                <th className="px-4 py-3 text-left">Origen</th>
                 <th className="px-4 py-3 text-left">Estado</th>
                 <th className="px-4 py-3 text-left">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {isLoading ? (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">Cargando...</td></tr>
-              ) : !conceptos?.length ? (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">Sin conceptos definidos</td></tr>
-              ) : conceptos.map((c: Concepto) => (
+              {/* Conceptos configurados de la empresa */}
+              {(conceptos ?? []).map((c: Concepto) => (
                 <tr key={c.id} className="hover:bg-gray-50">
-                  <td className="table-cell font-mono text-xs">{c.orden}</td>
-                  <td className="table-cell font-mono text-xs font-bold">{c.codigo}</td>
-                  <td className="table-cell text-sm">{c.nombre}</td>
+                  <td className="table-cell text-sm">
+                    {c.nombre}<span className="block font-mono text-[11px] text-gray-400">{c.codigo}</span>
+                  </td>
                   <td className="table-cell">
                     <span className={`badge ${c.tipoOperacion === 'HABER' ? 'badge-green' : c.tipoOperacion === 'DESCUENTO_OBRERO' ? 'badge-red' : 'badge-gray'}`}>
                       {OP_LABEL[c.tipoOperacion]}
@@ -151,6 +147,7 @@ export default function ConceptsPage() {
                   </td>
                   <td className="table-cell text-xs text-gray-600">{resumenCalculo(c)}</td>
                   <td className="table-cell text-xs">{c.gravado ? 'Sí' : 'No'}</td>
+                  <td className="table-cell"><span className="badge bg-blue-50 text-blue-600">Personalizado</span></td>
                   <td className="table-cell">
                     <button
                       onClick={() => isOperator && toggleActivo.mutate(c)}
@@ -170,42 +167,23 @@ export default function ConceptsPage() {
                   </td>
                 </tr>
               ))}
+              {/* Conceptos del sistema (núcleo legal, calculados por el motor) */}
+              {CONCEPTOS_SISTEMA.map((c) => (
+                <tr key={`sys-${c.nombre}`} className="hover:bg-gray-50">
+                  <td className="table-cell text-sm font-medium text-gray-800">{c.nombre}</td>
+                  <td className="table-cell">
+                    <span className={`badge ${c.tipo === 'HABER' ? 'badge-green' : c.tipo === 'DESCUENTO_OBRERO' ? 'badge-red' : 'badge-gray'}`}>{OP_LABEL[c.tipo]}</span>
+                  </td>
+                  <td className="table-cell text-xs text-gray-600">{c.calculo}</td>
+                  <td className="table-cell text-xs">{c.gravado}</td>
+                  <td className="table-cell"><span className="badge bg-indigo-50 text-indigo-600">Sistema</span></td>
+                  <td className="table-cell"><span className="badge badge-gray">Automático</span></td>
+                  <td className="table-cell text-xs text-gray-300">—</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
-      </div>
-
-      <div>
-        <h2 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
-          <Calculator size={15} className="text-[#003DA5]" /> Conceptos del sistema (núcleo legal)
-        </h2>
-        <div className="card overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="table-header">
-                  <th className="px-4 py-3 text-left">Concepto</th>
-                  <th className="px-4 py-3 text-left">Tipo</th>
-                  <th className="px-4 py-3 text-left">Cálculo</th>
-                  <th className="px-4 py-3 text-left">Gravado</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {CONCEPTOS_SISTEMA.map((c) => (
-                  <tr key={c.nombre} className="hover:bg-gray-50">
-                    <td className="table-cell text-sm font-medium text-gray-800">{c.nombre}</td>
-                    <td className="table-cell">
-                      <span className={`badge ${c.tipo === 'HABER' ? 'badge-green' : c.tipo === 'DESCUENTO_OBRERO' ? 'badge-red' : 'badge-gray'}`}>{OP_LABEL[c.tipo]}</span>
-                    </td>
-                    <td className="table-cell text-xs text-gray-600">{c.calculo}</td>
-                    <td className="table-cell text-xs">{c.gravado}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-        <p className="text-xs text-gray-400 mt-1">Calculados automáticamente por el motor según la normativa vigente. No se editan desde acá.</p>
       </div>
 
       <div className="card p-4 bg-blue-50/40 border-blue-100">
