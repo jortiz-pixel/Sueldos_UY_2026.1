@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import { UserRole, LiquidationType, LiquidationStatus, PeriodStatus } from '@prisma/client';
+import { UserRole, LiquidationStatus, PeriodStatus } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { authenticate, requireRole } from '../middleware/auth';
 import { assertCompanyAccess } from '../middleware/tenancy';
@@ -360,13 +360,12 @@ liquidationRouter.get('/period/:periodId', authenticate, async (req: Request, re
     const liquidations = await prisma.liquidation.findMany({
       where: {
         periodId: req.params.periodId,
-        type: LiquidationType.MENSUAL,
       },
       include: {
         employee: { select: { id: true, ci: true, nombre: true, apellido: true } },
         items: { where: { itemType: { in: ['HABER', 'DESCUENTO_OBRERO'] } } },
       },
-      orderBy: { employeeId: 'asc' },
+      orderBy: [{ employeeId: 'asc' }, { type: 'asc' }],
     });
     res.json(liquidations.map((l) => ({
       ...l,

@@ -11,11 +11,22 @@ import { formatPesos, MESES, PayrollPeriod, Employee } from '../types';
 interface LiqRow {
   id: string;
   employeeId: string;
+  type: string;
   status: string;
   totalHaberes: string;
   totalDescuentos: string;
   liquidoPercibir: string;
+  employee?: { id: string; nombre: string; apellido: string };
 }
+
+const TIPO_LIQ: Record<string, string> = {
+  MENSUAL: 'Mensual',
+  AGUINALDO: 'Aguinaldo',
+  LICENCIA: 'Licencia',
+  VACACIONAL: 'Salario vacacional',
+  LIQUIDACION_FINAL: 'Egreso',
+  AJUSTE: 'Ajuste',
+};
 
 export default function LiquidationPage() {
   const { isOperator } = useAuth();
@@ -108,9 +119,11 @@ export default function LiquidationPage() {
     },
   });
 
-  const liqByEmp = new Map((periodLiquidations ?? []).map((l) => [l.employeeId, l]));
+  const liquidaciones = periodLiquidations ?? [];
   const roster: Employee[] = employees?.data ?? [];
-  const liquidados = periodLiquidations?.length ?? 0;
+  const empConMensual = new Set(liquidaciones.filter((l) => l.type === 'MENSUAL').map((l) => l.employeeId));
+  const pendientes = roster.filter((emp) => !empConMensual.has(emp.id));
+  const liquidados = empConMensual.size;
 
   return (
     <div className="space-y-5">
@@ -226,55 +239,64 @@ export default function LiquidationPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
-                    {!roster.length ? (
+                    {!roster.length && !liquidaciones.length ? (
                       <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-400">
                         Sin contratos vigentes en esta empresa
                       </td></tr>
-                    ) : roster.map((emp) => {
-                      const liq = liqByEmp.get(emp.id);
-                      return (
-                        <tr key={emp.id} className="hover:bg-gray-50">
-                          <td className="px-4 py-2.5 text-sm text-gray-700 font-medium">{emp.apellido}, {emp.nombre}</td>
-                          <td className="px-4 py-2.5 text-right font-mono text-xs">{liq ? formatPesos(liq.totalHaberes) : '—'}</td>
-                          <td className="px-4 py-2.5 text-right font-mono text-xs text-red-600">{liq ? `(${formatPesos(liq.totalDescuentos)})` : '—'}</td>
-                          <td className="px-4 py-2.5 text-right font-mono text-xs font-bold text-green-700">{liq ? formatPesos(liq.liquidoPercibir) : '—'}</td>
-                          <td className="px-4 py-2.5">
-                            {liq
-                              ? <span className={`badge ${liq.status === 'CONFIRMADO' ? 'badge-green' : liq.status === 'BORRADOR' ? 'badge-yellow' : 'badge-red'}`}>{liq.status}</span>
-                              : <span className="badge-gray badge">Pendiente</span>}
-                          </td>
-                          <td className="px-4 py-2.5">
-                            <div className="flex items-center gap-1">
-                              {!liq && isOperator && (
-                                <button onClick={() => genOneMutation.mutate(emp.id)} disabled={genOneMutation.isPending} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded" title="Generar liquidación">
+                    ) : (
+                      <>
+                        {liquidaciones.map((l) => (
+                          <tr key={l.id} className="hover:bg-gray-50">
+                            <td className="px-4 py-2.5 text-sm text-gray-700 font-medium">
+                              {l.employee ? `${l.employee.apellido}, ${l.employee.nombre}` : '—'}
+                              <span className={`ml-2 text-xs px-1.5 py-0.5 rounded ${l.type === 'MENSUAL' ? 'bg-gray-100 text-gray-500' : 'bg-indigo-50 text-indigo-600'}`}>{TIPO_LIQ[l.type] ?? l.type}</span>
+                            </td>
+                            <td className="px-4 py-2.5 text-right font-mono text-xs">{formatPesos(l.totalHaberes)}</td>
+                            <td className="px-4 py-2.5 text-right font-mono text-xs text-red-600">({formatPesos(l.totalDescuentos)})</td>
+                            <td className="px-4 py-2.5 text-right font-mono text-xs font-bold text-green-700">{formatPesos(l.liquidoPercibir)}</td>
+                            <td className="px-4 py-2.5">
+                              <span className={`badge ${l.status === 'CONFIRMADO' ? 'badge-green' : l.status === 'BORRADOR' ? 'badge-yellow' : 'badge-red'}`}>{l.status}</span>
+                            </td>
+                            <td className="px-4 py-2.5">
+                              <div className="flex items-center gap-1">
+                                <Link to={`/liquidation/${l.id}`} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded" title="Ver">
+                                  <Eye size={14} />
+                                </Link>
+                                {isOperator && l.status === 'BORRADOR' && (
+                                  <button onClick={() => confirmMutation.mutate(l.id)} className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded" title="Confirmar">
+                                    <CheckCircle size={14} />
+                                  </button>
+                                )}
+                                {isOperator && l.status === 'CONFIRMADO' && (
+                                  <button onClick={() => { if (confirm('¿Desconfirmar y reabrir esta liquidación?')) unconfirmMutation.mutate(l.id); }} className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded" title="Desconfirmar">
+                                    <RotateCcw size={14} />
+                                  </button>
+                                )}
+                                <button type="button" onClick={() => abrirBlobEnPestania(() => liquidationApi.recibo(l.id), `recibo_${l.id}.pdf`)} className="p-1.5 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded" title="Recibo PDF">
+                                  <Download size={14} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                        {pendientes.map((emp) => (
+                          <tr key={emp.id} className="hover:bg-gray-50">
+                            <td className="px-4 py-2.5 text-sm text-gray-700 font-medium">{emp.apellido}, {emp.nombre}</td>
+                            <td className="px-4 py-2.5 text-right font-mono text-xs">—</td>
+                            <td className="px-4 py-2.5 text-right font-mono text-xs">—</td>
+                            <td className="px-4 py-2.5 text-right font-mono text-xs">—</td>
+                            <td className="px-4 py-2.5"><span className="badge-gray badge">Pendiente</span></td>
+                            <td className="px-4 py-2.5">
+                              {isOperator && (
+                                <button onClick={() => genOneMutation.mutate(emp.id)} disabled={genOneMutation.isPending} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded" title="Generar mensual">
                                   <Play size={14} />
                                 </button>
                               )}
-                              {liq && (
-                                <Link to={`/liquidation/${liq.id}`} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded" title="Ver">
-                                  <Eye size={14} />
-                                </Link>
-                              )}
-                              {liq && isOperator && liq.status === 'BORRADOR' && (
-                                <button onClick={() => confirmMutation.mutate(liq.id)} className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded" title="Confirmar">
-                                  <CheckCircle size={14} />
-                                </button>
-                              )}
-                              {liq && isOperator && liq.status === 'CONFIRMADO' && (
-                                <button onClick={() => { if (confirm('¿Desconfirmar y reabrir esta liquidación?')) unconfirmMutation.mutate(liq.id); }} className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded" title="Desconfirmar">
-                                  <RotateCcw size={14} />
-                                </button>
-                              )}
-                              {liq && (
-                                <button type="button" onClick={() => abrirBlobEnPestania(() => liquidationApi.recibo(liq.id), `recibo_${liq.id}.pdf`)} className="p-1.5 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded" title="Recibo PDF">
-                                  <Download size={14} />
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                            </td>
+                          </tr>
+                        ))}
+                      </>
+                    )}
                   </tbody>
                 </table>
               </div>
