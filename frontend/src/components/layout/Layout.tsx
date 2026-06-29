@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useCompany } from '../../hooks/useCompany';
+import GroLogo from '../GroLogo';
 
 const navItems = [
   { to: '/', label: 'Panel', icon: LayoutDashboard, end: true },
@@ -41,12 +42,9 @@ export default function Layout() {
         className={`fixed inset-y-0 left-0 z-40 w-64 bg-[#003DA5] flex flex-col transform transition-transform duration-200 lg:static lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}
       >
         <div className="px-6 py-5 border-b border-blue-800 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Building2 className="text-white" size={24} />
-            <div>
-              <h1 className="text-white font-bold text-sm">Sueldos UY</h1>
-              <p className="text-blue-200 text-xs">Sistema de Nómina 2026</p>
-            </div>
+          <div className="flex flex-col gap-1">
+            <GroLogo variant="light" height={34} />
+            <p className="text-blue-200 text-[11px] tracking-wide">Sueldos · Nómina 2026</p>
           </div>
           <button onClick={() => setOpen(false)} className="text-blue-200 hover:text-white lg:hidden" aria-label="Cerrar menú">
             <X size={20} />

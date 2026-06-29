@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
-import { Building2, Lock, Mail, AlertCircle } from 'lucide-react';
+import { Lock, Mail, AlertCircle } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
+import GroLogo from '../components/GroLogo';
 
 interface LoginForm {
   email: string;
@@ -34,12 +35,11 @@ export default function LoginPage() {
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-600 rounded-2xl mb-4">
-            <Building2 className="text-white" size={32} />
+          <div className="flex justify-center mb-4">
+            <GroLogo variant="dark" height={56} />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Sueldos UY</h1>
-          <p className="text-gray-500 text-sm mt-1">Sistema de Liquidación de Sueldos</p>
-          <p className="text-gray-400 text-xs mt-0.5">Uruguay — 2026</p>
+          <h1 className="text-xl font-bold text-gray-900">Sistema de Liquidación de Sueldos</h1>
+          <p className="text-gray-400 text-xs mt-1">Uruguay — 2026</p>
         </div>
 
         {/* Form */}
