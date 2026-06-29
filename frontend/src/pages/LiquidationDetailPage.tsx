@@ -1,14 +1,40 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Download, CheckCircle, XCircle, RotateCcw, X, Plus } from 'lucide-react';
-import { liquidationApi } from '../services/api';
+import { ArrowLeft, Download, CheckCircle, XCircle, RotateCcw, X, Plus, Pencil, Check } from 'lucide-react';
+import { liquidationApi, conceptsApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
+import { useCompany } from '../hooks/useCompany';
 import { abrirBlobEnPestania } from '../utils/file';
-import { formatPesos, MESES, PayrollItem } from '../types';
+import { formatPesos, MESES, PayrollItem, Concepto } from '../types';
 
-function ItemRow({ item, onDelete }: { item: PayrollItem; onDelete?: (id: string) => void }) {
+function ItemRow({ item, editable, onEdit, onDelete }: {
+  item: PayrollItem;
+  editable?: boolean;
+  onEdit?: (itemId: string, data: { descripcion: string; monto: number }) => void;
+  onDelete?: (id: string) => void;
+}) {
   const manual = item.concepto === 'AJUSTE';
+  const [editing, setEditing] = useState(false);
+  const [d, setD] = useState(item.descripcion);
+  const [m, setM] = useState(Number(item.amount) / 100);
+
+  if (editing) {
+    return (
+      <tr className="bg-amber-50/50">
+        <td className="px-4 py-2">
+          <input value={d} onChange={(e) => setD(e.target.value)} className="border border-gray-300 rounded px-2 py-1 text-sm w-full" />
+        </td>
+        <td colSpan={2} />
+        <td className="px-4 py-2 text-right whitespace-nowrap">
+          <input type="number" value={m} onChange={(e) => setM(Number(e.target.value))} className="border border-gray-300 rounded px-2 py-1 text-sm w-28 text-right" />
+          <button onClick={() => { onEdit?.(item.id, { descripcion: d, monto: m }); setEditing(false); }} className="ml-2 text-green-600 hover:text-green-700 align-middle" title="Guardar"><Check size={15} /></button>
+          <button onClick={() => { setD(item.descripcion); setM(Number(item.amount) / 100); setEditing(false); }} className="ml-1 text-gray-400 hover:text-gray-600 align-middle" title="Cancelar"><X size={15} /></button>
+        </td>
+      </tr>
+    );
+  }
+
   return (
     <tr className="hover:bg-gray-50">
       <td className="px-4 py-2.5 text-sm text-gray-700">
@@ -21,23 +47,53 @@ function ItemRow({ item, onDelete }: { item: PayrollItem; onDelete?: (id: string
       <td className="px-4 py-2.5 text-right text-xs text-gray-500">
         {item.rate ? `${(item.rate / 100).toFixed(3)}%` : '—'}
       </td>
-      <td className="px-4 py-2.5 text-right text-sm font-mono font-medium">
+      <td className="px-4 py-2.5 text-right text-sm font-mono font-medium whitespace-nowrap">
         <span className="align-middle">{formatPesos(item.amount)}</span>
-        {onDelete && manual && (
-          <button onClick={() => onDelete(item.id)} className="ml-2 text-red-500 hover:text-red-700 align-middle" title="Quitar concepto"><X size={13} /></button>
+        {editable && onEdit && (
+          <button onClick={() => setEditing(true)} className="ml-2 text-blue-500 hover:text-blue-700 align-middle" title="Editar"><Pencil size={13} /></button>
+        )}
+        {editable && manual && onDelete && (
+          <button onClick={() => onDelete(item.id)} className="ml-1 text-red-500 hover:text-red-700 align-middle" title="Quitar concepto"><X size={13} /></button>
         )}
       </td>
     </tr>
   );
 }
 
-function Section({ title, items, total, colorClass, onDelete }: {
+function Section({ title, items, total, colorClass, conceptos, editable, onAdd, onEdit, onDelete }: {
   title: string;
   items: PayrollItem[];
   total: string;
   colorClass: string;
+  conceptos?: Concepto[];
+  editable?: boolean;
+  onAdd?: (descripcion: string, monto: number) => void;
+  onEdit?: (itemId: string, data: { descripcion: string; monto: number }) => void;
   onDelete?: (id: string) => void;
 }) {
+  const [sel, setSel] = useState('');
+  const [desc, setDesc] = useState('');
+  const [monto, setMonto] = useState(0);
+
+  const onSel = (value: string) => {
+    setSel(value);
+    if (value && value !== 'OTRO') {
+      const c = conceptos?.find((x) => x.id === value);
+      setDesc(c?.nombre ?? '');
+      setMonto(c && c.tipoCalculo === 'VALOR_FIJO' && c.valorFijo ? Number(c.valorFijo) / 100 : 0);
+    } else {
+      setDesc(''); setMonto(0);
+    }
+  };
+
+  const agregar = () => {
+    const d = sel === 'OTRO' ? desc : (conceptos?.find((x) => x.id === sel)?.nombre ?? desc);
+    if (d.trim() && monto > 0) {
+      onAdd?.(d.trim(), monto);
+      setSel(''); setDesc(''); setMonto(0);
+    }
+  };
+
   return (
     <div>
       <div className={`px-4 py-2 ${colorClass} text-xs font-semibold uppercase tracking-wider`}>
@@ -53,7 +109,24 @@ function Section({ title, items, total, colorClass, onDelete }: {
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-50">
-          {items.map((item) => <ItemRow key={item.id} item={item} onDelete={onDelete} />)}
+          {items.map((item) => <ItemRow key={item.id} item={item} editable={editable} onEdit={onEdit} onDelete={onDelete} />)}
+          {editable && onAdd && (
+            <tr className="bg-blue-50/30">
+              <td colSpan={4} className="px-4 py-2">
+                <div className="flex flex-wrap gap-2 items-center">
+                  <Plus size={13} className="text-blue-500" />
+                  <select value={sel} onChange={(e) => onSel(e.target.value)} className="border border-gray-300 rounded-lg px-2 py-1 text-sm">
+                    <option value="">Agregar {title.toLowerCase()}…</option>
+                    {(conceptos ?? []).map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                    <option value="OTRO">Otro (escribir)</option>
+                  </select>
+                  {sel === 'OTRO' && <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Descripción" className="border border-gray-300 rounded-lg px-2 py-1 text-sm flex-1 min-w-[140px]" />}
+                  {sel && <input type="number" value={monto || ''} onChange={(e) => setMonto(Number(e.target.value))} placeholder="Monto $" className="border border-gray-300 rounded-lg px-2 py-1 text-sm w-28" />}
+                  {sel && <button type="button" onClick={agregar} className="btn-primary btn-sm">Agregar</button>}
+                </div>
+              </td>
+            </tr>
+          )}
           <tr className="bg-gray-50 font-semibold">
             <td className="px-4 py-2 text-sm">Total {title}</td>
             <td colSpan={2} />
@@ -95,19 +168,29 @@ export default function LiquidationDetailPage() {
     },
   });
 
-  const [tipo, setTipo] = useState<'HABER' | 'DESCUENTO_OBRERO'>('HABER');
-  const [desc, setDesc] = useState('');
-  const [monto, setMonto] = useState(0);
+  const { activeCompanyId } = useCompany();
+  const { data: conceptos } = useQuery({
+    queryKey: ['concepts', activeCompanyId],
+    queryFn: () => conceptsApi.list(activeCompanyId),
+    enabled: !!activeCompanyId,
+  });
 
   const addItemMutation = useMutation({
-    mutationFn: () => liquidationApi.addItem(id!, { descripcion: desc, monto, itemType: tipo }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['liquidation', id] });
-      setDesc(''); setMonto(0);
-    },
+    mutationFn: (vars: { descripcion: string; monto: number; itemType: 'HABER' | 'DESCUENTO_OBRERO' }) => liquidationApi.addItem(id!, vars),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['liquidation', id] }),
     onError: (e: unknown) => {
       const err = e as { response?: { data?: { error?: string } } };
       alert(err.response?.data?.error || 'No se pudo agregar el concepto');
+    },
+  });
+
+  const updateItemMutation = useMutation({
+    mutationFn: (vars: { itemId: string; descripcion: string; monto: number }) =>
+      liquidationApi.updateItem(id!, vars.itemId, { descripcion: vars.descripcion, monto: vars.monto }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['liquidation', id] }),
+    onError: (e: unknown) => {
+      const err = e as { response?: { data?: { error?: string } } };
+      alert(err.response?.data?.error || 'No se pudo editar el concepto');
     },
   });
 
@@ -126,6 +209,9 @@ export default function LiquidationDetailPage() {
   const haberes = liq.items?.filter((i) => i.itemType === 'HABER') ?? [];
   const descuentos = liq.items?.filter((i) => i.itemType === 'DESCUENTO_OBRERO') ?? [];
   const patronal = liq.items?.filter((i) => i.itemType === 'APORTE_PATRONAL') ?? [];
+  const puedeEditar = liq.status === 'BORRADOR' && isOperator;
+  const haberConceptos = (conceptos ?? []).filter((c) => c.tipoOperacion === 'HABER');
+  const descuentoConceptos = (conceptos ?? []).filter((c) => c.tipoOperacion === 'DESCUENTO_OBRERO');
 
   return (
     <div className="space-y-5 max-w-4xl">
@@ -215,14 +301,22 @@ export default function LiquidationDetailPage() {
           items={haberes as PayrollItem[]}
           total={liq.totalHaberes}
           colorClass="bg-green-50 text-green-800"
-          onDelete={liq.status === 'BORRADOR' && isOperator ? deleteItemMutation.mutate : undefined}
+          conceptos={haberConceptos}
+          editable={puedeEditar}
+          onAdd={(descripcion, monto) => addItemMutation.mutate({ descripcion, monto, itemType: 'HABER' })}
+          onEdit={(itemId, dd) => updateItemMutation.mutate({ itemId, ...dd })}
+          onDelete={puedeEditar ? deleteItemMutation.mutate : undefined}
         />
         <Section
           title="Descuentos Obreros"
           items={descuentos as PayrollItem[]}
           total={liq.totalDescuentos}
           colorClass="bg-red-50 text-red-800"
-          onDelete={liq.status === 'BORRADOR' && isOperator ? deleteItemMutation.mutate : undefined}
+          conceptos={descuentoConceptos}
+          editable={puedeEditar}
+          onAdd={(descripcion, monto) => addItemMutation.mutate({ descripcion, monto, itemType: 'DESCUENTO_OBRERO' })}
+          onEdit={(itemId, dd) => updateItemMutation.mutate({ itemId, ...dd })}
+          onDelete={puedeEditar ? deleteItemMutation.mutate : undefined}
         />
 
         {/* Net */}
@@ -232,29 +326,6 @@ export default function LiquidationDetailPage() {
             <span className="font-bold text-xl text-blue-900 font-mono">{formatPesos(liq.liquidoPercibir)}</span>
           </div>
         </div>
-
-        {liq.status === 'BORRADOR' && isOperator && (
-          <div className="px-4 py-4 bg-gray-50/60">
-            <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2 flex items-center gap-1"><Plus size={13} /> Agregar concepto</p>
-            <div className="flex flex-wrap gap-2 items-center">
-              <select value={tipo} onChange={(e) => setTipo(e.target.value as 'HABER' | 'DESCUENTO_OBRERO')} className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm">
-                <option value="HABER">Suma (haber)</option>
-                <option value="DESCUENTO_OBRERO">Resta (descuento)</option>
-              </select>
-              <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Descripción (ej. Premio, Adelanto…)" className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm flex-1 min-w-[180px]" />
-              <input type="number" value={monto || ''} onChange={(e) => setMonto(Number(e.target.value))} placeholder="Monto $" className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-32" />
-              <button
-                type="button"
-                onClick={() => { if (desc.trim() && monto > 0) addItemMutation.mutate(); }}
-                disabled={addItemMutation.isPending || !desc.trim() || monto <= 0}
-                className="btn-primary btn-sm"
-              >
-                {addItemMutation.isPending ? 'Agregando…' : 'Agregar'}
-              </button>
-            </div>
-            <p className="text-[11px] text-gray-400 mt-1.5">Los conceptos que sumás (haber) o restás (descuento) se reflejan en el líquido al instante.</p>
-          </div>
-        )}
 
         {patronal.length > 0 && (
           <div>

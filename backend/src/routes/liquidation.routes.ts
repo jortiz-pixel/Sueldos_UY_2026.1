@@ -389,6 +389,35 @@ liquidationRouter.delete('/:id/item/:itemId', authenticate, requireRole(UserRole
   } catch (err) { next(err); }
 });
 
+// PATCH /api/liquidation/:id/item/:itemId — editar un concepto (descripción y/o monto) y recalcular
+liquidationRouter.patch('/:id/item/:itemId', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const schema = z.object({
+      descripcion: z.string().min(1).optional(),
+      monto: z.number().nonnegative().optional(),
+    });
+    const data = schema.parse(req.body);
+
+    const liquidation = await prisma.liquidation.findUnique({ where: { id: req.params.id } });
+    if (!liquidation) throw new NotFoundError('Liquidación');
+    if (liquidation.status !== LiquidationStatus.BORRADOR) {
+      throw new AppError(409, 'Solo se pueden editar conceptos en BORRADOR. Desconfirmá primero.');
+    }
+    const item = await prisma.payrollItem.findUnique({ where: { id: req.params.itemId } });
+    if (!item || item.liquidationId !== liquidation.id) throw new NotFoundError('Concepto');
+
+    await prisma.payrollItem.update({
+      where: { id: item.id },
+      data: {
+        descripcion: data.descripcion ?? undefined,
+        amount: data.monto !== undefined ? BigInt(Math.round(data.monto * 100)) : undefined,
+      },
+    });
+    await recalcularTotales(liquidation.id);
+    res.json({ message: 'Concepto actualizado' });
+  } catch (err) { next(err); }
+});
+
 // POST /api/liquidation/:id/adjustment
 liquidationRouter.post('/:id/adjustment', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
   try {
