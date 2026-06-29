@@ -1,12 +1,12 @@
 name: Deploy to VPS
-# Auto-deploy activo. (prueba de despliegue)
 
-# Cada push a la rama de desarrollo despliega solo en el servidor.
-# También se puede disparar a mano desde la pestaña "Actions" (Run workflow).
+# NOTA: el disparo automático por push está DESACTIVADO porque el firewall del
+# VPS bloquea el SSH entrante desde GitHub (puerto 22 filtrado). Para reactivarlo,
+# habría que permitir SSH desde internet (con endurecimiento) y volver a agregar
+# el trigger `push:`. Mientras tanto, se despliega a mano por Termius.
+# Igual se puede disparar manualmente desde la pestaña "Actions" → Run workflow
+# (solo funcionará si el firewall permite el acceso de GitHub).
 on:
-  push:
-    branches:
-      - claude/uruguayan-payroll-system-EojHu
   workflow_dispatch:
 
 jobs:
