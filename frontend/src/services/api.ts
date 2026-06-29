@@ -119,6 +119,20 @@ export const attachmentApi = {
   remove: (id: string) => api.delete(`/attachments/${id}`).then((r) => r.data),
 };
 
+export type CalendarEventType = 'CUMPLEANOS' | 'VENC_CARNE_SALUD' | 'VENC_LIBRETA' | 'ALTA' | 'BAJA';
+
+export interface CalendarEvent {
+  tipo: CalendarEventType;
+  fecha: string;
+  titulo: string;
+  personaId?: string;
+}
+
+export const calendarApi = {
+  upcoming: (companyId: string, days = 45) =>
+    api.get<CalendarEvent[]>('/calendar', { params: { companyId, days } }).then((r) => r.data),
+};
+
 export const catalogsApi = {
   tiposAporte: () => api.get<TipoAporte[]>('/catalogs/tipos-aporte').then((r) => r.data),
   tiposContribuyente: () => api.get<TipoContribuyente[]>('/catalogs/tipos-contribuyente').then((r) => r.data),

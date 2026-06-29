@@ -1,10 +1,27 @@
 import { useQuery } from '@tanstack/react-query';
-import { Users, FileText, DollarSign, TrendingUp, AlertCircle } from 'lucide-react';
-import { employeesApi, liquidationApi, reportsApi } from '../services/api';
+import { Users, FileText, DollarSign, TrendingUp, AlertCircle, CalendarDays, Cake, AlertTriangle, UserPlus, UserMinus } from 'lucide-react';
+import { employeesApi, liquidationApi, reportsApi, calendarApi, CalendarEventType } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
 import { formatPesos, MESES } from '../types';
 import { Link } from 'react-router-dom';
+
+const EVENT_META: Record<CalendarEventType, { color: string; icon: typeof Cake }> = {
+  CUMPLEANOS: { color: 'text-pink-600 bg-pink-50', icon: Cake },
+  VENC_CARNE_SALUD: { color: 'text-amber-600 bg-amber-50', icon: AlertTriangle },
+  VENC_LIBRETA: { color: 'text-amber-600 bg-amber-50', icon: AlertTriangle },
+  ALTA: { color: 'text-green-600 bg-green-50', icon: UserPlus },
+  BAJA: { color: 'text-red-600 bg-red-50', icon: UserMinus },
+};
+
+function relativo(fecha: string): string {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const d = new Date(fecha + 'T00:00:00');
+  const days = Math.round((d.getTime() - today.getTime()) / 86400000);
+  if (days <= 0) return 'hoy';
+  if (days === 1) return 'mañana';
+  return `en ${days} días`;
+}
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -28,6 +45,12 @@ export default function DashboardPage() {
   const { data: nomina } = useQuery({
     queryKey: ['nomina', companyId, year, month],
     queryFn: () => reportsApi.nominaMensual({ companyId, year, month }),
+    enabled: !!companyId,
+  });
+
+  const { data: eventos } = useQuery({
+    queryKey: ['calendar', companyId],
+    queryFn: () => calendarApi.upcoming(companyId, 45),
     enabled: !!companyId,
   });
 
@@ -103,6 +126,36 @@ export default function DashboardPage() {
             <p className="text-xl font-bold text-gray-900">{value}</p>
           </Link>
         ))}
+      </div>
+
+      {/* Próximos eventos */}
+      <div className="card">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
+          <CalendarDays size={16} className="text-[#003DA5]" />
+          <h2 className="text-sm font-semibold text-gray-700">Próximos eventos (45 días)</h2>
+        </div>
+        {eventos && eventos.length > 0 ? (
+          <div className="divide-y divide-gray-50 max-h-80 overflow-auto">
+            {eventos.map((ev, i) => {
+              const meta = EVENT_META[ev.tipo];
+              const Icon = meta.icon;
+              return (
+                <div key={i} className="flex items-center gap-3 px-5 py-2.5">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${meta.color}`}>
+                    <Icon size={15} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-gray-800 truncate">{ev.titulo}</p>
+                    <p className="text-xs text-gray-400">{new Date(ev.fecha + 'T00:00:00').toLocaleDateString('es-UY', { weekday: 'short', day: 'numeric', month: 'short' })}</p>
+                  </div>
+                  <span className="text-xs font-medium text-gray-500 shrink-0">{relativo(ev.fecha)}</span>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="p-5 text-center text-sm text-gray-400">Sin eventos próximos</div>
+        )}
       </div>
 
       {/* Recent employees */}

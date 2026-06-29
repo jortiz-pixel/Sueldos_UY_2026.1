@@ -16,6 +16,7 @@ import { conceptsRouter } from './routes/concepts.routes';
 import { contractsRouter } from './routes/contracts.routes';
 import { membershipsRouter, entitlementsRouter } from './routes/memberships.routes';
 import { attachmentsRouter } from './routes/attachments.routes';
+import { calendarRouter } from './routes/calendar.routes';
 import { errorHandler } from './middleware/errorHandler';
 import { logger } from './utils/logger';
 
@@ -63,6 +64,7 @@ app.use('/api/concepts', conceptsRouter);
 app.use('/api/memberships', membershipsRouter);
 app.use('/api/entitlements', entitlementsRouter);
 app.use('/api/attachments', attachmentsRouter);
+app.use('/api/calendar', calendarRouter);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString(), version: '1.0.0' });
