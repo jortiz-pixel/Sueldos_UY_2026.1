@@ -143,4 +143,15 @@ Catálogo (ver doc fuente del usuario "Formulas_CONCEPTOS_LIQUIDACION_DE_SUELDOS
 
 ---
 
-*Última actualización: sesión donde se arregló el acceso (CORS + CLI de usuarios), se puso el logo GRO, y se implementaron conceptos comunes/propios + copiar + ocultar por empresa. Pendiente login con Google (esperando credenciales) y el bug de membership al crear empresas (§ pendientes).*
+## 10. Login con Google (implementado)
+
+- Flujo **ID token** (Google Identity Services), NO authorization code → **no requiere Client Secret**. Solo el **Client ID** (público): `452392392541-o8r6toecbd4s09iccfaiaehtfvt9oq6l.apps.googleusercontent.com`.
+- Backend: `POST /api/auth/google {credential}` verifica el ID token con `google-auth-library` (audience = `GOOGLE_CLIENT_ID`). Si el email existe → emite sesión; si no existe → alta automática **solo** si el dominio está en `GOOGLE_ALLOWED_DOMAINS` (vacío por defecto = solo usuarios ya dados de alta). Usuarios Google quedan con passwordHash aleatorio (sin migración).
+- Config en `docker-compose.yml` (backend env): `GOOGLE_CLIENT_ID` (default puesto) y `GOOGLE_ALLOWED_DOMAINS` (vacío). Para habilitar auto-alta de gro: `GOOGLE_ALLOWED_DOMAINS=gro.com.uy` en `.env`.
+- Frontend: botón oficial en `LoginPage` (carga `accounts.google.com/gsi/client`), `useAuth.loginWithGoogle`, `authApi.google`. Client ID en `constants/google.ts` (override `VITE_GOOGLE_CLIENT_ID`).
+- **Requisito Google Cloud:** Authorized JS origin `https://sueldos.gro.com.uy`. GIS solo funciona sobre HTTPS (el dominio), no sobre `http://IP:8080`.
+- Dep nueva: `google-auth-library` en backend → el rebuild corre `npm install`, no hace falta tocar lock.
+
+---
+
+*Última actualización: sesión con acceso arreglado (CORS + CLI usuarios), logo GRO, conceptos comunes/propios + copiar + ocultar, y login con Google (ID token, sin secret). Pendiente: bug de membership al crear empresas (§ pendientes), egreso/final y parámetros 2026.*

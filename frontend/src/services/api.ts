@@ -45,6 +45,8 @@ api.interceptors.response.use(
 export const authApi = {
   login: (email: string, password: string) =>
     api.post<AuthResponse>('/auth/login', { email, password }).then((r) => r.data),
+  google: (credential: string) =>
+    api.post<AuthResponse>('/auth/google', { credential }).then((r) => r.data),
   logout: () => {
     const refreshToken = localStorage.getItem('refreshToken');
     return api.post('/auth/logout', { refreshToken });

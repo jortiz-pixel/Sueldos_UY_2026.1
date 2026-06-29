@@ -32,6 +32,11 @@ services:
       # estar acá o el login se bloquea con "Not allowed by CORS". Se puede
       # sobreescribir definiendo ALLOWED_ORIGINS en el archivo .env.
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://sueldos.gro.com.uy,http://187.77.6.69:8080,http://localhost:5173}
+      # Login con Google. El Client ID es público (solo verifica el ID token).
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-452392392541-o8r6toecbd4s09iccfaiaehtfvt9oq6l.apps.googleusercontent.com}
+      # Dominios con alta automática por Google (coma-separados). Vacío = solo
+      # usuarios ya dados de alta pueden entrar. Ej: GOOGLE_ALLOWED_DOMAINS=gro.com.uy
+      GOOGLE_ALLOWED_DOMAINS: ${GOOGLE_ALLOWED_DOMAINS:-}
     ports:
       - "3000:3000"
     volumes:

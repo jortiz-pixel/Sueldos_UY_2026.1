@@ -6,6 +6,7 @@ interface AuthContextType {
   user: User | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  loginWithGoogle: (credential: string) => Promise<void>;
   logout: () => Promise<void>;
   isAdmin: boolean;
   isOperator: boolean;
@@ -39,6 +40,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(response.user);
   };
 
+  const loginWithGoogle = async (credential: string) => {
+    const response = await authApi.google(credential);
+    localStorage.setItem('accessToken', response.accessToken);
+    localStorage.setItem('refreshToken', response.refreshToken);
+    setUser(response.user);
+  };
+
   const logout = async () => {
     try { await authApi.logout(); } catch { /* ignore */ }
     localStorage.removeItem('accessToken');
@@ -51,6 +59,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       loading,
       login,
+      loginWithGoogle,
       logout,
       isAdmin: user?.role === 'ADMIN',
       isOperator: user?.role === 'ADMIN' || user?.role === 'OPERATOR',

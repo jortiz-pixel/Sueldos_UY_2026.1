@@ -1,6 +1,9 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
+import { randomBytes } from 'crypto';
 import { z } from 'zod';
+import { OAuth2Client } from 'google-auth-library';
+import { UserRole, User } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import {
   generateAccessToken,
@@ -16,6 +19,28 @@ const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
 });
+
+// Login con Google (ID token). Solo requiere el Client ID (público) para verificar.
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const GOOGLE_ALLOWED_DOMAINS = (process.env.GOOGLE_ALLOWED_DOMAINS || '')
+  .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+const googleClient = new OAuth2Client();
+
+/** Emite access+refresh token para un usuario y registra la sesión. */
+async function emitirSesion(user: User) {
+  const accessToken = generateAccessToken({
+    userId: user.id,
+    email: user.email,
+    role: user.role,
+    companyId: user.companyId ?? undefined,
+  });
+  const refreshToken = generateRefreshToken(user.id);
+  await prisma.refreshToken.create({
+    data: { token: refreshToken, userId: user.id, expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) },
+  });
+  await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+  return { accessToken, refreshToken };
+}
 
 // POST /api/auth/login
 authRouter.post('/login', async (req: Request, res: Response, next: NextFunction) => {
@@ -69,6 +94,52 @@ authRouter.post('/login', async (req: Request, res: Response, next: NextFunction
   } catch (err) {
     next(err);
   }
+});
+
+// POST /api/auth/google  { credential }
+//   credential = ID token de Google Identity Services (lo emite el botón del frontend).
+authRouter.post('/google', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!GOOGLE_CLIENT_ID) throw new AppError(500, 'El login con Google no está configurado en el servidor');
+    const { credential } = z.object({ credential: z.string().min(1) }).parse(req.body);
+
+    const ticket = await googleClient.verifyIdToken({ idToken: credential, audience: GOOGLE_CLIENT_ID });
+    const payload = ticket.getPayload();
+    if (!payload?.email || !payload.email_verified) {
+      throw new AppError(401, 'La cuenta de Google no tiene un email verificado');
+    }
+    const email = payload.email.toLowerCase();
+
+    let user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      // Alta automática solo si el dominio está habilitado (GOOGLE_ALLOWED_DOMAINS).
+      const domain = email.split('@')[1] ?? '';
+      if (!GOOGLE_ALLOWED_DOMAINS.includes(domain)) {
+        throw new AppError(403, 'Este email no está autorizado a ingresar. Pedile a un administrador que te dé de alta.');
+      }
+      const passwordHash = await bcrypt.hash(randomBytes(32).toString('hex'), 12);
+      user = await prisma.user.create({
+        data: {
+          email,
+          passwordHash,
+          nombre: payload.given_name || 'Usuario',
+          apellido: payload.family_name || 'Google',
+          role: UserRole.OPERATOR,
+        },
+      });
+    }
+    if (!user.active) throw new AppError(401, 'Usuario inactivo');
+
+    const { accessToken, refreshToken } = await emitirSesion(user);
+    res.json({
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id, email: user.email, nombre: user.nombre,
+        apellido: user.apellido, role: user.role, companyId: user.companyId,
+      },
+    });
+  } catch (err) { next(err); }
 });
 
 // POST /api/auth/refresh

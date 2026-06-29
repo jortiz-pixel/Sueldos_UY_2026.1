@@ -1,21 +1,72 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { Lock, Mail, AlertCircle } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import GroLogo from '../components/GroLogo';
+import { GOOGLE_CLIENT_ID } from '../constants/google';
 
 interface LoginForm {
   email: string;
   password: string;
 }
 
+// Tipado mínimo de Google Identity Services (window.google).
+interface GoogleId {
+  accounts: {
+    id: {
+      initialize: (cfg: { client_id: string; callback: (r: { credential: string }) => void }) => void;
+      renderButton: (el: HTMLElement, opts: Record<string, unknown>) => void;
+    };
+  };
+}
+declare global {
+  interface Window { google?: { accounts: GoogleId['accounts'] } }
+}
+
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, loginWithGoogle } = useAuth();
   const navigate = useNavigate();
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { register, handleSubmit, formState: { errors } } = useForm<LoginForm>();
+  const googleBtnRef = useRef<HTMLDivElement>(null);
+
+  // Carga el script de Google Identity Services y renderiza el botón oficial.
+  useEffect(() => {
+    const handleCredential = async (response: { credential: string }) => {
+      setError('');
+      setLoading(true);
+      try {
+        await loginWithGoogle(response.credential);
+        navigate('/');
+      } catch (e) {
+        const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error;
+        setError(msg || 'No se pudo ingresar con Google.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const init = () => {
+      if (!window.google || !googleBtnRef.current) return;
+      window.google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: handleCredential });
+      window.google.accounts.id.renderButton(googleBtnRef.current, {
+        theme: 'outline', size: 'large', width: 320, text: 'signin_with', shape: 'rectangular',
+      });
+    };
+
+    if (window.google) { init(); return; }
+    const existing = document.getElementById('gsi-script');
+    if (existing) { existing.addEventListener('load', init); return; }
+    const script = document.createElement('script');
+    script.id = 'gsi-script';
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    script.onload = init;
+    document.body.appendChild(script);
+  }, [loginWithGoogle, navigate]);
 
   const onSubmit = async (data: LoginForm) => {
     setError('');
@@ -94,6 +145,16 @@ export default function LoginPage() {
             ) : 'Ingresar'}
           </button>
         </form>
+
+        {/* Separador + botón de Google */}
+        <div className="flex items-center gap-3 my-5">
+          <div className="h-px bg-gray-200 flex-1" />
+          <span className="text-xs text-gray-400">o</span>
+          <div className="h-px bg-gray-200 flex-1" />
+        </div>
+        <div className="flex justify-center">
+          <div ref={googleBtnRef} />
+        </div>
 
         <div className="mt-6 p-4 bg-gray-50 rounded-lg">
           <p className="text-xs text-gray-500 font-medium mb-2">Usuarios de demo:</p>
