@@ -48,6 +48,16 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
     return;
   }
 
+  // Errores de subida de archivos (multer)
+  if (err.name === 'MulterError') {
+    const code = (err as unknown as { code?: string }).code;
+    res.status(413).json({
+      error: code === 'LIMIT_FILE_SIZE' ? 'El archivo supera el tamaño máximo (5 MB)' : 'Error al subir el archivo',
+      code: code || 'UPLOAD_ERROR',
+    });
+    return;
+  }
+
   // Errores de validación de Zod (schema.parse) → 422 con mensaje claro
   if (err instanceof ZodError) {
     const details = err.errors.map((e) => ({ path: e.path.join('.'), message: e.message }));

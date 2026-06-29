@@ -11,6 +11,11 @@ const api: AxiosInstance = axios.create({
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('accessToken');
   if (token) { config.headers.Authorization = `Bearer ${token}`; }
+  // En subidas multipart, quitar el Content-Type por defecto para que el
+  // navegador agregue el boundary correcto.
+  if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
+    config.headers.delete('Content-Type');
+  }
   return config;
 });
 
@@ -111,9 +116,7 @@ export const attachmentApi = {
   list: (params: { companyId: string; ownerType: string; ownerId: string }) =>
     api.get<Attachment[]>('/attachments', { params }).then((r) => r.data),
   upload: (formData: FormData) =>
-    api.post<Attachment>('/attachments', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    }).then((r) => r.data),
+    api.post<Attachment>('/attachments', formData).then((r) => r.data),
   blob: (id: string) =>
     api.get(`/attachments/${id}/download`, { responseType: 'blob' }).then((r) => r.data as Blob),
   remove: (id: string) => api.delete(`/attachments/${id}`).then((r) => r.data),
