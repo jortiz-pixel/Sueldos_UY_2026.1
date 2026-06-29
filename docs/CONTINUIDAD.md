@@ -37,6 +37,12 @@
 - nginx ya tiene `client_max_body_size 10m` (para subir archivos).
 - axios: en uploads `FormData`, el interceptor quita el `Content-Type` para que el navegador ponga el boundary.
 
+### Dominio y HTTPS (Traefik)
+- DNS: `sueldos.gro.com.uy` → registro **A** a `187.77.6.69`, creado en **Wix** (el dominio gro.com.uy está delegado a `ns8/ns9.wixdns.net`; DominiosUY es solo el registrador). Ya resuelve OK.
+- El VPS ya corre un **Traefik** gestionado por Hostinger (contenedor `traefik-jihh-traefik-1`, red `host`, provider docker, entrypoints `web`:80 / `websecure`:443, redirección http→https, certresolver **`letsencrypt`** ACME httpChallenge).
+- Para publicar la app en el dominio se agregaron **labels** al servicio `frontend` en `docker-compose.yml` (router `sueldos`, Host `sueldos.gro.com.uy`, entrypoint websecure, certresolver letsencrypt, loadbalancer port 80). Traefik saca el cert solo. El `/api` sigue resolviéndose dentro del contenedor frontend (nginx → backend:3000), así que no hay tema CORS.
+- Aplicar: `git pull && docker compose up -d` (recrea el frontend con las labels). Verificar: `https://sueldos.gro.com.uy`.
+
 ---
 
 ## 3. Estado del producto (qué está hecho)

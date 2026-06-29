@@ -48,6 +48,12 @@ services:
       - "8080:80"
     depends_on:
       - backend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.sueldos.rule=Host(`sueldos.gro.com.uy`)"
+      - "traefik.http.routers.sueldos.entrypoints=websecure"
+      - "traefik.http.routers.sueldos.tls.certresolver=letsencrypt"
+      - "traefik.http.services.sueldos.loadbalancer.server.port=80"
 
 volumes:
   postgres_data:
