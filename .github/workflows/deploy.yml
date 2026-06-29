@@ -1,4 +1,5 @@
 name: Deploy to VPS
+# Auto-deploy activo. (prueba de despliegue)
 
 # Cada push a la rama de desarrollo despliega solo en el servidor.
 # También se puede disparar a mano desde la pestaña "Actions" (Run workflow).
