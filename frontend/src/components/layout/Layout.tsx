@@ -1,7 +1,8 @@
+import { useState } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, FileText, BarChart2,
-  Settings, LogOut, Building2, Calculator, Briefcase, UserCog, Upload,
+  Settings, LogOut, Building2, Calculator, Briefcase, UserCog, Upload, Menu, X,
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useCompany } from '../../hooks/useCompany';
@@ -23,6 +24,7 @@ export default function Layout() {
   const { user, logout } = useAuth();
   const { companies, activeCompanyId, setActiveCompanyId } = useCompany();
   const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
 
   const handleLogout = async () => {
     await logout();
@@ -31,8 +33,14 @@ export default function Layout() {
 
   return (
     <div className="flex h-screen bg-gray-50">
-      <aside className="w-64 bg-[#003DA5] flex flex-col">
-        <div className="px-6 py-5 border-b border-blue-800">
+      {/* Backdrop (solo celular, con el menú abierto) */}
+      {open && <div className="fixed inset-0 bg-black/40 z-30 lg:hidden" onClick={() => setOpen(false)} />}
+
+      {/* Barra lateral: cajón deslizable en celular, fija en escritorio */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-40 w-64 bg-[#003DA5] flex flex-col transform transition-transform duration-200 lg:static lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}
+      >
+        <div className="px-6 py-5 border-b border-blue-800 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Building2 className="text-white" size={24} />
             <div>
@@ -40,14 +48,18 @@ export default function Layout() {
               <p className="text-blue-200 text-xs">Sistema de Nómina 2026</p>
             </div>
           </div>
+          <button onClick={() => setOpen(false)} className="text-blue-200 hover:text-white lg:hidden" aria-label="Cerrar menú">
+            <X size={20} />
+          </button>
         </div>
 
-        <nav className="flex-1 px-3 py-4 space-y-1">
+        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           {navItems.map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
               to={to}
               end={end}
+              onClick={() => setOpen(false)}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                   isActive ? 'bg-white/20 text-white' : 'text-blue-100 hover:bg-white/10 hover:text-white'
@@ -80,15 +92,18 @@ export default function Layout() {
         </div>
       </aside>
 
-      <main className="flex-1 flex flex-col overflow-hidden">
-        <header className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3 text-sm text-gray-500">
-            <Building2 size={16} className="text-[#003DA5]" />
+      <main className="flex-1 flex flex-col overflow-hidden min-w-0">
+        <header className="bg-white border-b border-gray-200 px-4 sm:px-6 py-3 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <button onClick={() => setOpen(true)} className="lg:hidden text-gray-500 hover:text-gray-700 p-1 -ml-1" aria-label="Abrir menú">
+              <Menu size={22} />
+            </button>
+            <Building2 size={16} className="text-[#003DA5] hidden sm:block shrink-0" />
             {companies.length > 0 ? (
               <select
                 value={activeCompanyId}
                 onChange={(e) => setActiveCompanyId(e.target.value)}
-                className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-medium text-gray-700 bg-white max-w-xs"
+                className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-medium text-gray-700 bg-white max-w-[55vw] sm:max-w-xs truncate"
                 title="Empresa activa"
               >
                 {companies.map((c) => (
@@ -98,14 +113,14 @@ export default function Layout() {
                 ))}
               </select>
             ) : (
-              <span className="text-gray-700 font-medium">Sistema de Nómina</span>
+              <span className="text-gray-700 font-medium text-sm truncate">Sistema de Nómina</span>
             )}
           </div>
-          <div className="text-xs text-gray-400">
+          <div className="text-xs text-gray-400 hidden md:block shrink-0">
             {new Date().toLocaleDateString('es-UY', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
           </div>
         </header>
-        <div className="flex-1 overflow-auto p-6">
+        <div className="flex-1 overflow-auto p-4 sm:p-6">
           <Outlet />
         </div>
       </main>
