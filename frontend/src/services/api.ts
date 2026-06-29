@@ -136,6 +136,34 @@ export const calendarApi = {
     api.get<CalendarEvent[]>('/calendar', { params: { companyId, days } }).then((r) => r.data),
 };
 
+export interface ImportRow {
+  fila: number;
+  datos: {
+    ci: string; nombre: string; apellido: string;
+    fechaNacimiento?: string; email?: string; telefono?: string;
+    fechaIngreso?: string; salarioNominal?: number; cargo?: string;
+  };
+  errores: string[];
+}
+
+export interface ImportResult {
+  dryRun: boolean;
+  headers?: string[];
+  mapeo?: Record<string, string>;
+  resumen: { total: number; validas: number; conErrores: number; creadas?: number };
+  filas: ImportRow[];
+}
+
+export const importApi = {
+  personas: (companyId: string, file: File, commit: boolean) => {
+    const fd = new FormData();
+    fd.append('companyId', companyId);
+    fd.append('commit', commit ? 'true' : 'false');
+    fd.append('file', file);
+    return api.post<ImportResult>('/import/personas', fd).then((r) => r.data);
+  },
+};
+
 export const catalogsApi = {
   tiposAporte: () => api.get<TipoAporte[]>('/catalogs/tipos-aporte').then((r) => r.data),
   tiposContribuyente: () => api.get<TipoContribuyente[]>('/catalogs/tipos-contribuyente').then((r) => r.data),

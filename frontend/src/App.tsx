@@ -15,6 +15,7 @@ import LiquidationDetailPage from './pages/LiquidationDetailPage';
 import ReportsPage from './pages/ReportsPage';
 import ParametersPage from './pages/ParametersPage';
 import AccessPage from './pages/AccessPage';
+import ImportPage from './pages/ImportPage';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -43,6 +44,7 @@ function AppRoutes() {
         <Route path="reports" element={<ReportsPage />} />
         <Route path="parameters" element={<ParametersPage />} />
         <Route path="access" element={<AccessPage />} />
+        <Route path="import" element={<ImportPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

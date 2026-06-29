@@ -1,7 +1,7 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, FileText, BarChart2,
-  Settings, LogOut, Building2, Calculator, Briefcase, UserCog,
+  Settings, LogOut, Building2, Calculator, Briefcase, UserCog, Upload,
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useCompany } from '../../hooks/useCompany';
@@ -10,6 +10,7 @@ const navItems = [
   { to: '/', label: 'Panel', icon: LayoutDashboard, end: true },
   { to: '/companies', label: 'Empresas', icon: Building2 },
   { to: '/employees', label: 'Personas', icon: Users },
+  { to: '/import', label: 'Importar', icon: Upload },
   { to: '/contracts', label: 'Contratos', icon: Briefcase },
   { to: '/concepts', label: 'Conceptos', icon: Calculator },
   { to: '/liquidation', label: 'Liquidaciones', icon: FileText },
