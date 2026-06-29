@@ -49,25 +49,44 @@ export async function calcularLiquidacionLicencia(input: LicenciaInput) {
     throw new AppError(400, `Días insuficientes. Disponibles: ${diasDisponibles}, solicitados: ${input.diasHabilesTomar}`);
   }
 
-  const salarioDiario = multiplyFraction(employee.salarioNominal, 1, 25);
-  const salarioLicencia = salarioDiario * BigInt(input.diasHabilesTomar);
-  const salarioVacacional = salarioLicencia;
-  const totalBruto = salarioLicencia + salarioVacacional;
+  // Base de licencia = promedio mensual de los haberes reales de los últimos 12 meses
+  // trabajados (liquidaciones MENSUALES confirmadas). Sin historial, cae al nominal.
+  const ultimas = await prisma.liquidation.findMany({
+    where: { employeeId: input.employeeId, type: LiquidationType.MENSUAL, status: LiquidationStatus.CONFIRMADO },
+    orderBy: [{ year: 'desc' }, { month: 'desc' }],
+    take: 12,
+    select: { totalHaberes: true },
+  });
+  const mesesPromedio = ultimas.length;
+  const baseLicencia = mesesPromedio > 0
+    ? ultimas.reduce((s, l) => s + l.totalHaberes, 0n) / BigInt(mesesPromedio)
+    : employee.salarioNominal;
 
+  // Importe de licencia (GRAVADO) = base / 30 × días tomados.
+  const jornalBruto = multiplyFraction(baseLicencia, 1, 30);
+  const importeLicencia = multiplyFraction(baseLicencia, input.diasHabilesTomar, 30);
+
+  // Aportes SOLO sobre la licencia (el salario vacacional es EXENTO de CESS).
   const aportesObreros = calcularAportesObreros({
-    salarioNominal: totalBruto,
+    salarioNominal: importeLicencia,
     fonasaFamilia: employee.fonasaFamilia,
     params,
     bseRateEmpresa: bseRate,
   });
 
   const aportesPatronales = calcularAportesPatronales({
-    salarioNominal: totalBruto,
+    salarioNominal: importeLicencia,
     fonasaFamilia: employee.fonasaFamilia,
     params,
     bseRateEmpresa: bseRate,
   });
 
+  // Salario vacacional = 100% del jornal LÍQUIDO de vacaciones (licencia − aportes personales). Exento de CESS.
+  const salarioVacacional = maxBigInt(0n, importeLicencia - aportesObreros.total);
+
+  const totalBruto = importeLicencia + salarioVacacional;
+
+  // IRPF: tanto la licencia gozada como el salario vacacional son renta gravada por IRPF.
   const irpfResult = calcularIrpfMensual({
     salarioNominal: totalBruto,
     fonasaMensual: aportesObreros.fonasaTotal,
@@ -123,13 +142,16 @@ export async function calcularLiquidacionLicencia(input: LicenciaInput) {
         employeeId: input.employeeId,
         itemType: ItemType.HABER,
         concepto: 'SALARIO_LICENCIA',
-        descripcion: `Salario de licencia (${input.diasHabilesTomar} días hábiles)`,
-        baseCalculo: salarioDiario,
+        descripcion: `Salario de licencia (${input.diasHabilesTomar} días · base prom. ${mesesPromedio || 'nominal'} ${mesesPromedio ? 'm/30' : ''})`,
+        baseCalculo: jornalBruto,
         rate: null,
-        amount: salarioLicencia,
+        amount: importeLicencia,
         calculationDetail: {
-          salarioDiario: salarioDiario.toString(),
+          baseLicencia: baseLicencia.toString(),
+          jornalBruto: jornalBruto.toString(),
+          mesesPromedio,
           diasHabiles: input.diasHabilesTomar,
+          formula: 'promedio_haberes_12m / 30 * dias',
         } as unknown as Prisma.InputJsonValue,
       },
       {
@@ -137,9 +159,9 @@ export async function calcularLiquidacionLicencia(input: LicenciaInput) {
         employeeId: input.employeeId,
         itemType: ItemType.HABER,
         concepto: 'SALARIO_VACACIONAL',
-        descripcion: 'Salario vacacional (100% del salario de licencia)',
-        baseCalculo: salarioLicencia,
-        rate: 10000,
+        descripcion: 'Salario vacacional (jornal líquido de vacaciones · exento de aportes)',
+        baseCalculo: importeLicencia,
+        rate: null,
         amount: salarioVacacional,
         calculationDetail: Prisma.DbNull,
       },
@@ -149,7 +171,7 @@ export async function calcularLiquidacionLicencia(input: LicenciaInput) {
         itemType: ItemType.DESCUENTO_OBRERO,
         concepto: 'BPS_JUBILATORIO',
         descripcion: 'BPS Jubilatorio sobre licencia',
-        baseCalculo: totalBruto,
+        baseCalculo: importeLicencia,
         rate: params.bpsJubilatorioRate,
         amount: aportesObreros.jubilatorio,
         calculationDetail: Prisma.DbNull,
@@ -160,7 +182,7 @@ export async function calcularLiquidacionLicencia(input: LicenciaInput) {
         itemType: ItemType.DESCUENTO_OBRERO,
         concepto: 'FONASA',
         descripcion: 'FONASA sobre licencia',
-        baseCalculo: totalBruto,
+        baseCalculo: importeLicencia,
         rate: params.fonasaBasicRate,
         amount: aportesObreros.fonasaTotal,
         calculationDetail: Prisma.DbNull,
@@ -171,7 +193,7 @@ export async function calcularLiquidacionLicencia(input: LicenciaInput) {
         itemType: ItemType.DESCUENTO_OBRERO,
         concepto: 'FRL',
         descripcion: 'FRL sobre licencia',
-        baseCalculo: totalBruto,
+        baseCalculo: importeLicencia,
         rate: params.frlObreroRate,
         amount: aportesObreros.frl,
         calculationDetail: Prisma.DbNull,
@@ -207,7 +229,7 @@ export async function calcularLiquidacionLicencia(input: LicenciaInput) {
 
   return {
     liquidacionId: liquidacion.id,
-    salarioLicencia,
+    salarioLicencia: importeLicencia,
     salarioVacacional,
     totalBruto,
     totalDescuentos,
