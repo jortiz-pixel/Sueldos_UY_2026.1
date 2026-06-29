@@ -1,6 +1,6 @@
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Download, CheckCircle, XCircle } from 'lucide-react';
+import { ArrowLeft, Download, CheckCircle, XCircle, RotateCcw } from 'lucide-react';
 import { liquidationApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { abrirBlobEnPestania } from '../utils/file';
@@ -77,6 +77,15 @@ export default function LiquidationDetailPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['liquidation', id] }),
   });
 
+  const unconfirmMutation = useMutation({
+    mutationFn: () => liquidationApi.unconfirm(id!),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['liquidation', id] }),
+    onError: (e: unknown) => {
+      const err = e as { response?: { data?: { error?: string } } };
+      alert(err.response?.data?.error || 'No se pudo desconfirmar');
+    },
+  });
+
   if (isLoading) return <div className="text-center py-12 text-gray-400">Cargando...</div>;
   if (!liq) return <div className="text-center py-12 text-gray-400">Liquidación no encontrada</div>;
 
@@ -120,6 +129,19 @@ export default function LiquidationDetailPage() {
             >
               <CheckCircle size={14} />
               Confirmar
+            </button>
+          )}
+          {isOperator && liq.status === 'CONFIRMADO' && (
+            <button
+              type="button"
+              onClick={() => {
+                if (confirm('¿Desconfirmar y reabrir esta liquidación para editarla?')) unconfirmMutation.mutate();
+              }}
+              disabled={unconfirmMutation.isPending}
+              className="btn-secondary btn-sm"
+            >
+              <RotateCcw size={14} />
+              Desconfirmar
             </button>
           )}
           {isAdmin && liq.status !== 'ANULADO' && (

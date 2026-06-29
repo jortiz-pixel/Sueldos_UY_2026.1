@@ -258,6 +258,28 @@ liquidationRouter.post('/:id/confirm', authenticate, requireRole(UserRole.ADMIN,
   } catch (err) { next(err); }
 });
 
+// POST /api/liquidation/:id/unconfirm — reabrir una liquidación (CONFIRMADO → BORRADOR)
+liquidationRouter.post('/:id/unconfirm', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const liquidation = await prisma.liquidation.findUnique({
+      where: { id: req.params.id },
+      include: { period: true },
+    });
+    if (!liquidation) throw new NotFoundError('Liquidación');
+    if (liquidation.status !== LiquidationStatus.CONFIRMADO) {
+      throw new AppError(409, 'Solo se pueden desconfirmar liquidaciones CONFIRMADAS');
+    }
+    if (liquidation.period.status === PeriodStatus.CERRADO) {
+      throw new AppError(409, 'El período está cerrado; no se puede desconfirmar');
+    }
+    await prisma.liquidation.update({
+      where: { id: req.params.id },
+      data: { status: LiquidationStatus.BORRADOR, confirmedAt: null, confirmedBy: null },
+    });
+    res.json({ message: 'Liquidación reabierta (BORRADOR)' });
+  } catch (err) { next(err); }
+});
+
 // POST /api/liquidation/:id/cancel
 liquidationRouter.post('/:id/cancel', authenticate, requireRole(UserRole.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { Plus, Play, RefreshCw, CheckCircle, Eye, Download } from 'lucide-react';
+import { Plus, Play, RefreshCw, CheckCircle, Eye, Download, RotateCcw } from 'lucide-react';
 import { liquidationApi, employeesApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
@@ -74,6 +74,15 @@ export default function LiquidationPage() {
   const confirmMutation = useMutation({
     mutationFn: (liquidacionId: string) => liquidationApi.confirm(liquidacionId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['period-liquidations'] }),
+  });
+
+  const unconfirmMutation = useMutation({
+    mutationFn: (liquidacionId: string) => liquidationApi.unconfirm(liquidacionId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['period-liquidations'] }),
+    onError: (e: unknown) => {
+      const err = e as { response?: { data?: { error?: string } } };
+      alert(err.response?.data?.error || 'No se pudo desconfirmar');
+    },
   });
 
   const liqByEmp = new Map((periodLiquidations ?? []).map((l) => [l.employeeId, l]));
@@ -221,6 +230,11 @@ export default function LiquidationPage() {
                               {liq && isOperator && liq.status === 'BORRADOR' && (
                                 <button onClick={() => confirmMutation.mutate(liq.id)} className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded" title="Confirmar">
                                   <CheckCircle size={14} />
+                                </button>
+                              )}
+                              {liq && isOperator && liq.status === 'CONFIRMADO' && (
+                                <button onClick={() => { if (confirm('¿Desconfirmar y reabrir esta liquidación?')) unconfirmMutation.mutate(liq.id); }} className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded" title="Desconfirmar">
+                                  <RotateCcw size={14} />
                                 </button>
                               )}
                               {liq && (
