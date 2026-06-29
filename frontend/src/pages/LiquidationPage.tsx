@@ -85,6 +85,29 @@ export default function LiquidationPage() {
     },
   });
 
+  const [especialOpen, setEspecialOpen] = useState(false);
+  const [espEmpId, setEspEmpId] = useState('');
+  const [espTipo, setEspTipo] = useState<'AGUINALDO' | 'LICENCIA' | 'EGRESO'>('AGUINALDO');
+  const [espDias, setEspDias] = useState(10);
+  const [espFecha, setEspFecha] = useState('');
+
+  const especialMutation = useMutation({
+    mutationFn: () => {
+      const base = { employeeId: espEmpId, periodId: selectedPeriodId, year: selectedYear, month: selectedPeriod?.month };
+      if (espTipo === 'AGUINALDO') return liquidationApi.generateAguinaldo(base);
+      if (espTipo === 'LICENCIA') return liquidationApi.generateLicencia({ ...base, diasHabilesTomar: espDias });
+      return liquidationApi.generateFinal({ employeeId: espEmpId, periodId: selectedPeriodId, fechaEgreso: new Date(espFecha + 'T00:00:00').toISOString() });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['period-liquidations'] });
+      setEspecialOpen(false);
+    },
+    onError: (e: unknown) => {
+      const err = e as { response?: { data?: { error?: string } } };
+      alert(err.response?.data?.error || 'No se pudo generar la liquidación especial');
+    },
+  });
+
   const liqByEmp = new Map((periodLiquidations ?? []).map((l) => [l.employeeId, l]));
   const roster: Employee[] = employees?.data ?? [];
   const liquidados = periodLiquidations?.length ?? 0;
@@ -178,10 +201,15 @@ export default function LiquidationPage() {
                   <p className="text-xs text-gray-500">{liquidados} de {roster.length} personas liquidadas</p>
                 </div>
                 {isOperator && (
-                  <button onClick={() => batchMutation.mutate()} disabled={batchMutation.isPending} className="btn-secondary btn-sm">
-                    {batchMutation.isPending ? <RefreshCw size={14} className="animate-spin" /> : <Play size={14} />}
-                    Generar todos
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => { setEspEmpId(roster[0]?.id ?? ''); setEspTipo('AGUINALDO'); setEspecialOpen(true); }} disabled={!roster.length} className="btn-secondary btn-sm" title="Aguinaldo, licencia o egreso">
+                      <Plus size={14} /> Especial
+                    </button>
+                    <button onClick={() => batchMutation.mutate()} disabled={batchMutation.isPending} className="btn-secondary btn-sm">
+                      {batchMutation.isPending ? <RefreshCw size={14} className="animate-spin" /> : <Play size={14} />}
+                      Generar todos
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -254,6 +282,51 @@ export default function LiquidationPage() {
           )}
         </div>
       </div>
+
+      {especialOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl w-full max-w-md p-6 space-y-4">
+            <h2 className="text-lg font-bold text-gray-900">Liquidación especial — {MESES[selectedPeriod?.month ?? 0]} {selectedPeriod?.year}</h2>
+            <div>
+              <label className="form-label">Persona</label>
+              <select value={espEmpId} onChange={(e) => setEspEmpId(e.target.value)} className="form-input">
+                {roster.map((emp) => <option key={emp.id} value={emp.id}>{emp.apellido}, {emp.nombre}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="form-label">Tipo</label>
+              <select value={espTipo} onChange={(e) => setEspTipo(e.target.value as 'AGUINALDO' | 'LICENCIA' | 'EGRESO')} className="form-input">
+                <option value="AGUINALDO">Aguinaldo</option>
+                <option value="LICENCIA">Licencia</option>
+                <option value="EGRESO">Egreso (liquidación final)</option>
+              </select>
+            </div>
+            {espTipo === 'LICENCIA' && (
+              <div>
+                <label className="form-label">Días hábiles de licencia a tomar</label>
+                <input type="number" min={1} max={30} value={espDias} onChange={(e) => setEspDias(Number(e.target.value))} className="form-input" />
+              </div>
+            )}
+            {espTipo === 'EGRESO' && (
+              <div>
+                <label className="form-label">Fecha de egreso</label>
+                <input type="date" value={espFecha} onChange={(e) => setEspFecha(e.target.value)} className="form-input" />
+              </div>
+            )}
+            <p className="text-xs text-gray-400">
+              {espTipo === 'AGUINALDO' && 'Calcula 1/12 de los haberes del semestre (jun: dic–may · dic: jun–nov).'}
+              {espTipo === 'LICENCIA' && 'Calcula jornal de licencia + salario vacacional por los días indicados.'}
+              {espTipo === 'EGRESO' && 'Liquidación final a la fecha de egreso (incluye partidas pendientes).'}
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={() => setEspecialOpen(false)} className="btn-secondary">Cancelar</button>
+              <button type="button" onClick={() => especialMutation.mutate()} disabled={especialMutation.isPending || !espEmpId || (espTipo === 'EGRESO' && !espFecha)} className="btn-primary">
+                {especialMutation.isPending ? 'Generando…' : 'Generar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
