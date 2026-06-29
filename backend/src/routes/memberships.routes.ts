@@ -11,6 +11,7 @@ import {
 import { prisma } from '../utils/prisma';
 import { authenticate, requireRole } from '../middleware/auth';
 import { canManageCompany } from '../middleware/tenancy';
+import { evaluateOwnerChange } from '../services/membership.policy';
 import { AppError, NotFoundError } from '../middleware/errorHandler';
 
 export const membershipsRouter = Router();
@@ -171,23 +172,37 @@ membershipsRouter.patch('/:id', authenticate, async (req: Request, res: Response
       throw new AppError(403, 'Sin permisos para modificar accesos de esta empresa');
     }
 
-    // No dejar a una empresa sin OWNER activo.
-    const losingOwner =
-      membership.role === MembershipRole.OWNER &&
-      (data.role && data.role !== MembershipRole.OWNER ||
-        data.estado && data.estado !== MembershipStatus.ACTIVA);
-    if (losingOwner) {
-      const owners = await prisma.membership.count({
-        where: { companyId: membership.companyId, role: MembershipRole.OWNER, estado: MembershipStatus.ACTIVA },
-      });
-      if (owners <= 1) throw new AppError(409, 'La empresa debe conservar al menos un OWNER activo');
-    }
-
-    const updated = await prisma.membership.update({
-      where: { id: membership.id },
-      data: { role: data.role ?? undefined, estado: data.estado ?? undefined },
+    // Invariante de propiedad (D9): la empresa conserva siempre un OWNER activo.
+    // Si el último OWNER deja de serlo, un ADMIN activo asume automáticamente.
+    const companyMembers = await prisma.membership.findMany({
+      where: { companyId: membership.companyId },
+      select: { id: true, role: true, estado: true, createdAt: true },
     });
-    res.json({ id: updated.id, role: updated.role, estado: updated.estado });
+    const decision = evaluateOwnerChange(companyMembers, membership.id, {
+      role: data.role,
+      estado: data.estado,
+    });
+    if (!decision.allowed) throw new AppError(409, decision.reason);
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const u = await tx.membership.update({
+        where: { id: membership.id },
+        data: { role: data.role ?? undefined, estado: data.estado ?? undefined },
+      });
+      if (decision.promoteToOwnerId) {
+        await tx.membership.update({
+          where: { id: decision.promoteToOwnerId },
+          data: { role: MembershipRole.OWNER },
+        });
+      }
+      return u;
+    });
+    res.json({
+      id: updated.id,
+      role: updated.role,
+      estado: updated.estado,
+      ownerTransferredTo: decision.promoteToOwnerId ?? undefined,
+    });
   } catch (err) { next(err); }
 });
 

@@ -14,6 +14,20 @@ bloqueada y no hecha**, la implementa entera (con tests), y la marca como hecha.
   avanzado más que este archivo). Si ya está hecha, marcala `[x]` y seguí.
 - Al terminar: actualizar este archivo en el mismo commit/PR de la tarea.
 
+## ⚠️ Deuda técnica / bugs detectados
+
+- [!] **Tests `irpf.test.ts` y `bps.test.ts` desactualizados (preexistente).**
+      El interface `PayrollParameters` evolucionó a un modelo FONASA por tramos
+      (`fonasaBasicRate` 3% si ingreso ≤ 2.5 BPC, `fonasaBasicHighRate` 4.5% si
+      lo supera, + `fonasaHijosRate`/`fonasaConyugeRate`), pero las fixtures de
+      estos tests no incluyen los campos nuevos (no compilan) y sus aserciones
+      esperan el FONASA viejo (3% plano). 🛑 **Requiere decisión fiscal del
+      usuario**: confirmar que el modelo por tramos (3%/4.5% + adicionales) es
+      el correcto para UY antes de actualizar los valores esperados. El agente
+      NO debe inventar los montos. Afecta: `tests/irpf.test.ts`,
+      `tests/bps.test.ts`, `src/services/bps.service.ts`,
+      `src/services/parameters.service.ts`.
+
 ## 🛑 Decisiones del usuario (NO las decide el agente)
 
 Estas condicionan el orden de abajo. Si una tarea las necesita, preguntar:
@@ -30,8 +44,10 @@ Estas condicionan el orden de abajo. Si una tarea las necesita, preguntar:
 ### F1 — Backbone: Membresía + Permisos + Entitlements  `[x]` (verificar)
 Reemplaza `User.companyId`. Ya implementado (Membership, Entitlements, pantalla
 Accesos, selector de empresa). **Tareas residuales:**
-- [ ] D9: propiedad del tenant transferible + regla de revocación de OWNER (otro
-      ADMIN asume). Tests de membresía/revocación.
+- [x] D9: propiedad del tenant transferible + regla de revocación de OWNER (otro
+      ADMIN asume). Implementado como policy pura `membership.policy.ts`
+      (`evaluateOwnerChange`) con traspaso automático al ADMIN activo más
+      antiguo, cableada en `PATCH /memberships/:id` (transacción) + 9 tests.
 - [ ] Middleware `requireMembership(companyId, permiso)` aplicado de forma
       consistente en TODAS las rutas company-scoped (auditar ruta por ruta).
 - [ ] Cobertura de tests de aislamiento multi-tenant (un usuario de empresa A no
