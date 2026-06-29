@@ -5,6 +5,8 @@ import { useForm } from 'react-hook-form';
 import { ArrowLeft, AlertCircle } from 'lucide-react';
 import { employeesApi, companiesApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
+import { useCompany } from '../hooks/useCompany';
+import AttachmentsPanel from '../components/AttachmentsPanel';
 import { SalaryType, EstadoCivil, formatCedula, validarCedula } from '../types';
 
 interface EmployeeForm {
@@ -48,6 +50,7 @@ export default function EmployeeFormPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const { activeCompanyId } = useCompany();
 
   const { data: companies } = useQuery({ queryKey: ['companies'], queryFn: () => companiesApi.list() });
 
@@ -289,6 +292,12 @@ export default function EmployeeFormPage() {
           </button>
         </div>
       </form>
+
+      {isEdit && id && (
+        <div className="mt-5">
+          <AttachmentsPanel companyId={activeCompanyId} ownerType="PERSONA" ownerId={id} />
+        </div>
+      )}
     </div>
   );
 }
