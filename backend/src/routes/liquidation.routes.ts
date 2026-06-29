@@ -321,6 +321,74 @@ liquidationRouter.get('/:id/recibo', authenticate, async (req: Request, res: Res
   } catch (err) { next(err); }
 });
 
+// Recalcula los totales de una liquidación a partir de sus ítems.
+async function recalcularTotales(liquidationId: string): Promise<void> {
+  const items = await prisma.payrollItem.findMany({
+    where: { liquidationId },
+    select: { itemType: true, amount: true },
+  });
+  let haberes = 0n, descuentos = 0n, patronal = 0n;
+  for (const it of items) {
+    if (it.itemType === 'HABER') haberes += it.amount;
+    else if (it.itemType === 'DESCUENTO_OBRERO') descuentos += it.amount;
+    else if (it.itemType === 'APORTE_PATRONAL') patronal += it.amount;
+  }
+  await prisma.liquidation.update({
+    where: { id: liquidationId },
+    data: { totalHaberes: haberes, totalDescuentos: descuentos, totalPatronal: patronal, liquidoPercibir: haberes - descuentos },
+  });
+}
+
+// POST /api/liquidation/:id/item — agregar un concepto manual (suma o resta) y recalcular
+liquidationRouter.post('/:id/item', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const schema = z.object({
+      descripcion: z.string().min(1),
+      monto: z.number().positive(),                 // en pesos
+      itemType: z.enum(['HABER', 'DESCUENTO_OBRERO']),
+    });
+    const data = schema.parse(req.body);
+
+    const liquidation = await prisma.liquidation.findUnique({ where: { id: req.params.id } });
+    if (!liquidation) throw new NotFoundError('Liquidación');
+    if (liquidation.status !== LiquidationStatus.BORRADOR) {
+      throw new AppError(409, 'Solo se pueden agregar conceptos a liquidaciones en BORRADOR. Desconfirmá primero.');
+    }
+
+    await prisma.payrollItem.create({
+      data: {
+        liquidationId: liquidation.id,
+        employeeId: liquidation.employeeId,
+        itemType: data.itemType,
+        concepto: 'AJUSTE',
+        descripcion: data.descripcion,
+        amount: BigInt(Math.round(data.monto * 100)),
+      },
+    });
+    await recalcularTotales(liquidation.id);
+    res.status(201).json({ message: 'Concepto agregado' });
+  } catch (err) { next(err); }
+});
+
+// DELETE /api/liquidation/:id/item/:itemId — quitar un concepto agregado manualmente
+liquidationRouter.delete('/:id/item/:itemId', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const liquidation = await prisma.liquidation.findUnique({ where: { id: req.params.id } });
+    if (!liquidation) throw new NotFoundError('Liquidación');
+    if (liquidation.status !== LiquidationStatus.BORRADOR) {
+      throw new AppError(409, 'Solo se pueden quitar conceptos en BORRADOR. Desconfirmá primero.');
+    }
+    const item = await prisma.payrollItem.findUnique({ where: { id: req.params.itemId } });
+    if (!item || item.liquidationId !== liquidation.id) throw new NotFoundError('Concepto');
+    if (item.concepto !== 'AJUSTE') {
+      throw new AppError(409, 'Solo se pueden quitar los conceptos agregados manualmente');
+    }
+    await prisma.payrollItem.delete({ where: { id: item.id } });
+    await recalcularTotales(liquidation.id);
+    res.json({ message: 'Concepto eliminado' });
+  } catch (err) { next(err); }
+});
+
 // POST /api/liquidation/:id/adjustment
 liquidationRouter.post('/:id/adjustment', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
   try {

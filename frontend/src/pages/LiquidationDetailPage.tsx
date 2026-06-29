@@ -1,15 +1,20 @@
+import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Download, CheckCircle, XCircle, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Download, CheckCircle, XCircle, RotateCcw, X, Plus } from 'lucide-react';
 import { liquidationApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { abrirBlobEnPestania } from '../utils/file';
 import { formatPesos, MESES, PayrollItem } from '../types';
 
-function ItemRow({ item }: { item: PayrollItem }) {
+function ItemRow({ item, onDelete }: { item: PayrollItem; onDelete?: (id: string) => void }) {
+  const manual = item.concepto === 'AJUSTE';
   return (
     <tr className="hover:bg-gray-50">
-      <td className="px-4 py-2.5 text-sm text-gray-700">{item.descripcion}</td>
+      <td className="px-4 py-2.5 text-sm text-gray-700">
+        {item.descripcion}
+        {manual && <span className="ml-2 text-[10px] uppercase bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded">manual</span>}
+      </td>
       <td className="px-4 py-2.5 text-right text-xs font-mono text-gray-500">
         {item.baseCalculo ? formatPesos(item.baseCalculo) : '—'}
       </td>
@@ -17,17 +22,21 @@ function ItemRow({ item }: { item: PayrollItem }) {
         {item.rate ? `${(item.rate / 100).toFixed(3)}%` : '—'}
       </td>
       <td className="px-4 py-2.5 text-right text-sm font-mono font-medium">
-        {formatPesos(item.amount)}
+        <span className="align-middle">{formatPesos(item.amount)}</span>
+        {onDelete && manual && (
+          <button onClick={() => onDelete(item.id)} className="ml-2 text-red-500 hover:text-red-700 align-middle" title="Quitar concepto"><X size={13} /></button>
+        )}
       </td>
     </tr>
   );
 }
 
-function Section({ title, items, total, colorClass }: {
+function Section({ title, items, total, colorClass, onDelete }: {
   title: string;
   items: PayrollItem[];
   total: string;
   colorClass: string;
+  onDelete?: (id: string) => void;
 }) {
   return (
     <div>
@@ -44,7 +53,7 @@ function Section({ title, items, total, colorClass }: {
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-50">
-          {items.map((item) => <ItemRow key={item.id} item={item} />)}
+          {items.map((item) => <ItemRow key={item.id} item={item} onDelete={onDelete} />)}
           <tr className="bg-gray-50 font-semibold">
             <td className="px-4 py-2 text-sm">Total {title}</td>
             <td colSpan={2} />
@@ -83,6 +92,31 @@ export default function LiquidationDetailPage() {
     onError: (e: unknown) => {
       const err = e as { response?: { data?: { error?: string } } };
       alert(err.response?.data?.error || 'No se pudo desconfirmar');
+    },
+  });
+
+  const [tipo, setTipo] = useState<'HABER' | 'DESCUENTO_OBRERO'>('HABER');
+  const [desc, setDesc] = useState('');
+  const [monto, setMonto] = useState(0);
+
+  const addItemMutation = useMutation({
+    mutationFn: () => liquidationApi.addItem(id!, { descripcion: desc, monto, itemType: tipo }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['liquidation', id] });
+      setDesc(''); setMonto(0);
+    },
+    onError: (e: unknown) => {
+      const err = e as { response?: { data?: { error?: string } } };
+      alert(err.response?.data?.error || 'No se pudo agregar el concepto');
+    },
+  });
+
+  const deleteItemMutation = useMutation({
+    mutationFn: (itemId: string) => liquidationApi.deleteItem(id!, itemId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['liquidation', id] }),
+    onError: (e: unknown) => {
+      const err = e as { response?: { data?: { error?: string } } };
+      alert(err.response?.data?.error || 'No se pudo quitar el concepto');
     },
   });
 
@@ -181,12 +215,14 @@ export default function LiquidationDetailPage() {
           items={haberes as PayrollItem[]}
           total={liq.totalHaberes}
           colorClass="bg-green-50 text-green-800"
+          onDelete={liq.status === 'BORRADOR' && isOperator ? deleteItemMutation.mutate : undefined}
         />
         <Section
           title="Descuentos Obreros"
           items={descuentos as PayrollItem[]}
           total={liq.totalDescuentos}
           colorClass="bg-red-50 text-red-800"
+          onDelete={liq.status === 'BORRADOR' && isOperator ? deleteItemMutation.mutate : undefined}
         />
 
         {/* Net */}
@@ -196,6 +232,29 @@ export default function LiquidationDetailPage() {
             <span className="font-bold text-xl text-blue-900 font-mono">{formatPesos(liq.liquidoPercibir)}</span>
           </div>
         </div>
+
+        {liq.status === 'BORRADOR' && isOperator && (
+          <div className="px-4 py-4 bg-gray-50/60">
+            <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2 flex items-center gap-1"><Plus size={13} /> Agregar concepto</p>
+            <div className="flex flex-wrap gap-2 items-center">
+              <select value={tipo} onChange={(e) => setTipo(e.target.value as 'HABER' | 'DESCUENTO_OBRERO')} className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm">
+                <option value="HABER">Suma (haber)</option>
+                <option value="DESCUENTO_OBRERO">Resta (descuento)</option>
+              </select>
+              <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Descripción (ej. Premio, Adelanto…)" className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm flex-1 min-w-[180px]" />
+              <input type="number" value={monto || ''} onChange={(e) => setMonto(Number(e.target.value))} placeholder="Monto $" className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-32" />
+              <button
+                type="button"
+                onClick={() => { if (desc.trim() && monto > 0) addItemMutation.mutate(); }}
+                disabled={addItemMutation.isPending || !desc.trim() || monto <= 0}
+                className="btn-primary btn-sm"
+              >
+                {addItemMutation.isPending ? 'Agregando…' : 'Agregar'}
+              </button>
+            </div>
+            <p className="text-[11px] text-gray-400 mt-1.5">Los conceptos que sumás (haber) o restás (descuento) se reflejan en el líquido al instante.</p>
+          </div>
+        )}
 
         {patronal.length > 0 && (
           <div>

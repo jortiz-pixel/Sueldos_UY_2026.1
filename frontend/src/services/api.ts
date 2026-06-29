@@ -218,6 +218,10 @@ export const liquidationApi = {
   cancel: (id: string) => api.post(`/liquidation/${id}/cancel`).then((r) => r.data),
   addAdjustment: (id: string, data: object) =>
     api.post(`/liquidation/${id}/adjustment`, data).then((r) => r.data),
+  addItem: (id: string, data: { descripcion: string; monto: number; itemType: 'HABER' | 'DESCUENTO_OBRERO' }) =>
+    api.post(`/liquidation/${id}/item`, data).then((r) => r.data),
+  deleteItem: (id: string, itemId: string) =>
+    api.delete(`/liquidation/${id}/item/${itemId}`).then((r) => r.data),
   reciboUrl: (id: string) => `${BASE_URL}/api/liquidation/${id}/recibo`,
   recibo: (id: string) => api.get(`/liquidation/${id}/recibo`, { responseType: 'blob' }).then((r) => r.data as Blob),
   byPeriod: (periodId: string) =>
