@@ -7,6 +7,7 @@ import { employeesApi, companiesApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
 import AttachmentsPanel from '../components/AttachmentsPanel';
+import PersonPhoto from '../components/PersonPhoto';
 import { SalaryType, EstadoCivil, formatCedula, validarCedula } from '../types';
 
 interface EmployeeForm {
@@ -125,7 +126,7 @@ export default function EmployeeFormPage() {
   const errorMsg = (mutation.error as { response?: { data?: { error?: string } } })?.response?.data?.error;
 
   return (
-    <div className="space-y-5 max-w-3xl">
+    <div className="space-y-5 max-w-5xl">
       <div className="flex items-center gap-3">
         <Link to="/employees" className="btn-secondary btn-sm"><ArrowLeft size={14} />Volver</Link>
         <h1 className="text-xl font-bold text-gray-900">{isEdit ? 'Editar Persona' : 'Nueva Persona + Contrato'}</h1>
@@ -141,7 +142,8 @@ export default function EmployeeFormPage() {
 
         <section className="space-y-4">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400">Datos personales</h3>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="flex flex-col md:flex-row gap-6">
+            <div className="grid grid-cols-2 gap-4 flex-1">
             <div>
               <label className="form-label">Cédula de Identidad *</label>
               <input
@@ -192,6 +194,12 @@ export default function EmployeeFormPage() {
               <label className="form-label">Domicilio</label>
               <input {...register('domicilio')} className="form-input" />
             </div>
+            </div>
+            {isEdit && id && (
+              <div className="w-full md:w-44 shrink-0">
+                <PersonPhoto companyId={activeCompanyId} ownerId={id} />
+              </div>
+            )}
           </div>
         </section>
 
@@ -295,7 +303,7 @@ export default function EmployeeFormPage() {
 
       {isEdit && id && (
         <div className="mt-5">
-          <AttachmentsPanel companyId={activeCompanyId} ownerType="PERSONA" ownerId={id} />
+          <AttachmentsPanel companyId={activeCompanyId} ownerType="PERSONA" ownerId={id} hidePhoto />
         </div>
       )}
     </div>

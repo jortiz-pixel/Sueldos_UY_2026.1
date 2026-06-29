@@ -33,9 +33,10 @@ interface Props {
   companyId: string;
   ownerType: string;
   ownerId: string;
+  hidePhoto?: boolean;
 }
 
-export default function AttachmentsPanel({ companyId, ownerType, ownerId }: Props) {
+export default function AttachmentsPanel({ companyId, ownerType, ownerId, hidePhoto }: Props) {
   const queryClient = useQueryClient();
   const fotoInput = useRef<HTMLInputElement>(null);
   const docInput = useRef<HTMLInputElement>(null);
@@ -110,28 +111,30 @@ export default function AttachmentsPanel({ companyId, ownerType, ownerId }: Prop
   return (
     <div className="card p-5 space-y-4">
       <div className="flex items-center gap-2 text-sm font-semibold text-gray-700">
-        <Camera size={16} /> Foto y documentos
+        {hidePhoto ? <FileText size={16} /> : <Camera size={16} />} {hidePhoto ? 'Documentos' : 'Foto y documentos'}
       </div>
 
       {/* Foto */}
-      <div className="flex items-center gap-4">
-        <div className="w-20 h-20 rounded-lg bg-gray-100 overflow-hidden flex items-center justify-center shrink-0">
-          {fotoUrl
-            ? <img src={fotoUrl} alt="Foto" className="w-full h-full object-cover" />
-            : <Camera size={28} className="text-gray-300" />}
-        </div>
-        <div>
-          <button onClick={() => fotoInput.current?.click()} className="btn-secondary btn-sm" disabled={!enabled || uploadMutation.isPending}>
-            <Upload size={14} /> {foto ? 'Cambiar foto' : 'Subir foto'}
-          </button>
-          {foto && (
-            <button onClick={() => removeMutation.mutate(foto.id)} className="text-red-600 hover:text-red-700 text-xs ml-3">
-              Quitar
+      {!hidePhoto && (
+        <div className="flex items-center gap-4">
+          <div className="w-20 h-20 rounded-lg bg-gray-100 overflow-hidden flex items-center justify-center shrink-0">
+            {fotoUrl
+              ? <img src={fotoUrl} alt="Foto" className="w-full h-full object-cover" />
+              : <Camera size={28} className="text-gray-300" />}
+          </div>
+          <div>
+            <button type="button" onClick={() => fotoInput.current?.click()} className="btn-secondary btn-sm" disabled={!enabled || uploadMutation.isPending}>
+              <Upload size={14} /> {foto ? 'Cambiar foto' : 'Subir foto'}
             </button>
-          )}
-          <input ref={fotoInput} type="file" accept="image/*" className="hidden" onChange={onFoto} />
+            {foto && (
+              <button type="button" onClick={() => removeMutation.mutate(foto.id)} className="text-red-600 hover:text-red-700 text-xs ml-3">
+                Quitar
+              </button>
+            )}
+            <input ref={fotoInput} type="file" accept="image/*" className="hidden" onChange={onFoto} />
+          </div>
         </div>
-      </div>
+      )}
 
       {error && <p className="text-red-600 text-xs">{error}</p>}
 
@@ -145,8 +148,8 @@ export default function AttachmentsPanel({ companyId, ownerType, ownerId }: Prop
               <p className="text-gray-800 truncate">{TIPO_LABEL[a.tipo]} · <span className="text-gray-500">{a.fileName}</span></p>
               {vencInfo(a.vencimiento)}
             </div>
-            <button onClick={() => view(a.id)} className="text-blue-600 hover:text-blue-700" title="Ver"><Eye size={15} /></button>
-            <button onClick={() => removeMutation.mutate(a.id)} className="text-red-600 hover:text-red-700" title="Eliminar"><Trash2 size={15} /></button>
+            <button type="button" onClick={() => view(a.id)} className="text-blue-600 hover:text-blue-700" title="Ver"><Eye size={15} /></button>
+            <button type="button" onClick={() => removeMutation.mutate(a.id)} className="text-red-600 hover:text-red-700" title="Eliminar"><Trash2 size={15} /></button>
           </div>
         ))}
       </div>
@@ -171,7 +174,7 @@ export default function AttachmentsPanel({ companyId, ownerType, ownerId }: Prop
             />
           )}
         </div>
-        <button onClick={() => docInput.current?.click()} className="btn-secondary btn-sm w-full justify-center" disabled={!enabled || uploadMutation.isPending}>
+        <button type="button" onClick={() => docInput.current?.click()} className="btn-secondary btn-sm w-full justify-center" disabled={!enabled || uploadMutation.isPending}>
           <Upload size={14} /> {uploadMutation.isPending ? 'Subiendo…' : 'Subir documento (imagen o PDF)'}
         </button>
         <input ref={docInput} type="file" accept="image/*,application/pdf" className="hidden" onChange={onDoc} />
