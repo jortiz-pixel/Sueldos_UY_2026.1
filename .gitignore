@@ -3,6 +3,9 @@ node_modules/
 .pnp
 .pnp.js
 
+# Lockfile generado por instalaciones en entornos efímeros (el proyecto usa `npm install`)
+package-lock.json
+
 # Build output
 dist/
 build/
