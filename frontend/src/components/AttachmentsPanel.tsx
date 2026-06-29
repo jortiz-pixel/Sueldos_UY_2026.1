@@ -11,14 +11,22 @@ const TIPOS_DOC: AttachmentTipo[] = ['CEDULA', 'LIBRETA', 'CARNE_SALUD', 'CV', '
 const TIPOS_CON_VENCIMIENTO = new Set(['CARNE_SALUD', 'LIBRETA']);
 
 function useBlobUrl(id?: string) {
-  const { data } = useQuery({
+  // Cacheamos el BLOB (datos), no la object URL: la URL se crea fresca en el
+  // componente y se revoca al desmontar. Así no queda una URL revocada en caché.
+  const { data: blob } = useQuery({
     queryKey: ['attachment-blob', id],
-    queryFn: async () => URL.createObjectURL(await attachmentApi.blob(id!)),
+    queryFn: () => attachmentApi.blob(id!),
     enabled: !!id,
-    staleTime: Infinity,
+    staleTime: 5 * 60 * 1000,
   });
-  useEffect(() => () => { if (data) URL.revokeObjectURL(data); }, [data]);
-  return data;
+  const [url, setUrl] = useState<string>();
+  useEffect(() => {
+    if (!blob) { setUrl(undefined); return; }
+    const u = URL.createObjectURL(blob);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [blob]);
+  return url;
 }
 
 interface Props {
