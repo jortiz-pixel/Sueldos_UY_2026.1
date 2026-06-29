@@ -111,6 +111,20 @@ export function parsePersonasExcel(buffer: Buffer): { headers: string[]; mapeo: 
   return { headers, mapeo, rows };
 }
 
+/** Genera un Excel de plantilla con encabezados y filas de ejemplo. */
+export function buildPlantillaPersonas(): Buffer {
+  const aoa = [
+    ['Cédula', 'Nombre', 'Apellido', 'Fecha de ingreso', 'Salario', 'Fecha de nacimiento', 'Email', 'Teléfono', 'Cargo'],
+    ['41318048', 'Ana', 'García', '01/03/2024', '80000', '15/06/1990', 'ana@empresa.uy', '099123456', 'Administrativa'],
+    ['41290797', 'Juan', 'Pérez', '15/01/2023', '95000', '20/11/1985', '', '', 'Vendedor'],
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{ wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 12 }, { wch: 18 }, { wch: 20 }, { wch: 12 }, { wch: 16 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Personas');
+  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+}
+
 /** Valida cada fila (cédula, requeridos, duplicados internos y contra existentes). Muta errores[]. */
 export function validateRows(rows: ImportRow[], existingCIs: Set<string>): void {
   const seen = new Set<string>();

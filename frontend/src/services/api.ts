@@ -162,6 +162,7 @@ export const importApi = {
     fd.append('file', file);
     return api.post<ImportResult>('/import/personas', fd).then((r) => r.data);
   },
+  plantilla: () => api.get('/import/personas/plantilla', { responseType: 'blob' }).then((r) => r.data as Blob),
 };
 
 export const catalogsApi = {

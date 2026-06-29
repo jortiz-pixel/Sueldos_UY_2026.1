@@ -5,12 +5,20 @@ import { prisma } from '../utils/prisma';
 import { authenticate, requireRole } from '../middleware/auth';
 import { assertCompanyAccess } from '../middleware/tenancy';
 import { AppError } from '../middleware/errorHandler';
-import { parsePersonasExcel, validateRows } from '../services/import.service';
+import { parsePersonasExcel, validateRows, buildPlantillaPersonas } from '../services/import.service';
 import { soloDigitos } from '../utils/cedula';
 
 export const importRouter = Router();
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+
+// GET /api/import/personas/plantilla  → Excel de ejemplo descargable
+importRouter.get('/personas/plantilla', authenticate, (_req: Request, res: Response) => {
+  const buffer = buildPlantillaPersonas();
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename="plantilla_personas.xlsx"');
+  res.send(buffer);
+});
 
 // POST /api/import/personas  (multipart: file, companyId, commit)
 //   commit != 'true'  → dry-run: parsea y valida sin escribir.

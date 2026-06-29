@@ -1,8 +1,20 @@
 import { useState, ChangeEvent } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, ArrowRight } from 'lucide-react';
+import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, ArrowRight, Download } from 'lucide-react';
 import { importApi, ImportResult } from '../services/api';
 import { useCompany } from '../hooks/useCompany';
+
+async function descargarPlantilla() {
+  const blob = await importApi.plantilla();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'plantilla_personas.xlsx';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 const CAMPOS_REQUERIDOS = ['ci', 'nombre', 'apellido', 'fechaIngreso', 'salarioNominal'];
 const CAMPO_LABEL: Record<string, string> = {
@@ -51,6 +63,9 @@ export default function ImportPage() {
         <p><b>Requeridas:</b> Cédula, Nombre, Apellido, Fecha de ingreso, Salario.</p>
         <p><b>Opcionales:</b> Fecha de nacimiento, Email, Teléfono, Cargo.</p>
         <p className="text-xs text-gray-400 mt-1">Fechas en formato DD/MM/AAAA o AAAA-MM-DD. El salario en pesos. Las cédulas se validan por dígito verificador.</p>
+        <button type="button" onClick={descargarPlantilla} className="btn-secondary btn-sm mt-3">
+          <Download size={14} /> Descargar plantilla de ejemplo
+        </button>
       </div>
 
       {/* Paso 1: archivo */}
