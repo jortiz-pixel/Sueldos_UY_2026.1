@@ -11,6 +11,7 @@
     "prisma:migrate": "prisma migrate deploy",
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:seed": "tsx prisma/seed.ts",
+    "user": "tsx prisma/admin-user.ts",
     "prisma:studio": "prisma studio",
     "test": "jest --runInBand",
     "test:watch": "jest --watch",
