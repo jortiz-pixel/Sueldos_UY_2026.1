@@ -218,6 +218,7 @@ export const liquidationApi = {
   addAdjustment: (id: string, data: object) =>
     api.post(`/liquidation/${id}/adjustment`, data).then((r) => r.data),
   reciboUrl: (id: string) => `${BASE_URL}/api/liquidation/${id}/recibo`,
+  recibo: (id: string) => api.get(`/liquidation/${id}/recibo`, { responseType: 'blob' }).then((r) => r.data as Blob),
   byPeriod: (periodId: string) =>
     api.get(`/liquidation/period/${periodId}`).then((r) => r.data),
 };

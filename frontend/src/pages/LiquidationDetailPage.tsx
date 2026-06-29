@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Download, CheckCircle, XCircle } from 'lucide-react';
 import { liquidationApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
+import { abrirBlobEnPestania } from '../utils/file';
 import { formatPesos, MESES, PayrollItem } from '../types';
 
 function ItemRow({ item }: { item: PayrollItem }) {
@@ -103,15 +104,14 @@ export default function LiquidationDetailPage() {
             : liq.status === 'BORRADOR' ? 'badge-yellow'
             : 'badge-red'
           }`}>{liq.status}</span>
-          <a
-            href={liquidationApi.reciboUrl(id!)}
-            target="_blank"
-            rel="noreferrer"
+          <button
+            type="button"
+            onClick={() => abrirBlobEnPestania(() => liquidationApi.recibo(id!), `recibo_${id}.pdf`)}
             className="btn-secondary btn-sm"
           >
             <Download size={14} />
             Recibo PDF
-          </a>
+          </button>
           {isOperator && liq.status === 'BORRADOR' && (
             <button
               onClick={() => confirmMutation.mutate()}

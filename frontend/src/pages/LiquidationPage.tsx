@@ -5,6 +5,7 @@ import { Plus, Play, RefreshCw, CheckCircle, Eye, Download } from 'lucide-react'
 import { liquidationApi, employeesApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
+import { abrirBlobEnPestania } from '../utils/file';
 import { formatPesos, MESES, PayrollPeriod, Employee } from '../types';
 
 interface LiqRow {
@@ -223,9 +224,9 @@ export default function LiquidationPage() {
                                 </button>
                               )}
                               {liq && (
-                                <a href={liquidationApi.reciboUrl(liq.id)} target="_blank" rel="noreferrer" className="p-1.5 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded" title="Recibo PDF">
+                                <button type="button" onClick={() => abrirBlobEnPestania(() => liquidationApi.recibo(liq.id), `recibo_${liq.id}.pdf`)} className="p-1.5 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded" title="Recibo PDF">
                                   <Download size={14} />
-                                </a>
+                                </button>
                               )}
                             </div>
                           </td>
