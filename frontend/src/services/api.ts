@@ -175,6 +175,8 @@ export const conceptsApi = {
   list: (companyId: string) => api.get<Concepto[]>('/concepts', { params: { companyId } }).then((r) => r.data),
   create: (data: object) => api.post<Concepto>('/concepts', data).then((r) => r.data),
   update: (id: string, data: object) => api.put<Concepto>(`/concepts/${id}`, data).then((r) => r.data),
+  setVisibility: (id: string, companyId: string, oculto: boolean) =>
+    api.post<Concepto>(`/concepts/${id}/visibilidad`, { companyId, oculto }).then((r) => r.data),
   delete: (id: string) => api.delete(`/concepts/${id}`).then((r) => r.data),
 };
 

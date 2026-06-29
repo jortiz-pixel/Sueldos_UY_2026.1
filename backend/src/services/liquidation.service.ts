@@ -144,9 +144,15 @@ export async function generarLiquidacionMensual(
     });
   }
 
-  // MOTOR DE CONCEPTOS: conceptos activos de la empresa empleadora
+  // MOTOR DE CONCEPTOS: conceptos activos aplicables a la empresa empleadora.
+  // Incluye los propios de la empresa y los comunes (companyId null), excluyendo
+  // los que esta empresa decidió ocultar.
   const conceptos = await prisma.concepto.findMany({
-    where: { companyId: period.companyId, activo: true },
+    where: {
+      activo: true,
+      OR: [{ companyId: period.companyId }, { companyId: null }],
+      NOT: { ocultoEn: { has: period.companyId } },
+    },
     orderBy: [{ orden: 'asc' }, { codigo: 'asc' }],
   });
 

@@ -121,7 +121,10 @@ export interface Contrato {
 
 export interface Concepto {
   id: string;
-  companyId: string;
+  companyId: string | null;
+  esComun?: boolean;
+  oculto?: boolean;
+  ocultoEn?: string[];
   codigo: string;
   nombre: string;
   nombreReducido?: string;

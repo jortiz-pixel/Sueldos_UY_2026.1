@@ -222,10 +222,10 @@ export default function LiquidationDetailPage() {
   // Opciones unificadas para el selector: conceptos del sistema + configurados.
   const opcionesPorTipo = (tipo: string): OpcionConcepto[] => [
     ...CONCEPTOS_SISTEMA.filter((c) => c.tipo === tipo).map((c) => ({ key: 'SYS:' + c.nombre, nombre: c.nombre, grupo: 'Sistema' })),
-    ...(conceptos ?? []).filter((c) => c.tipoOperacion === tipo).map((c) => ({
+    ...(conceptos ?? []).filter((c) => c.tipoOperacion === tipo && !c.oculto).map((c) => ({
       key: c.id,
       nombre: c.nombre,
-      grupo: 'Personalizados',
+      grupo: c.esComun ? 'Comunes' : 'Propios',
       montoFijo: c.tipoCalculo === 'VALOR_FIJO' && c.valorFijo ? Number(c.valorFijo) / 100 : undefined,
     })),
   ];

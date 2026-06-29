@@ -1,14 +1,15 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
-import { Plus, Calculator, Pencil, Trash2, X, AlertCircle } from 'lucide-react';
+import { Plus, Calculator, Pencil, Trash2, X, AlertCircle, Copy, Eye, EyeOff } from 'lucide-react';
 import { conceptsApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
 import { Concepto, ItemType, formatPesos } from '../types';
-import { CONCEPTOS_SISTEMA } from '../constants/conceptos';
+import { CONCEPTOS_SISTEMA, ConceptoSistema } from '../constants/conceptos';
 
 interface ConceptoForm {
+  alcance: 'COMUN' | 'PROPIA';
   codigo: string;
   nombre: string;
   orden: number;
@@ -22,7 +23,7 @@ interface ConceptoForm {
 }
 
 const emptyForm: ConceptoForm = {
-  codigo: '', nombre: '', orden: 100, tipoOperacion: 'HABER',
+  alcance: 'PROPIA', codigo: '', nombre: '', orden: 100, tipoOperacion: 'HABER',
   tipoCalculo: 'VALOR_FIJO', baseCalculo: 'NOMINAL', valorRate: 0,
   valorFijoPesos: 0, gravado: true, activo: true,
 };
@@ -31,9 +32,8 @@ const OP_LABEL: Record<string, string> = {
   HABER: 'Haber', DESCUENTO_OBRERO: 'Descuento', APORTE_PATRONAL: 'Aporte patronal', INFORMATIVO: 'Informativo',
 };
 
-
 export default function ConceptsPage() {
-  const { isOperator } = useAuth();
+  const { isOperator, isAdmin } = useAuth();
   const { activeCompanyId: companyId } = useCompany();
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
@@ -49,11 +49,16 @@ export default function ConceptsPage() {
   const { register, handleSubmit, reset, watch, formState: { errors } } = useForm<ConceptoForm>({ defaultValues: emptyForm });
   const tipoCalculo = watch('tipoCalculo');
 
-  const openCreate = () => { setEditing(null); setFormError(''); reset(emptyForm); setModalOpen(true); };
+  const comunes = (conceptos ?? []).filter((c) => c.esComun);
+  const propios = (conceptos ?? []).filter((c) => !c.esComun);
+
+  const openCreate = () => { setEditing(null); setFormError(''); reset({ ...emptyForm, alcance: isAdmin ? 'COMUN' : 'PROPIA' }); setModalOpen(true); };
+
   const openEdit = (c: Concepto) => {
     setEditing(c);
     setFormError('');
     reset({
+      alcance: c.esComun ? 'COMUN' : 'PROPIA',
       codigo: c.codigo, nombre: c.nombre, orden: c.orden,
       tipoOperacion: c.tipoOperacion, tipoCalculo: c.tipoCalculo,
       baseCalculo: c.baseCalculo ?? 'NOMINAL', valorRate: c.valorRate ?? 0,
@@ -63,10 +68,39 @@ export default function ConceptsPage() {
     setModalOpen(true);
   };
 
+  // Duplicar un concepto existente como uno nuevo (propio de la empresa activa por defecto).
+  const openDuplicate = (c: Concepto) => {
+    setEditing(null);
+    setFormError('');
+    reset({
+      alcance: 'PROPIA',
+      codigo: `${c.codigo}_COPIA`, nombre: `${c.nombre} (copia)`, orden: c.orden,
+      tipoOperacion: c.tipoOperacion, tipoCalculo: c.tipoCalculo,
+      baseCalculo: c.baseCalculo ?? 'NOMINAL', valorRate: c.valorRate ?? 0,
+      valorFijoPesos: c.valorFijo ? Number(c.valorFijo) / 100 : 0,
+      gravado: c.gravado, activo: c.activo,
+    });
+    setModalOpen(true);
+  };
+
+  // Usar un concepto del sistema como plantilla para crear uno editable.
+  const openFromSistema = (c: ConceptoSistema) => {
+    setEditing(null);
+    setFormError('');
+    reset({
+      ...emptyForm,
+      alcance: 'PROPIA',
+      codigo: '', nombre: `${c.nombre} (personalizado)`,
+      tipoOperacion: c.tipo as ItemType,
+      gravado: c.gravado.toLowerCase().startsWith('s'),
+    });
+    setModalOpen(true);
+  };
+
   const mutation = useMutation({
     mutationFn: (data: ConceptoForm) => {
       const payload = {
-        companyId,
+        companyId: data.alcance === 'COMUN' ? null : companyId,
         codigo: data.codigo,
         nombre: data.nombre,
         orden: Number(data.orden),
@@ -93,6 +127,11 @@ export default function ConceptsPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['concepts', companyId] }),
   });
 
+  const toggleOculto = useMutation({
+    mutationFn: (c: Concepto) => conceptsApi.setVisibility(c.id, companyId, !c.oculto),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['concepts', companyId] }),
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => conceptsApi.delete(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['concepts', companyId] }),
@@ -104,12 +143,83 @@ export default function ConceptsPage() {
     return `${c.valorFijo ? formatPesos(c.valorFijo) : '$0'} × cantidad`;
   };
 
+  // ¿Puede el usuario administrar (editar/eliminar) este concepto según su alcance?
+  const puedeAdministrar = (c: Concepto) => (c.esComun ? isAdmin : isOperator);
+
+  const renderRow = (c: Concepto) => (
+    <tr key={c.id} className={`hover:bg-gray-50 ${c.oculto ? 'opacity-50' : ''}`}>
+      <td className="table-cell text-sm">
+        {c.nombre}<span className="block font-mono text-[11px] text-gray-400">{c.codigo}</span>
+      </td>
+      <td className="table-cell">
+        <span className={`badge ${c.tipoOperacion === 'HABER' ? 'badge-green' : c.tipoOperacion === 'DESCUENTO_OBRERO' ? 'badge-red' : 'badge-gray'}`}>
+          {OP_LABEL[c.tipoOperacion]}
+        </span>
+      </td>
+      <td className="table-cell text-xs text-gray-600">{resumenCalculo(c)}</td>
+      <td className="table-cell text-xs">{c.gravado ? 'Sí' : 'No'}</td>
+      <td className="table-cell">
+        {c.esComun
+          ? <span className="badge bg-violet-50 text-violet-600">Común</span>
+          : <span className="badge bg-blue-50 text-blue-600">Propio</span>}
+      </td>
+      <td className="table-cell">
+        <button
+          onClick={() => puedeAdministrar(c) && toggleActivo.mutate(c)}
+          className={`badge ${c.activo ? 'badge-green' : 'badge-gray'} ${puedeAdministrar(c) ? 'cursor-pointer' : ''}`}
+          title={puedeAdministrar(c) ? 'Click para activar/desactivar' : ''}
+        >
+          {c.activo ? 'Activo' : 'Inactivo'}
+        </button>
+      </td>
+      <td className="table-cell">
+        <div className="flex items-center gap-1">
+          {isOperator && (
+            <button onClick={() => openDuplicate(c)} className="p-1.5 text-gray-400 hover:text-violet-600 hover:bg-violet-50 rounded-lg" title="Duplicar"><Copy size={15} /></button>
+          )}
+          {/* Mostrar/ocultar en esta empresa (sobre todo para comunes) */}
+          {isOperator && (
+            <button
+              onClick={() => toggleOculto.mutate(c)}
+              className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg"
+              title={c.oculto ? 'Mostrar en esta empresa' : 'Ocultar en esta empresa'}
+            >
+              {c.oculto ? <EyeOff size={15} /> : <Eye size={15} />}
+            </button>
+          )}
+          {puedeAdministrar(c) && (
+            <>
+              <button onClick={() => openEdit(c)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg" title="Editar"><Pencil size={15} /></button>
+              <button onClick={() => { if (confirm(`¿Eliminar el concepto ${c.codigo}?`)) deleteMutation.mutate(c.id); }} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Eliminar"><Trash2 size={15} /></button>
+            </>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+
+  const tableHead = (
+    <thead>
+      <tr className="table-header">
+        <th className="px-4 py-3 text-left">Concepto</th>
+        <th className="px-4 py-3 text-left">Tipo</th>
+        <th className="px-4 py-3 text-left">Cálculo</th>
+        <th className="px-4 py-3 text-left">Gravado</th>
+        <th className="px-4 py-3 text-left">Alcance</th>
+        <th className="px-4 py-3 text-left">Estado</th>
+        <th className="px-4 py-3 text-left">Acciones</th>
+      </tr>
+    </thead>
+  );
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Conceptos</h1>
-          <p className="text-gray-500 text-sm mt-0.5">{conceptos?.length ?? 0} personalizados + {CONCEPTOS_SISTEMA.length} del sistema</p>
+          <p className="text-gray-500 text-sm mt-0.5">
+            {comunes.length} comunes · {propios.length} propios · {CONCEPTOS_SISTEMA.length} del sistema
+          </p>
         </div>
         {isOperator && (
           <button onClick={openCreate} className="btn-primary" disabled={!companyId}>
@@ -119,70 +229,76 @@ export default function ConceptsPage() {
         )}
       </div>
 
-      <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="table-header">
-                <th className="px-4 py-3 text-left">Concepto</th>
-                <th className="px-4 py-3 text-left">Tipo</th>
-                <th className="px-4 py-3 text-left">Cálculo</th>
-                <th className="px-4 py-3 text-left">Gravado</th>
-                <th className="px-4 py-3 text-left">Origen</th>
-                <th className="px-4 py-3 text-left">Estado</th>
-                <th className="px-4 py-3 text-left">Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {/* Conceptos configurados de la empresa */}
-              {(conceptos ?? []).map((c: Concepto) => (
-                <tr key={c.id} className="hover:bg-gray-50">
-                  <td className="table-cell text-sm">
-                    {c.nombre}<span className="block font-mono text-[11px] text-gray-400">{c.codigo}</span>
-                  </td>
-                  <td className="table-cell">
-                    <span className={`badge ${c.tipoOperacion === 'HABER' ? 'badge-green' : c.tipoOperacion === 'DESCUENTO_OBRERO' ? 'badge-red' : 'badge-gray'}`}>
-                      {OP_LABEL[c.tipoOperacion]}
-                    </span>
-                  </td>
-                  <td className="table-cell text-xs text-gray-600">{resumenCalculo(c)}</td>
-                  <td className="table-cell text-xs">{c.gravado ? 'Sí' : 'No'}</td>
-                  <td className="table-cell"><span className="badge bg-blue-50 text-blue-600">Personalizado</span></td>
-                  <td className="table-cell">
-                    <button
-                      onClick={() => isOperator && toggleActivo.mutate(c)}
-                      className={`badge ${c.activo ? 'badge-green' : 'badge-gray'} ${isOperator ? 'cursor-pointer' : ''}`}
-                      title={isOperator ? 'Click para activar/desactivar' : ''}
-                    >
-                      {c.activo ? 'Activo' : 'Inactivo'}
-                    </button>
-                  </td>
-                  <td className="table-cell">
-                    {isOperator && (
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => openEdit(c)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg" title="Editar"><Pencil size={15} /></button>
-                        <button onClick={() => { if (confirm(`¿Eliminar el concepto ${c.codigo}?`)) deleteMutation.mutate(c.id); }} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Eliminar"><Trash2 size={15} /></button>
-                      </div>
-                    )}
-                  </td>
+      {/* Conceptos comunes a todas las empresas */}
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <h2 className="text-sm font-semibold text-gray-700">Comunes <span className="font-normal text-gray-400">(disponibles en todas las empresas)</span></h2>
+        </div>
+        <div className="card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              {tableHead}
+              <tbody className="divide-y divide-gray-50">
+                {comunes.length === 0
+                  ? <tr><td colSpan={7} className="px-4 py-6 text-center text-gray-400 text-sm">Sin conceptos comunes. {isAdmin ? 'Creá uno con alcance "Común".' : 'Solo un administrador de plataforma puede crearlos.'}</td></tr>
+                  : comunes.map(renderRow)}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* Conceptos propios de la empresa activa */}
+      <div>
+        <h2 className="text-sm font-semibold text-gray-700 mb-2">Propios de esta empresa</h2>
+        <div className="card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              {tableHead}
+              <tbody className="divide-y divide-gray-50">
+                {propios.length === 0
+                  ? <tr><td colSpan={7} className="px-4 py-6 text-center text-gray-400 text-sm">Sin conceptos propios todavía.</td></tr>
+                  : propios.map(renderRow)}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* Conceptos del sistema (núcleo legal, calculados por el motor) */}
+      <div>
+        <h2 className="text-sm font-semibold text-gray-700 mb-2">Del sistema <span className="font-normal text-gray-400">(calculados por el motor)</span></h2>
+        <div className="card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="table-header">
+                  <th className="px-4 py-3 text-left">Concepto</th>
+                  <th className="px-4 py-3 text-left">Tipo</th>
+                  <th className="px-4 py-3 text-left">Cálculo</th>
+                  <th className="px-4 py-3 text-left">Gravado</th>
+                  <th className="px-4 py-3 text-left">Acciones</th>
                 </tr>
-              ))}
-              {/* Conceptos del sistema (núcleo legal, calculados por el motor) */}
-              {CONCEPTOS_SISTEMA.map((c) => (
-                <tr key={`sys-${c.nombre}`} className="hover:bg-gray-50">
-                  <td className="table-cell text-sm font-medium text-gray-800">{c.nombre}</td>
-                  <td className="table-cell">
-                    <span className={`badge ${c.tipo === 'HABER' ? 'badge-green' : c.tipo === 'DESCUENTO_OBRERO' ? 'badge-red' : 'badge-gray'}`}>{OP_LABEL[c.tipo]}</span>
-                  </td>
-                  <td className="table-cell text-xs text-gray-600">{c.calculo}</td>
-                  <td className="table-cell text-xs">{c.gravado}</td>
-                  <td className="table-cell"><span className="badge bg-indigo-50 text-indigo-600">Sistema</span></td>
-                  <td className="table-cell"><span className="badge badge-gray">Automático</span></td>
-                  <td className="table-cell text-xs text-gray-300">—</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {CONCEPTOS_SISTEMA.map((c) => (
+                  <tr key={`sys-${c.nombre}`} className="hover:bg-gray-50">
+                    <td className="table-cell text-sm font-medium text-gray-800">{c.nombre}</td>
+                    <td className="table-cell">
+                      <span className={`badge ${c.tipo === 'HABER' ? 'badge-green' : c.tipo === 'DESCUENTO_OBRERO' ? 'badge-red' : 'badge-gray'}`}>{OP_LABEL[c.tipo]}</span>
+                    </td>
+                    <td className="table-cell text-xs text-gray-600">{c.calculo}</td>
+                    <td className="table-cell text-xs">{c.gravado}</td>
+                    <td className="table-cell">
+                      {isOperator && (
+                        <button onClick={() => openFromSistema(c)} className="p-1.5 text-gray-400 hover:text-violet-600 hover:bg-violet-50 rounded-lg" title="Usar como plantilla"><Copy size={15} /></button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -190,9 +306,10 @@ export default function ConceptsPage() {
         <div className="flex items-start gap-2 text-xs text-gray-600">
           <Calculator size={16} className="text-blue-500 flex-shrink-0 mt-0.5" />
           <p>
-            Los conceptos <b>activos</b> se aplican automáticamente en cada liquidación mensual, en su orden. Un haber
-            <b> gravado</b> suma a la base de aportes (BPS/FONASA/IRPF); uno no gravado no. Los aportes legales núcleo
-            (BPS, FONASA, FRL, IRPF) se calculan siempre por el motor y no dependen de estos conceptos.
+            Los conceptos <b>comunes</b> están disponibles para todas las empresas; los <b>propios</b> solo en la empresa
+            donde se crearon. Con el ojito podés <b>ocultar</b> un concepto en esta empresa sin afectar a las demás.
+            Los conceptos <b>activos</b> se aplican automáticamente en cada liquidación, en su orden. Los aportes legales
+            núcleo (BPS, FONASA, FRL, IRPF) los calcula siempre el motor.
           </p>
         </div>
       </div>
@@ -210,6 +327,14 @@ export default function ConceptsPage() {
                   <AlertCircle size={16} className="flex-shrink-0" />{formError}
                 </div>
               )}
+              <div>
+                <label className="form-label">Alcance</label>
+                <select {...register('alcance')} className="form-input" disabled={!isAdmin}>
+                  <option value="PROPIA">Propio de esta empresa</option>
+                  <option value="COMUN">Común (todas las empresas)</option>
+                </select>
+                {!isAdmin && <p className="text-xs text-gray-400 mt-1">Solo un administrador de plataforma puede crear conceptos comunes.</p>}
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="form-label">Código *</label>

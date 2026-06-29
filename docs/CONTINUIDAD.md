@@ -133,4 +133,14 @@ Catálogo (ver doc fuente del usuario "Formulas_CONCEPTOS_LIQUIDACION_DE_SUELDOS
 
 ---
 
-*Última actualización: sesión donde se corrigieron aguinaldo y licencia/vacacional, se expusieron conceptos del sistema y se agregó edición de conceptos manuales por liquidación. Próximo: ajustes de disposición/UI de la ficha de liquidación.*
+## 9. Conceptos: comunes vs propios (implementado)
+
+- `Concepto.companyId` ahora es **nullable**: `null` = **común** (visible/aplicable en todas las empresas), con valor = **propio** (solo esa empresa). Migración `20260629220000_conceptos_comunes` (DROP NOT NULL + columna `ocultoEn TEXT[]` + índice único parcial de código entre comunes). **Requiere** `docker compose exec backend npm run prisma:migrate` al deployar.
+- **Permisos:** crear/editar/borrar **común** → solo ADMIN de plataforma; **propio** → ADMIN u OPERATOR con acceso a la empresa (`assertConceptoScope`).
+- **Ocultar por empresa:** `ocultoEn` lista companyIds que ocultaron un concepto; endpoint `POST /api/concepts/:id/visibilidad {companyId, oculto}`. El motor de liquidación (`liquidation.service.ts`) ahora trae comunes+propios y excluye `ocultoEn`.
+- **Copiar/duplicar:** la pantalla Conceptos permite duplicar cualquier concepto (precarga el form como propio de la empresa activa) y "usar como plantilla" los del sistema. Pantalla dividida en 3 secciones: Comunes / Propios / Del sistema.
+- Auth: bug de login en prod era **CORS** (faltaba el dominio en `ALLOWED_ORIGINS`); fijado en `docker-compose.yml` (env `ALLOWED_ORIGINS`, override por `.env`). CLI `npm run user` (prisma/admin-user.ts) para listar/resetear/crear admin. Branding GRO via `components/GroLogo.tsx` (SVG) en login y sidebar.
+
+---
+
+*Última actualización: sesión donde se arregló el acceso (CORS + CLI de usuarios), se puso el logo GRO, y se implementaron conceptos comunes/propios + copiar + ocultar por empresa. Pendiente login con Google (esperando credenciales) y el bug de membership al crear empresas (§ pendientes).*
