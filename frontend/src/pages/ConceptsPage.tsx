@@ -6,6 +6,7 @@ import { conceptsApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
 import { Concepto, ItemType, formatPesos } from '../types';
+import { CONCEPTOS_SISTEMA } from '../constants/conceptos';
 
 interface ConceptoForm {
   codigo: string;
@@ -30,25 +31,6 @@ const OP_LABEL: Record<string, string> = {
   HABER: 'Haber', DESCUENTO_OBRERO: 'Descuento', APORTE_PATRONAL: 'Aporte patronal', INFORMATIVO: 'Informativo',
 };
 
-// Conceptos núcleo (legales) que calcula el motor. Informativos / no editables.
-const CONCEPTOS_SISTEMA: { nombre: string; tipo: string; calculo: string; gravado: string }[] = [
-  { nombre: 'Sueldo básico', tipo: 'HABER', calculo: 'Nominal del mes (prorrateado por días)', gravado: 'Sí' },
-  { nombre: 'Jornal', tipo: 'HABER', calculo: 'Valor jornal × días trabajados', gravado: 'Sí' },
-  { nombre: 'Horas extra diurnas', tipo: 'HABER', calculo: 'Valor hora × 2 (+100%)', gravado: 'Sí' },
-  { nombre: 'Horas extra / recargo nocturno', tipo: 'HABER', calculo: 'Valor hora + 20% nocturno', gravado: 'Sí' },
-  { nombre: 'Feriado pago', tipo: 'HABER', calculo: 'Valor jornal', gravado: 'Sí' },
-  { nombre: 'Aguinaldo', tipo: 'HABER', calculo: '1/12 de los haberes del semestre (confirmados)', gravado: 'Sí' },
-  { nombre: 'Salario de licencia', tipo: 'HABER', calculo: 'Promedio 12 meses / 30 × días', gravado: 'Sí' },
-  { nombre: 'Salario vacacional', tipo: 'HABER', calculo: 'Jornal líquido × días', gravado: 'No (exento CESS)' },
-  { nombre: 'BPS Jubilatorio', tipo: 'DESCUENTO_OBRERO', calculo: '15% sobre el gravado', gravado: '—' },
-  { nombre: 'FONASA', tipo: 'DESCUENTO_OBRERO', calculo: '3%–8% según ingreso y cargas', gravado: '—' },
-  { nombre: 'FRL', tipo: 'DESCUENTO_OBRERO', calculo: '0,10% sobre el gravado', gravado: '—' },
-  { nombre: 'IRPF (Categoría II)', tipo: 'DESCUENTO_OBRERO', calculo: 'Escala anual proyectada − deducciones', gravado: '—' },
-  { nombre: 'BPS IVS Patronal', tipo: 'APORTE_PATRONAL', calculo: '7,5% sobre el gravado', gravado: '—' },
-  { nombre: 'FONASA Patronal', tipo: 'APORTE_PATRONAL', calculo: '5% sobre el gravado', gravado: '—' },
-  { nombre: 'FRL Patronal', tipo: 'APORTE_PATRONAL', calculo: '0,10% sobre el gravado', gravado: '—' },
-  { nombre: 'FGCL Patronal', tipo: 'APORTE_PATRONAL', calculo: '0,025% sobre el gravado', gravado: '—' },
-];
 
 export default function ConceptsPage() {
   const { isOperator } = useAuth();

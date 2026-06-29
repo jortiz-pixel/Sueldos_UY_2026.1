@@ -6,7 +6,10 @@ import { liquidationApi, conceptsApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
 import { abrirBlobEnPestania } from '../utils/file';
-import { formatPesos, MESES, PayrollItem, Concepto } from '../types';
+import { CONCEPTOS_SISTEMA } from '../constants/conceptos';
+import { formatPesos, MESES, PayrollItem } from '../types';
+
+interface OpcionConcepto { key: string; nombre: string; grupo: string; montoFijo?: number }
 
 function ItemRow({ item, editable, onEdit, onDelete }: {
   item: PayrollItem;
@@ -60,12 +63,12 @@ function ItemRow({ item, editable, onEdit, onDelete }: {
   );
 }
 
-function Section({ title, items, total, colorClass, conceptos, editable, onAdd, onEdit, onDelete }: {
+function Section({ title, items, total, colorClass, opciones, editable, onAdd, onEdit, onDelete }: {
   title: string;
   items: PayrollItem[];
   total: string;
   colorClass: string;
-  conceptos?: Concepto[];
+  opciones?: OpcionConcepto[];
   editable?: boolean;
   onAdd?: (descripcion: string, monto: number) => void;
   onEdit?: (itemId: string, data: { descripcion: string; monto: number }) => void;
@@ -78,21 +81,23 @@ function Section({ title, items, total, colorClass, conceptos, editable, onAdd, 
   const onSel = (value: string) => {
     setSel(value);
     if (value && value !== 'OTRO') {
-      const c = conceptos?.find((x) => x.id === value);
-      setDesc(c?.nombre ?? '');
-      setMonto(c && c.tipoCalculo === 'VALOR_FIJO' && c.valorFijo ? Number(c.valorFijo) / 100 : 0);
+      const o = opciones?.find((x) => x.key === value);
+      setDesc(o?.nombre ?? '');
+      setMonto(o?.montoFijo ?? 0);
     } else {
       setDesc(''); setMonto(0);
     }
   };
 
   const agregar = () => {
-    const d = sel === 'OTRO' ? desc : (conceptos?.find((x) => x.id === sel)?.nombre ?? desc);
+    const d = sel === 'OTRO' ? desc : (opciones?.find((x) => x.key === sel)?.nombre ?? desc);
     if (d.trim() && monto > 0) {
       onAdd?.(d.trim(), monto);
       setSel(''); setDesc(''); setMonto(0);
     }
   };
+
+  const grupos = Array.from(new Set((opciones ?? []).map((o) => o.grupo)));
 
   return (
     <div>
@@ -117,7 +122,11 @@ function Section({ title, items, total, colorClass, conceptos, editable, onAdd, 
                   <Plus size={13} className="text-blue-500" />
                   <select value={sel} onChange={(e) => onSel(e.target.value)} className="border border-gray-300 rounded-lg px-2 py-1 text-sm">
                     <option value="">Agregar {title.toLowerCase()}…</option>
-                    {(conceptos ?? []).map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                    {grupos.map((g) => (
+                      <optgroup key={g} label={g}>
+                        {(opciones ?? []).filter((o) => o.grupo === g).map((o) => <option key={o.key} value={o.key}>{o.nombre}</option>)}
+                      </optgroup>
+                    ))}
                     <option value="OTRO">Otro (escribir)</option>
                   </select>
                   {sel === 'OTRO' && <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Descripción" className="border border-gray-300 rounded-lg px-2 py-1 text-sm flex-1 min-w-[140px]" />}
@@ -210,8 +219,18 @@ export default function LiquidationDetailPage() {
   const descuentos = liq.items?.filter((i) => i.itemType === 'DESCUENTO_OBRERO') ?? [];
   const patronal = liq.items?.filter((i) => i.itemType === 'APORTE_PATRONAL') ?? [];
   const puedeEditar = liq.status === 'BORRADOR' && isOperator;
-  const haberConceptos = (conceptos ?? []).filter((c) => c.tipoOperacion === 'HABER');
-  const descuentoConceptos = (conceptos ?? []).filter((c) => c.tipoOperacion === 'DESCUENTO_OBRERO');
+  // Opciones unificadas para el selector: conceptos del sistema + configurados.
+  const opcionesPorTipo = (tipo: string): OpcionConcepto[] => [
+    ...CONCEPTOS_SISTEMA.filter((c) => c.tipo === tipo).map((c) => ({ key: 'SYS:' + c.nombre, nombre: c.nombre, grupo: 'Sistema' })),
+    ...(conceptos ?? []).filter((c) => c.tipoOperacion === tipo).map((c) => ({
+      key: c.id,
+      nombre: c.nombre,
+      grupo: 'Personalizados',
+      montoFijo: c.tipoCalculo === 'VALOR_FIJO' && c.valorFijo ? Number(c.valorFijo) / 100 : undefined,
+    })),
+  ];
+  const haberOptions = opcionesPorTipo('HABER');
+  const descuentoOptions = opcionesPorTipo('DESCUENTO_OBRERO');
 
   return (
     <div className="space-y-5 max-w-4xl">
@@ -301,7 +320,7 @@ export default function LiquidationDetailPage() {
           items={haberes as PayrollItem[]}
           total={liq.totalHaberes}
           colorClass="bg-green-50 text-green-800"
-          conceptos={haberConceptos}
+          opciones={haberOptions}
           editable={puedeEditar}
           onAdd={(descripcion, monto) => addItemMutation.mutate({ descripcion, monto, itemType: 'HABER' })}
           onEdit={(itemId, dd) => updateItemMutation.mutate({ itemId, ...dd })}
@@ -312,7 +331,7 @@ export default function LiquidationDetailPage() {
           items={descuentos as PayrollItem[]}
           total={liq.totalDescuentos}
           colorClass="bg-red-50 text-red-800"
-          conceptos={descuentoConceptos}
+          opciones={descuentoOptions}
           editable={puedeEditar}
           onAdd={(descripcion, monto) => addItemMutation.mutate({ descripcion, monto, itemType: 'DESCUENTO_OBRERO' })}
           onEdit={(itemId, dd) => updateItemMutation.mutate({ itemId, ...dd })}
