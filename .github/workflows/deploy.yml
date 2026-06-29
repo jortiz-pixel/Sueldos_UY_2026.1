@@ -1,0 +1,35 @@
+name: Deploy to VPS
+
+# Cada push a la rama de desarrollo despliega solo en el servidor.
+# También se puede disparar a mano desde la pestaña "Actions" (Run workflow).
+on:
+  push:
+    branches:
+      - claude/uruguayan-payroll-system-EojHu
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Desplegar por SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          # Usá UNO de los dos: SSH_KEY (clave privada) o SSH_PASSWORD.
+          key: ${{ secrets.SSH_KEY }}
+          password: ${{ secrets.SSH_PASSWORD }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          command_timeout: 20m
+          script: |
+            set -e
+            cd /root/Sueldos_UY_2026.1
+            git fetch origin claude/uruguayan-payroll-system-EojHu
+            git checkout claude/uruguayan-payroll-system-EojHu
+            git reset --hard origin/claude/uruguayan-payroll-system-EojHu
+            docker compose up -d --build
+            # Esperar a que el backend esté arriba y aplicar migraciones (aditivas).
+            sleep 8
+            docker compose exec -T backend npm run prisma:migrate
+            echo "Deploy OK: $(git log -1 --oneline)"
