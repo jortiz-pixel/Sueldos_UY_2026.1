@@ -1,18 +1,48 @@
+import { useState } from 'react';
+
 // Logo institucional de GRO Consultores & Asociados.
-// Se reproduce como SVG (sin depender de un archivo binario) para que escale
-// nítido y se adapte a fondos claros (login) y oscuros (barra lateral).
+//
+// Estrategia de calidad:
+//  1) Si existe el archivo real en /gro-logo.svg (o /gro-logo.png), se usa ESE
+//     (calidad original — recomendado subir un SVG vectorial).
+//  2) Si no existe / falla la carga, cae al wordmark vectorial de respaldo,
+//     que igual escala nítido y respeta los colores de marca.
+//
+// Para usar el logo oficial: dejar el archivo en frontend/public/gro-logo.svg
 interface GroLogoProps {
-  /** 'dark' = texto azul sobre fondo claro · 'light' = texto blanco sobre fondo oscuro */
+  /** 'dark' = sobre fondo claro (login) · 'light' = sobre fondo oscuro (sidebar) */
   variant?: 'dark' | 'light';
-  /** Alto del wordmark en px (el ancho se ajusta proporcional). */
+  /** Alto del logo en px (el ancho se ajusta proporcional). */
   height?: number;
   className?: string;
 }
 
+// Archivo del logo real (si se subió a frontend/public/). Vite lo sirve desde la raíz.
+const LOGO_SRC = '/gro-logo.svg';
+
 export default function GroLogo({ variant = 'dark', height = 40, className = '' }: GroLogoProps) {
+  const [imgFailed, setImgFailed] = useState(false);
   const principal = variant === 'light' ? '#FFFFFF' : '#003DA5';
   const secundario = variant === 'light' ? '#BFD4F2' : '#5B7FB8';
 
+  // Sobre fondo oscuro, el logo claro suele ser una versión en blanco; si el
+  // archivo es a color, este filtro lo deja legible. (Solo afecta a la imagen.)
+  const imgStyle = variant === 'light' ? { filter: 'brightness(0) invert(1)' } : undefined;
+
+  if (!imgFailed) {
+    return (
+      <img
+        src={LOGO_SRC}
+        alt="GRO Consultores & Asociados"
+        height={height}
+        style={{ height, width: 'auto', ...imgStyle }}
+        className={className}
+        onError={() => setImgFailed(true)}
+      />
+    );
+  }
+
+  // Respaldo vectorial (wordmark) si todavía no se subió el archivo real.
   return (
     <svg
       viewBox="0 0 260 72"
@@ -21,27 +51,10 @@ export default function GroLogo({ variant = 'dark', height = 40, className = '' 
       role="img"
       aria-label="GRO Consultores & Asociados"
     >
-      {/* Wordmark GRO */}
-      <text
-        x="0"
-        y="44"
-        fontFamily="Georgia, 'Times New Roman', serif"
-        fontSize="52"
-        fontWeight="700"
-        letterSpacing="1"
-        fill={principal}
-      >
+      <text x="0" y="44" fontFamily="Georgia, 'Times New Roman', serif" fontSize="52" fontWeight="700" letterSpacing="1" fill={principal}>
         GRO
       </text>
-      {/* Tagline */}
-      <text
-        x="2"
-        y="64"
-        fontFamily="Arial, Helvetica, sans-serif"
-        fontSize="12.5"
-        letterSpacing="2.5"
-        fill={secundario}
-      >
+      <text x="2" y="64" fontFamily="Arial, Helvetica, sans-serif" fontSize="12.5" letterSpacing="2.5" fill={secundario}>
         Consultores &amp; Asociados
       </text>
     </svg>
