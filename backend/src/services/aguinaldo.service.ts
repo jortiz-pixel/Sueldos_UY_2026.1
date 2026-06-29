@@ -39,62 +39,36 @@ export async function calcularAguinaldo(input: AguinaldoInput): Promise<{
   if (!employee) throw new AppError(404, 'Empleado no encontrado');
   const bseRate = employee.company?.bseRate ?? 0;
 
-  const esPrimerSemestre = input.month <= 6;
-  const mesInicioSemestre = esPrimerSemestre ? 1 : 7;
-  const mesFinSemestre = esPrimerSemestre ? 6 : 12;
-
-  let mesesTrabajados = input.mesesTrabajados;
-  if (!mesesTrabajados) {
-    const fechaIngreso = employee.fechaIngreso;
-    const inicioSemestre = new Date(input.year, mesInicioSemestre - 1, 1);
-    const finSemestre = new Date(input.year, mesFinSemestre - 1, 31);
-    const inicio = fechaIngreso > inicioSemestre ? fechaIngreso : inicioSemestre;
-    const fin = (employee.fechaEgreso && employee.fechaEgreso < finSemestre)
-      ? employee.fechaEgreso
-      : finSemestre;
-
-    if (inicio > fin) {
-      mesesTrabajados = 0;
-    } else {
-      mesesTrabajados = Math.round(
-        (fin.getTime() - inicio.getTime()) / (1000 * 60 * 60 * 24 * 30.44),
-      );
-      mesesTrabajados = Math.min(6, Math.max(0, mesesTrabajados));
-    }
+  // Semestre legal del aguinaldo: el de junio cubre Dic(año-1)–May; el de diciembre cubre Jun–Nov.
+  const pagaJunio = input.month <= 6;
+  const meses: { year: number; month: number }[] = [];
+  if (pagaJunio) {
+    meses.push({ year: input.year - 1, month: 12 });
+    for (let m = 1; m <= 5; m++) meses.push({ year: input.year, month: m });
+  } else {
+    for (let m = 6; m <= 11; m++) meses.push({ year: input.year, month: m });
   }
 
-  if (mesesTrabajados === 0) {
-    throw new AppError(400, 'El empleado no tiene meses trabajados en el semestre');
-  }
-
+  // Base = haberes REALMENTE generados en las liquidaciones MENSUALES CONFIRMADAS del semestre.
   const liquidacionesSemestre = await prisma.liquidation.findMany({
     where: {
       employeeId: input.employeeId,
       type: LiquidationType.MENSUAL,
-      year: input.year,
-      month: { gte: mesInicioSemestre, lte: mesFinSemestre },
       status: LiquidationStatus.CONFIRMADO,
+      OR: meses,
     },
-    include: {
-      items: {
-        where: {
-          itemType: ItemType.HABER,
-          concepto: { in: ['SUELDO_BASICO', 'HORAS_EXTRA_DIURNAS', 'HORAS_EXTRA_NOCTURNAS', 'COMISIONES'] },
-        },
-      },
-    },
+    select: { totalHaberes: true },
   });
 
-  let sumaHaberesSemestre: bigint;
-  if (liquidacionesSemestre.length > 0) {
-    sumaHaberesSemestre = liquidacionesSemestre.reduce((sum, liq) => {
-      const haberesLiq = liq.items.reduce((s, item) => s + item.amount, 0n);
-      return sum + haberesLiq;
-    }, 0n);
-  } else {
-    sumaHaberesSemestre = employee.salarioNominal * BigInt(mesesTrabajados);
+  if (liquidacionesSemestre.length === 0) {
+    throw new AppError(
+      400,
+      'No hay liquidaciones mensuales confirmadas en el semestre del aguinaldo (Dic–May para el de junio; Jun–Nov para el de diciembre). Confirmá las mensuales del semestre antes de generar el aguinaldo.',
+    );
   }
 
+  const sumaHaberesSemestre = liquidacionesSemestre.reduce((s, l) => s + l.totalHaberes, 0n);
+  const mesesConsiderados = liquidacionesSemestre.length;
   const aguinaldoBruto = multiplyFraction(sumaHaberesSemestre, 1, 12);
 
   const aportesObreros = calcularAportesObreros({
@@ -136,14 +110,14 @@ export async function calcularAguinaldo(input: AguinaldoInput): Promise<{
       status: LiquidationStatus.BORRADOR,
       year: input.year,
       month: input.month,
-      diasTrabajados: mesesTrabajados * 30,
+      diasTrabajados: mesesConsiderados * 30,
       totalHaberes: aguinaldoBruto,
       totalDescuentos,
       totalPatronal: aportesPatronales.total,
       liquidoPercibir: aguinaldoNeto,
       parametersSnapshot: {
         bpc: params.bpc.toString(),
-        mesesTrabajados,
+        mesesConsiderados,
         sumaHaberesSemestre: sumaHaberesSemestre.toString(),
       },
     },
@@ -164,14 +138,14 @@ export async function calcularAguinaldo(input: AguinaldoInput): Promise<{
         employeeId: input.employeeId,
         itemType: ItemType.HABER,
         concepto: 'AGUINALDO',
-        descripcion: `Aguinaldo ${esPrimerSemestre ? '1er' : '2do'} semestre ${input.year} (${mesesTrabajados} meses)`,
+        descripcion: `Aguinaldo ${pagaJunio ? '1er' : '2do'} semestre ${input.year} (${mesesConsiderados} ${mesesConsiderados === 1 ? 'mes' : 'meses'} confirmados)`,
         baseCalculo: sumaHaberesSemestre,
         rate: null,
         amount: aguinaldoBruto,
         calculationDetail: {
           sumaHaberesSemestre: sumaHaberesSemestre.toString(),
-          mesesTrabajados,
-          formula: 'suma_haberes / 12',
+          mesesConsiderados,
+          formula: 'suma_haberes_semestre / 12',
         } as unknown as Prisma.InputJsonValue,
       },
       {
@@ -241,6 +215,6 @@ export async function calcularAguinaldo(input: AguinaldoInput): Promise<{
     irpf,
     aguinaldoNeto,
     baseCalculo: sumaHaberesSemestre,
-    mesesConsiderados: mesesTrabajados,
+    mesesConsiderados,
   };
 }
