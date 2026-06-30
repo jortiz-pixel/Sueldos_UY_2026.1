@@ -18,7 +18,9 @@ interface GroLogoProps {
 }
 
 // Archivo del logo real (si se subió a frontend/public/). Vite lo sirve desde la raíz.
-const LOGO_SRC = '/gro-logo.svg';
+// El sufijo ?v= fuerza a los navegadores a descargar la versión nueva (evita
+// servir un gro-logo.svg cacheado del mismo nombre). Subir el número al cambiar el logo.
+const LOGO_SRC = '/gro-logo.svg?v=3';
 
 export default function GroLogo({ variant = 'dark', height = 40, className = '' }: GroLogoProps) {
   const [imgFailed, setImgFailed] = useState(false);
