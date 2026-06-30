@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { UserRole, SalaryType, EstadoCivil, Contrato } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { authenticate, requireRole } from '../middleware/auth';
-import { assertCompanyAccess } from '../middleware/tenancy';
+import { assertCompanyAccess, accessibleCompanyIds } from '../middleware/tenancy';
 import { AppError, NotFoundError } from '../middleware/errorHandler';
 import { calcularAntiguedad, diasLicenciaCorrespondientes } from '../utils/date';
 
@@ -77,6 +77,25 @@ async function checkCompanyAccess(req: Request, companyId: string | null): Promi
   await assertCompanyAccess(req, companyId);
 }
 
+/**
+ * Una persona es global y puede estar vinculada a varias empresas (vía contratos).
+ * Concede acceso si el usuario puede ver CUALQUIERA de las empresas de la persona
+ * (o es ADMIN de plataforma). Reemplaza el chequeo viejo contra una sola empresa.
+ */
+async function assertPersonaAccess(req: Request, employeeId: string, legacyCompanyId: string | null): Promise<void> {
+  if (req.user!.role === UserRole.ADMIN) return;
+  const ids = await accessibleCompanyIds(req);
+  if (ids === 'ALL') return;
+  const contratos = await prisma.contrato.findMany({ where: { employeeId }, select: { companyId: true } });
+  const empresasPersona = new Set<string>([
+    ...(legacyCompanyId ? [legacyCompanyId] : []),
+    ...contratos.map((c) => c.companyId),
+  ]);
+  if (![...empresasPersona].some((id) => ids.includes(id))) {
+    throw new AppError(403, 'Acceso denegado a esta persona');
+  }
+}
+
 employeesRouter.get('/', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const companyId = (req.query.companyId as string) || req.user!.companyId;
@@ -114,12 +133,28 @@ employeesRouter.get('/', authenticate, async (req: Request, res: Response, next:
           salarioNominal: true, fechaIngreso: true, fechaEgreso: true,
           active: true, conyugeACargo: true, hijosACargo: true,
           hijosDiscapacitados: true, fonasaFamilia: true, irpfMetodo: true,
+          // Contrato vigente en ESTA empresa, para mostrar datos por empresa.
+          contratos: {
+            where: { companyId, activo: true },
+            orderBy: { vigenciaDesde: 'desc' },
+            take: 1,
+            select: { salarioNominal: true, cargo: true, categoria: true, salaryType: true, fechaIngreso: true },
+          },
         },
       }),
     ]);
 
     res.json({
-      data: employees.map((e) => serializeEmployee(e)),
+      // Para personas en varias empresas, los datos laborales (salario, cargo,
+      // ingreso) se toman del contrato de la empresa activa, no del denormalizado.
+      data: employees.map((e) => {
+        const { contratos, ...rest } = e as typeof e & { contratos?: Array<Record<string, unknown>> };
+        const ct = contratos?.[0];
+        const merged = ct
+          ? { ...rest, salarioNominal: ct.salarioNominal, cargo: ct.cargo ?? rest.cargo, categoria: ct.categoria ?? rest.categoria, salaryType: ct.salaryType, fechaIngreso: ct.fechaIngreso }
+          : rest;
+        return serializeEmployee(merged);
+      }),
       pagination: { total, page, limit, pages: Math.ceil(total / limit) },
     });
   } catch (err) { next(err); }
@@ -135,7 +170,7 @@ employeesRouter.get('/:id', authenticate, async (req: Request, res: Response, ne
       },
     });
     if (!employee) throw new NotFoundError('Empleado');
-    await checkCompanyAccess(req, employee.companyId);
+    await assertPersonaAccess(req, employee.id, employee.companyId);
 
     const antiguedad = calcularAntiguedad(employee.fechaIngreso);
     const diasLicencia = diasLicenciaCorrespondientes(antiguedad);
@@ -154,10 +189,62 @@ employeesRouter.post('/', authenticate, requireRole(UserRole.ADMIN, UserRole.OPE
     const c = data.contrato;
     await checkCompanyAccess(req, c.companyId);
 
-    const existing = await prisma.employee.findUnique({ where: { ci: data.ci } });
-    if (existing) throw new AppError(409, `Ya existe una persona con CI ${data.ci}`);
-
     const fechaIngreso = new Date(c.fechaIngreso);
+
+    // La persona es global (CI único). Si ya existe, NO se bloquea: se la
+    // vincula a esta empresa con un contrato nuevo (puede estar en varias).
+    const existing = await prisma.employee.findUnique({
+      where: { ci: data.ci },
+      include: { contratos: { select: { companyId: true, activo: true } } },
+    });
+    if (existing) {
+      const yaEnEmpresa = existing.contratos.some((ct) => ct.companyId === c.companyId && ct.activo);
+      if (yaEnEmpresa) {
+        throw new AppError(409, `${existing.nombre} ${existing.apellido} (CI ${data.ci}) ya está cargada en esta empresa`);
+      }
+      await prisma.contrato.create({
+        data: {
+          employeeId: existing.id,
+          companyId: c.companyId,
+          numero: existing.contratos.length + 1,
+          vigenciaDesde: c.vigenciaDesde ? new Date(c.vigenciaDesde) : fechaIngreso,
+          fechaFin: c.fechaFin ? new Date(c.fechaFin) : undefined,
+          fechaIngreso,
+          tipoContrato: c.tipoContrato,
+          cargo: c.cargo,
+          sector: c.sector,
+          categoria: c.categoria,
+          nivel: c.nivel,
+          salaryType: c.salaryType,
+          cobra: c.cobra,
+          salarioNominal: c.salarioNominal,
+          jornal: c.jornal,
+          horasDia: c.horasDia,
+          regimenHorario: c.regimenHorario,
+          sucursal: c.sucursal,
+          moneda: c.moneda,
+          grupoActividadNum: c.grupoActividadNum ?? undefined,
+          subgrupo: c.subgrupo,
+          observacion: c.observacion,
+        },
+      });
+      const currentYear = new Date().getFullYear();
+      const antiguedad = calcularAntiguedad(fechaIngreso);
+      await prisma.vacationAccrual.upsert({
+        where: { employeeId_year: { employeeId: existing.id, year: currentYear } },
+        update: {},
+        create: {
+          employeeId: existing.id,
+          year: currentYear,
+          diasCorresponden: diasLicenciaCorrespondientes(antiguedad),
+          diasTomados: 0,
+          diasPendientes: diasLicenciaCorrespondientes(antiguedad),
+        },
+      });
+      const { contratos: _ignore, ...rest } = existing;
+      res.status(201).json({ ...serializeEmployee(rest), vinculado: true });
+      return;
+    }
 
     const employee = await prisma.employee.create({
       data: {
@@ -237,7 +324,7 @@ employeesRouter.put('/:id', authenticate, requireRole(UserRole.ADMIN, UserRole.O
   try {
     const existing = await prisma.employee.findUnique({ where: { id: req.params.id } });
     if (!existing) throw new NotFoundError('Empleado');
-    await checkCompanyAccess(req, existing.companyId);
+    await assertPersonaAccess(req, existing.id, existing.companyId);
 
     const data = updatePersonSchema.parse(req.body);
     const employee = await prisma.employee.update({
@@ -256,7 +343,7 @@ employeesRouter.delete('/:id', authenticate, requireRole(UserRole.ADMIN, UserRol
   try {
     const existing = await prisma.employee.findUnique({ where: { id: req.params.id } });
     if (!existing) throw new NotFoundError('Empleado');
-    await checkCompanyAccess(req, existing.companyId);
+    await assertPersonaAccess(req, existing.id, existing.companyId);
     await prisma.employee.update({ where: { id: req.params.id }, data: { active: false } });
     res.json({ message: 'Empleado desactivado exitosamente' });
   } catch (err) { next(err); }
@@ -266,7 +353,7 @@ employeesRouter.get('/:id/contracts', authenticate, async (req: Request, res: Re
   try {
     const employee = await prisma.employee.findUnique({ where: { id: req.params.id } });
     if (!employee) throw new NotFoundError('Empleado');
-    await checkCompanyAccess(req, employee.companyId);
+    await assertPersonaAccess(req, employee.id, employee.companyId);
 
     const contratos = await prisma.contrato.findMany({
       where: { employeeId: req.params.id },
@@ -345,7 +432,7 @@ employeesRouter.put('/:id/contracts/:contractId', authenticate, requireRole(User
   try {
     const employee = await prisma.employee.findUnique({ where: { id: req.params.id } });
     if (!employee) throw new NotFoundError('Empleado');
-    await checkCompanyAccess(req, employee.companyId);
+    await assertPersonaAccess(req, employee.id, employee.companyId);
 
     const data = contractSchema.partial().parse(req.body);
     const contrato = await prisma.contrato.update({
@@ -366,7 +453,7 @@ employeesRouter.delete('/:id/contracts/:contractId', authenticate, requireRole(U
   try {
     const employee = await prisma.employee.findUnique({ where: { id: req.params.id } });
     if (!employee) throw new NotFoundError('Empleado');
-    await checkCompanyAccess(req, employee.companyId);
+    await assertPersonaAccess(req, employee.id, employee.companyId);
     await prisma.contrato.update({ where: { id: req.params.contractId }, data: { activo: false } });
     res.json({ message: 'Contrato desactivado' });
   } catch (err) { next(err); }
@@ -376,7 +463,7 @@ employeesRouter.get('/:id/history', authenticate, async (req: Request, res: Resp
   try {
     const employee = await prisma.employee.findUnique({ where: { id: req.params.id } });
     if (!employee) throw new NotFoundError('Empleado');
-    await checkCompanyAccess(req, employee.companyId);
+    await assertPersonaAccess(req, employee.id, employee.companyId);
     const history = await prisma.employeeHistory.findMany({
       where: { employeeId: req.params.id },
       orderBy: { createdAt: 'desc' },
@@ -389,7 +476,7 @@ employeesRouter.get('/:id/liquidations', authenticate, async (req: Request, res:
   try {
     const employee = await prisma.employee.findUnique({ where: { id: req.params.id } });
     if (!employee) throw new NotFoundError('Empleado');
-    await checkCompanyAccess(req, employee.companyId);
+    await assertPersonaAccess(req, employee.id, employee.companyId);
     const liquidations = await prisma.liquidation.findMany({
       where: { employeeId: req.params.id },
       orderBy: [{ year: 'desc' }, { month: 'desc' }],
@@ -414,7 +501,7 @@ employeesRouter.get('/:id/vacation', authenticate, async (req: Request, res: Res
   try {
     const employee = await prisma.employee.findUnique({ where: { id: req.params.id } });
     if (!employee) throw new NotFoundError('Empleado');
-    await checkCompanyAccess(req, employee.companyId);
+    await assertPersonaAccess(req, employee.id, employee.companyId);
     const accruals = await prisma.vacationAccrual.findMany({
       where: { employeeId: req.params.id },
       orderBy: { year: 'desc' },
