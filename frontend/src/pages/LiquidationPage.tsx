@@ -181,8 +181,8 @@ export default function LiquidationPage() {
               <button
                 key={period.id}
                 onClick={() => setSelectedPeriodId(period.id)}
-                className={`w-full flex items-center justify-between px-4 py-3 text-left transition-colors ${
-                  selectedPeriodId === period.id ? 'bg-blue-50' : 'hover:bg-gray-50'
+                className={`w-full flex items-center justify-between px-4 py-3 text-left transition-colors border-l-2 ${
+                  selectedPeriodId === period.id ? 'bg-brand-50 border-brand-600' : 'border-transparent hover:bg-gray-50'
                 }`}
               >
                 <div>
