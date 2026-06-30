@@ -39,19 +39,19 @@ export default function Layout() {
 
       {/* Barra lateral: cajón deslizable en celular, fija en escritorio */}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 w-64 bg-[#003DA5] flex flex-col transform transition-transform duration-200 lg:static lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}
+        className={`fixed inset-y-0 left-0 z-40 w-64 bg-gradient-to-b from-[#00307F] to-[#003DA5] flex flex-col transform transition-transform duration-200 lg:static lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}
       >
-        <div className="px-6 py-5 border-b border-blue-800 flex items-center justify-between">
+        <div className="px-5 py-5 flex items-center justify-between">
           <div className="flex flex-col gap-1">
-            <GroLogo variant="light" height={34} />
-            <p className="text-blue-200 text-[11px] tracking-wide">Sueldos · Nómina 2026</p>
+            <GroLogo variant="light" height={32} />
+            <p className="text-blue-200/80 text-[11px] tracking-wide pl-0.5">Sueldos · Nómina 2026</p>
           </div>
           <button onClick={() => setOpen(false)} className="text-blue-200 hover:text-white lg:hidden" aria-label="Cerrar menú">
             <X size={20} />
           </button>
         </div>
 
-        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+        <nav className="flex-1 px-3 py-2 space-y-0.5 overflow-y-auto">
           {navItems.map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
@@ -59,30 +59,32 @@ export default function Layout() {
               end={end}
               onClick={() => setOpen(false)}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                  isActive ? 'bg-white/20 text-white' : 'text-blue-100 hover:bg-white/10 hover:text-white'
+                `group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                  isActive
+                    ? 'bg-white text-[#003DA5] shadow-sm shadow-blue-900/20'
+                    : 'text-blue-100 hover:bg-white/10 hover:text-white'
                 }`
               }
             >
-              <Icon size={18} />
+              <Icon size={18} className="shrink-0" />
               {label}
             </NavLink>
           ))}
         </nav>
 
-        <div className="px-4 py-4 border-t border-blue-800">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-8 h-8 bg-blue-400 rounded-full flex items-center justify-center">
+        <div className="px-3 py-3 mt-auto border-t border-white/10">
+          <div className="flex items-center gap-3 px-2 mb-2">
+            <div className="w-9 h-9 bg-white/15 rounded-full flex items-center justify-center ring-1 ring-white/20">
               <span className="text-white text-xs font-bold">{user?.nombre?.[0]}{user?.apellido?.[0]}</span>
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-white text-xs font-medium truncate">{user?.nombre} {user?.apellido}</p>
-              <p className="text-blue-200 text-xs truncate">{user?.role}</p>
+              <p className="text-white text-xs font-semibold truncate">{user?.nombre} {user?.apellido}</p>
+              <p className="text-blue-200/80 text-[11px] truncate">{user?.role}</p>
             </div>
           </div>
           <button
             onClick={handleLogout}
-            className="flex items-center gap-2 text-blue-200 hover:text-white text-xs w-full px-2 py-1.5 rounded hover:bg-white/10 transition-colors"
+            className="flex items-center gap-2 text-blue-100 hover:text-white text-xs w-full px-2 py-2 rounded-lg hover:bg-white/10 transition-colors"
           >
             <LogOut size={14} />
             Cerrar sesión
@@ -91,7 +93,7 @@ export default function Layout() {
       </aside>
 
       <main className="flex-1 flex flex-col overflow-hidden min-w-0">
-        <header className="bg-white border-b border-gray-200 px-4 sm:px-6 py-3 flex items-center justify-between gap-2">
+        <header className="bg-white/95 backdrop-blur border-b border-gray-200 px-4 sm:px-6 py-3 flex items-center justify-between gap-2 sticky top-0 z-20">
           <div className="flex items-center gap-2 min-w-0">
             <button onClick={() => setOpen(true)} className="lg:hidden text-gray-500 hover:text-gray-700 p-1 -ml-1" aria-label="Abrir menú">
               <Menu size={22} />
@@ -101,7 +103,7 @@ export default function Layout() {
               <select
                 value={activeCompanyId}
                 onChange={(e) => setActiveCompanyId(e.target.value)}
-                className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-medium text-gray-700 bg-white max-w-[55vw] sm:max-w-xs truncate"
+                className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm font-medium text-gray-700 bg-white max-w-[55vw] sm:max-w-xs truncate focus:outline-none focus:ring-2 focus:ring-[#003DA5]/30 focus:border-[#003DA5]"
                 title="Empresa activa"
               >
                 {companies.map((c) => (

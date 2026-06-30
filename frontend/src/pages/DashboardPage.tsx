@@ -61,28 +61,28 @@ export default function DashboardPage() {
       label: 'Empleados Activos',
       value: employees?.pagination.total ?? '-',
       icon: Users,
-      color: 'bg-blue-500',
+      tint: 'bg-blue-50 text-blue-600',
       link: '/employees',
     },
     {
       label: `Total Haberes ${MESES[month]}`,
       value: summary ? formatPesos(summary.totalHaberes) : '-',
       icon: DollarSign,
-      color: 'bg-green-500',
+      tint: 'bg-emerald-50 text-emerald-600',
       link: '/reports',
     },
     {
       label: `Líquido a Pagar ${MESES[month]}`,
       value: summary ? formatPesos(summary.totalLiquidoPercibir) : '-',
       icon: TrendingUp,
-      color: 'bg-indigo-500',
+      tint: 'bg-indigo-50 text-indigo-600',
       link: '/reports',
     },
     {
       label: 'Períodos del Año',
       value: periods?.length ?? '-',
       icon: FileText,
-      color: 'bg-orange-500',
+      tint: 'bg-amber-50 text-amber-600',
       link: '/liquidation',
     },
   ];
@@ -93,9 +93,9 @@ export default function DashboardPage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Panel Principal</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Hola, {user?.nombre} 👋</h1>
         <p className="text-gray-500 text-sm mt-1">
-          {MESES[month]} {year} — Bienvenido, {user?.nombre}
+          Resumen de <span className="font-medium text-gray-700">{MESES[month]} {year}</span>
         </p>
       </div>
 
@@ -115,15 +115,19 @@ export default function DashboardPage() {
 
       {/* Stats grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-        {stats.map(({ label, value, icon: Icon, color, link }) => (
-          <Link key={label} to={link} className="card p-5 hover:shadow-md transition-shadow">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-xs font-medium text-gray-500">{label}</p>
-              <div className={`w-8 h-8 ${color} rounded-lg flex items-center justify-center`}>
-                <Icon className="text-white" size={16} />
+        {stats.map(({ label, value, icon: Icon, tint, link }) => (
+          <Link
+            key={label}
+            to={link}
+            className="card p-5 hover:shadow-md hover:-translate-y-0.5 transition-all group"
+          >
+            <div className="flex items-start justify-between mb-4">
+              <div className={`w-11 h-11 ${tint} rounded-xl flex items-center justify-center`}>
+                <Icon size={20} />
               </div>
             </div>
-            <p className="text-xl font-bold text-gray-900">{value}</p>
+            <p className="text-2xl font-bold text-gray-900 leading-none">{value}</p>
+            <p className="text-xs font-medium text-gray-500 mt-2 group-hover:text-gray-700 transition-colors">{label}</p>
           </Link>
         ))}
       </div>
