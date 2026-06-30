@@ -191,6 +191,7 @@ export const employeesApi = {
   create: (data: object) => api.post<Employee>('/employees', data).then((r) => r.data),
   update: (id: string, data: object) => api.put<Employee>(`/employees/${id}`, data).then((r) => r.data),
   delete: (id: string) => api.delete(`/employees/${id}`).then((r) => r.data),
+  deletePermanent: (id: string) => api.delete(`/employees/${id}/permanent`).then((r) => r.data),
   history: (id: string) => api.get(`/employees/${id}/history`).then((r) => r.data),
   liquidations: (id: string) => api.get<Liquidation[]>(`/employees/${id}/liquidations`).then((r) => r.data),
   vacation: (id: string) => api.get(`/employees/${id}/vacation`).then((r) => r.data),

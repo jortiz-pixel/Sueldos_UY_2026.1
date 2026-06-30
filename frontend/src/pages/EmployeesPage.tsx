@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { Plus, Search, UserCheck, UserX, Eye, Pencil } from 'lucide-react';
+import { Plus, Search, UserCheck, UserX, Eye, Pencil, X } from 'lucide-react';
 import { employeesApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
@@ -35,6 +35,15 @@ export default function EmployeesPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => employeesApi.delete(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['employees'] }),
+  });
+
+  const deletePermanentMutation = useMutation({
+    mutationFn: (id: string) => employeesApi.deletePermanent(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['employees'] }),
+    onError: (err: unknown) => {
+      const message = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      alert(message || 'No se pudo eliminar la persona.');
+    },
   });
 
   return (
@@ -141,10 +150,23 @@ export default function EmployeesPage() {
                               deleteMutation.mutate(emp.id);
                             }
                           }}
-                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
                           title="Desactivar"
                         >
                           <UserX size={15} />
+                        </button>
+                      )}
+                      {isOperator && (
+                        <button
+                          onClick={() => {
+                            if (confirm(`¿Eliminar DEFINITIVAMENTE a ${emp.nombre} ${emp.apellido}?\n\nSolo es posible si no tiene contratos ni liquidaciones. Esta acción no se puede deshacer.`)) {
+                              deletePermanentMutation.mutate(emp.id);
+                            }
+                          }}
+                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Eliminar definitivamente (solo si no tiene contratos)"
+                        >
+                          <X size={15} />
                         </button>
                       )}
                     </div>

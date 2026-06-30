@@ -350,6 +350,36 @@ employeesRouter.delete('/:id', authenticate, requireRole(UserRole.ADMIN, UserRol
   } catch (err) { next(err); }
 });
 
+// DELETE /:id/permanent  → elimina la persona DEFINITIVAMENTE.
+// Solo si NO tiene contratos asociados (ni liquidaciones). Borra los registros
+// dependientes huérfanos (licencias, ajustes, historial, adjuntos) en una transacción.
+employeesRouter.delete('/:id/permanent', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const existing = await prisma.employee.findUnique({ where: { id: req.params.id } });
+    if (!existing) throw new NotFoundError('Empleado');
+    await assertPersonaAccess(req, existing.id, existing.companyId);
+
+    const contratosCount = await prisma.contrato.count({ where: { employeeId: req.params.id } });
+    if (contratosCount > 0) {
+      throw new AppError(409, 'No se puede eliminar: la persona tiene contratos asociados con empresas. Quitá sus contratos primero, o usá "Desactivar".');
+    }
+    const liqCount = await prisma.liquidation.count({ where: { employeeId: req.params.id } });
+    if (liqCount > 0) {
+      throw new AppError(409, 'No se puede eliminar: la persona tiene liquidaciones registradas.');
+    }
+
+    await prisma.$transaction([
+      prisma.vacationAccrual.deleteMany({ where: { employeeId: req.params.id } }),
+      prisma.employeeHistory.deleteMany({ where: { employeeId: req.params.id } }),
+      prisma.leaveRequest.deleteMany({ where: { employeeId: req.params.id } }),
+      prisma.payrollAdjustment.deleteMany({ where: { employeeId: req.params.id } }),
+      prisma.attachment.deleteMany({ where: { ownerId: req.params.id } }),
+      prisma.employee.delete({ where: { id: req.params.id } }),
+    ]);
+    res.json({ message: 'Persona eliminada definitivamente' });
+  } catch (err) { next(err); }
+});
+
 employeesRouter.get('/:id/contracts', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const employee = await prisma.employee.findUnique({ where: { id: req.params.id } });
