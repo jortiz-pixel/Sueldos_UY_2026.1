@@ -511,9 +511,13 @@ function ShareModal({ company, onClose }: { company: Company; onClose: () => voi
     queryFn: () => membershipApi.listByCompany(company.id),
   });
 
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<ShareForm>({
+  const { register, handleSubmit, reset, watch, formState: { errors } } = useForm<ShareForm>({
     defaultValues: { email: '', role: 'OPERATOR' },
   });
+
+  // Una cuenta de Google ingresa con OAuth (sin contraseña): no pide más datos.
+  const emailValue = watch('email');
+  const esGoogle = /@(gmail\.com|googlemail\.com)$/i.test((emailValue || '').trim());
 
   const shareMutation = useMutation({
     mutationFn: (data: ShareForm) =>
@@ -616,11 +620,18 @@ function ShareModal({ company, onClose }: { company: Company; onClose: () => voi
               </div>
             </div>
 
-            <button type="button" onClick={() => setShowNew((v) => !v)} className="text-xs text-brand-600 hover:underline inline-flex items-center gap-1">
-              <UserPlus size={13} /> {showNew ? 'El usuario ya existe' : '¿Es un usuario nuevo? Crear con contraseña'}
-            </button>
+            {esGoogle ? (
+              <p className="text-xs text-ink-subtle inline-flex items-center gap-1.5">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ok" />
+                Cuenta de Google: ingresará con "Iniciar sesión con Google", sin contraseña.
+              </p>
+            ) : (
+              <button type="button" onClick={() => setShowNew((v) => !v)} className="text-xs text-brand-600 hover:underline inline-flex items-center gap-1">
+                <UserPlus size={13} /> {showNew ? 'El usuario ya existe' : '¿Es un usuario nuevo? Crear con contraseña'}
+              </button>
+            )}
 
-            {showNew && (
+            {!esGoogle && showNew && (
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="form-label">Nombre</label>

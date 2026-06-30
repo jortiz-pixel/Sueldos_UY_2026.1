@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
+import { randomBytes } from 'crypto';
 import { z } from 'zod';
 import {
   UserRole,
@@ -14,6 +15,26 @@ import { canManageCompany } from '../middleware/tenancy';
 import { AppError, NotFoundError } from '../middleware/errorHandler';
 
 export const membershipsRouter = Router();
+
+// Dominios habilitados para login con Google (mismos que usa /auth/google).
+const GOOGLE_ALLOWED_DOMAINS = (process.env.GOOGLE_ALLOWED_DOMAINS || '')
+  .split(',').map((d) => d.trim().toLowerCase()).filter(Boolean);
+
+// Una cuenta de Google ingresa por OAuth (sin contraseña). Es "Google" si el
+// dominio es gmail/googlemail o un dominio de Workspace habilitado en el server.
+function esEmailGoogle(email: string): boolean {
+  const domain = email.split('@')[1]?.toLowerCase() ?? '';
+  return domain === 'gmail.com' || domain === 'googlemail.com' || GOOGLE_ALLOWED_DOMAINS.includes(domain);
+}
+
+// Deriva un nombre/apellido razonable del email cuando no se proporcionan
+// (p. ej. "ines.rosas@gmail.com" → Ines / Rosas; "inerosas@..." → Inerosas / "").
+function nombreDesdeEmail(email: string): { nombre: string; apellido: string } {
+  const local = (email.split('@')[0] || 'Usuario').replace(/\+.*/, '');
+  const partes = local.split(/[._-]+/).filter(Boolean);
+  const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : '');
+  return { nombre: cap(partes[0] || 'Usuario'), apellido: cap(partes.slice(1).join(' ')) };
+}
 
 // -------------------------------------------------------------------
 // GET /api/memberships/my  → empresas a las que el usuario tiene acceso
@@ -103,18 +124,26 @@ membershipsRouter.post('/', authenticate, async (req: Request, res: Response, ne
     const company = await prisma.company.findUnique({ where: { id: data.companyId } });
     if (!company) throw new NotFoundError('Empresa');
 
-    let user = await prisma.user.findUnique({ where: { email: data.email } });
+    const email = data.email.toLowerCase();
+    let user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
-      if (!data.nombre || !data.apellido || !data.password) {
+      const esGoogle = esEmailGoogle(email);
+      if (!esGoogle && (!data.nombre || !data.apellido || !data.password)) {
         throw new AppError(400, 'Para invitar un usuario nuevo se requieren nombre, apellido y contraseña');
       }
-      const passwordHash = await bcrypt.hash(data.password, 12);
+      // Cuenta de Google: se crea sin contraseña (ingresa con "Iniciar sesión con
+      // Google"); el nombre se toma del invitador o se deriva del email.
+      const derivado = nombreDesdeEmail(email);
+      const passwordHash = await bcrypt.hash(
+        data.password ?? randomBytes(32).toString('hex'),
+        12,
+      );
       user = await prisma.user.create({
         data: {
-          email: data.email,
+          email,
           passwordHash,
-          nombre: data.nombre,
-          apellido: data.apellido,
+          nombre: data.nombre || derivado.nombre,
+          apellido: data.apellido || derivado.apellido,
           role: UserRole.OPERATOR,
           companyId: data.companyId, // última empresa usada (default)
         },
