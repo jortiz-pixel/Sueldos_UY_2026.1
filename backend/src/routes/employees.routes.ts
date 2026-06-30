@@ -91,7 +91,7 @@ async function assertPersonaAccess(req: Request, employeeId: string, legacyCompa
   const contratos = await prisma.contrato.findMany({ where: { employeeId }, select: { companyId: true } });
   const empresasPersona = new Set<string>([
     ...(legacyCompanyId ? [legacyCompanyId] : []),
-    ...contratos.map((c) => c.companyId),
+    ...contratos.map((c) => c.companyId).filter((id): id is string => id !== null),
   ]);
   if (![...empresasPersona].some((id) => ids.includes(id))) {
     throw new AppError(403, 'Acceso denegado a esta persona');
@@ -490,7 +490,7 @@ employeesRouter.post('/:id/contracts/:contractId/baja', authenticate, requireRol
     let liquidacionFinalId: string | null = null;
     let avisoFinal: string | undefined;
     try {
-      const result = await calcularLiquidacionFinal(req.params.id, req.params.contractId, fecha, req.user!.userId, contrato.companyId);
+      const result = await calcularLiquidacionFinal(req.params.id, req.params.contractId, fecha, req.user!.userId, contrato.companyId ?? undefined);
       liquidacionFinalId = result.liquidacionId;
     } catch (e) {
       avisoFinal = `El contrato se dio de baja, pero no se pudo generar la liquidación final: ${(e as Error).message}`;
