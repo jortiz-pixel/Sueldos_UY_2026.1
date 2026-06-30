@@ -224,6 +224,7 @@ export const liquidationApi = {
   preview: (id: string) => api.get<Liquidation>(`/liquidation/${id}/preview`).then((r) => r.data),
   confirm: (id: string) => api.post(`/liquidation/${id}/confirm`).then((r) => r.data),
   unconfirm: (id: string) => api.post(`/liquidation/${id}/unconfirm`).then((r) => r.data),
+  recalcular: (id: string) => api.post(`/liquidation/${id}/recalcular`).then((r) => r.data),
   cancel: (id: string) => api.post(`/liquidation/${id}/cancel`).then((r) => r.data),
   addAdjustment: (id: string, data: object) =>
     api.post(`/liquidation/${id}/adjustment`, data).then((r) => r.data),

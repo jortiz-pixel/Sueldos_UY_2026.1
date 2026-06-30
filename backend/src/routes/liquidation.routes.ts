@@ -515,6 +515,20 @@ liquidationRouter.patch('/:id/item/:itemId', authenticate, requireRole(UserRole.
   } catch (err) { next(err); }
 });
 
+// POST /api/liquidation/:id/recalcular — recomputa los aportes sobre la base
+// gravada actual (incluye conceptos manuales gravados). Disparo manual.
+liquidationRouter.post('/:id/recalcular', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const liquidation = await prisma.liquidation.findUnique({ where: { id: req.params.id } });
+    if (!liquidation) throw new NotFoundError('Liquidación');
+    if (liquidation.status !== LiquidationStatus.BORRADOR) {
+      throw new AppError(409, 'Solo se puede recalcular en BORRADOR. Desconfirmá primero.');
+    }
+    await recalcularLiquidacion(req.params.id);
+    res.json({ message: 'Liquidación recalculada' });
+  } catch (err) { next(err); }
+});
+
 // POST /api/liquidation/:id/adjustment
 liquidationRouter.post('/:id/adjustment', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
   try {

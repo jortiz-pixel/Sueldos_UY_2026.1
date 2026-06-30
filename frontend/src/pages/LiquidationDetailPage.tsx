@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Download, CheckCircle, XCircle, RotateCcw, X, Plus, Pencil, Check } from 'lucide-react';
+import { ArrowLeft, Download, CheckCircle, XCircle, RotateCcw, RefreshCw, X, Plus, Pencil, Check } from 'lucide-react';
 import { liquidationApi, conceptsApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
@@ -168,6 +168,15 @@ export default function LiquidationDetailPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['liquidation', id] }),
   });
 
+  const recalcularMutation = useMutation({
+    mutationFn: () => liquidationApi.recalcular(id!),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['liquidation', id] }),
+    onError: (e: unknown) => {
+      const err = e as { response?: { data?: { error?: string } } };
+      alert(err.response?.data?.error || 'No se pudo recalcular');
+    },
+  });
+
   const unconfirmMutation = useMutation({
     mutationFn: () => liquidationApi.unconfirm(id!),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['liquidation', id] }),
@@ -260,6 +269,17 @@ export default function LiquidationDetailPage() {
             <Download size={14} />
             Recibo PDF
           </button>
+          {isOperator && liq.status === 'BORRADOR' && (
+            <button
+              onClick={() => recalcularMutation.mutate()}
+              disabled={recalcularMutation.isPending}
+              className="btn-secondary btn-sm"
+              title="Recalcular aportes (BPS/FONASA/FRL/IRPF) sobre la base gravada actual"
+            >
+              <RefreshCw size={14} className={recalcularMutation.isPending ? 'animate-spin' : ''} />
+              Recalcular
+            </button>
+          )}
           {isOperator && liq.status === 'BORRADOR' && (
             <button
               onClick={() => confirmMutation.mutate()}
