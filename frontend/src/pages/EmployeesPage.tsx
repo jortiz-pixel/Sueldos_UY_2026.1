@@ -54,7 +54,7 @@ export default function EmployeesPage() {
         )}
       </div>
 
-      <div className="card p-4 flex gap-4">
+      <div className="card p-4 flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="flex-1 relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
           <input
@@ -65,7 +65,7 @@ export default function EmployeesPage() {
             className="form-input pl-9"
           />
         </div>
-        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer shrink-0">
           <input
             type="checkbox"
             checked={includeInactive}

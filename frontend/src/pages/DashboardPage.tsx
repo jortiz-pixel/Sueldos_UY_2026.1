@@ -168,7 +168,7 @@ export default function DashboardPage() {
           <div className="px-5 py-4 border-b border-gray-100">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-gray-700">Últimos Empleados</h2>
-              <Link to="/employees" className="text-xs text-blue-600 hover:underline">Ver todos →</Link>
+              <Link to="/employees" className="text-xs text-brand-600 hover:underline font-medium">Ver todos →</Link>
             </div>
           </div>
           <div className="divide-y divide-gray-50">
@@ -202,7 +202,7 @@ export default function DashboardPage() {
           <div className="px-5 py-4 border-b border-gray-100">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-gray-700">Nómina {MESES[month]} {year}</h2>
-              <Link to="/liquidation" className="text-xs text-blue-600 hover:underline">Gestionar →</Link>
+              <Link to="/liquidation" className="text-xs text-brand-600 hover:underline font-medium">Gestionar →</Link>
             </div>
           </div>
           {summary ? (

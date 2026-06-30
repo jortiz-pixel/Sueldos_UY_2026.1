@@ -359,7 +359,7 @@ export default function CompaniesPage() {
               {/* Exoneraciones */}
               <section className="space-y-4">
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400">Exoneraciones de aportes patronales (basis points, 10000 = 100%)</h3>
-                <div className="grid grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                   <div>
                     <label className="form-label">Apo. Jubilatorio</label>
                     <input {...register('exoApoJub', { valueAsNumber: true })} type="number" className="form-input" />
@@ -382,7 +382,7 @@ export default function CompaniesPage() {
               {/* Licencia */}
               <section className="space-y-4">
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400">Configuración de licencia</h3>
-                <div className="grid grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                   <div>
                     <label className="form-label">Días licencia/año</label>
                     <input {...register('diasLicenciaAnio', { valueAsNumber: true })} type="number" className="form-input" />

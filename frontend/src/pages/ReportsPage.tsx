@@ -93,7 +93,7 @@ export default function ReportsPage() {
         <div className="space-y-4">
           {/* Summary bar */}
           {summary && (
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
               {[
                 { label: 'Empleados', value: summary.empleados },
                 { label: 'Total Haberes', value: formatPesos(summary.totalHaberes) },
