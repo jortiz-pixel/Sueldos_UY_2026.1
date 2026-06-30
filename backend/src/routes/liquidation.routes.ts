@@ -11,7 +11,7 @@ import { calcularLiquidacionLicencia, calcularLiquidacionFinal } from '../servic
 import { calcularAportesObreros, calcularAportesPatronales } from '../services/bps.service';
 import { calcularIrpfMensual } from '../services/irpf.service';
 import { parametersService } from '../services/parameters.service';
-import { generateReciboPDF } from '../services/pdf.service';
+import { generateReciboPDF, reciboFilename } from '../services/pdf.service';
 
 export const liquidationRouter = Router();
 
@@ -327,8 +327,9 @@ liquidationRouter.get('/:id/recibo', authenticate, async (req: Request, res: Res
     });
 
     const pdfBuffer = await generateReciboPDF(liquidation, employee, contrato);
+    const nombreArchivo = `${reciboFilename(liquidation, employee)}.pdf`;
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="recibo_${liquidation.employeeId}_${liquidation.year}_${liquidation.month}.pdf"`);
+    res.setHeader('Content-Disposition', `inline; filename="${nombreArchivo.replace(/"/g, '')}"; filename*=UTF-8''${encodeURIComponent(nombreArchivo)}`);
     res.send(pdfBuffer);
   } catch (err) { next(err); }
 });

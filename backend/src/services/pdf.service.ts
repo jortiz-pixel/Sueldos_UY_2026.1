@@ -68,6 +68,14 @@ const MESES = [
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
 ];
 
+/** Nombre del archivo del recibo (sin extensión): "Nombre Apellido - Empresa MM-YYYY". */
+export function reciboFilename(liq: { month: number; year: number }, emp: EmployeeForPdf): string {
+  const empresa = emp.company?.nombreFantasia || emp.company?.razonSocial || 'Empresa';
+  const mm = String(liq.month).padStart(2, '0');
+  const base = `${emp.nombre} ${emp.apellido} - ${empresa} ${mm}-${liq.year}`;
+  return base.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 // ── Helpers ──────────────────────────────────────────────────────
 function fmt(cents: bigint): string {
   const neg = cents < 0n;
@@ -120,6 +128,8 @@ export function generateReciboPDF(
 ): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 24 });
+    // El Title del PDF es lo que muchos navegadores usan como nombre al guardar.
+    doc.info.Title = reciboFilename(liquidation, employee);
     const chunks: Buffer[] = [];
     doc.on('data', (c) => chunks.push(c));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
@@ -228,10 +238,10 @@ export function generateReciboPDF(
       const tblTop = y;
       const colMid = MIDX;
       // Cabeceras
-      doc.font('Helvetica-Bold').fontSize(7.5).fillColor('#fff');
-      doc.rect(X0, y, Wt / 2 - 2, 13).fill('#16a34a');
-      doc.rect(colMid, y, Wt / 2, 13).fill('#dc2626');
-      doc.fillColor('#fff').text('HABERES', X0 + 4, y + 3);
+      doc.font('Helvetica-Bold').fontSize(7.5);
+      doc.rect(X0, y, Wt / 2 - 2, 13).fill('#e5e7eb');
+      doc.rect(colMid, y, Wt / 2, 13).fill('#e5e7eb');
+      doc.fillColor('#1f2937').text('HABERES', X0 + 4, y + 3);
       doc.text('DESCUENTOS', colMid + 4, y + 3);
       y += 13;
       // Subcabeceras
