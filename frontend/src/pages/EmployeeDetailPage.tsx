@@ -109,8 +109,8 @@ export default function EmployeeDetailPage() {
   });
 
   const bajaMutation = useMutation({
-    mutationFn: ({ contractId, fechaEgreso, motivo }: { contractId: string; fechaEgreso: string; motivo?: string }) =>
-      contractsApi.baja(id!, contractId, fechaEgreso, motivo),
+    mutationFn: ({ contractId, fechaEgreso, motivo, causalEgresoCod }: { contractId: string; fechaEgreso: string; motivo?: string; causalEgresoCod?: number }) =>
+      contractsApi.baja(id!, contractId, fechaEgreso, motivo, causalEgresoCod),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['employee-contracts', id] });
       queryClient.invalidateQueries({ queryKey: ['employee', id] });
@@ -135,8 +135,16 @@ export default function EmployeeDetailPage() {
     const fecha = prompt('Fecha de egreso / baja (AAAA-MM-DD):', new Date().toISOString().slice(0, 10));
     if (!fecha) return;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) { alert('Fecha inválida. Usá el formato AAAA-MM-DD.'); return; }
+    // Causal de egreso BPS (Tabla 9 del codificador) — opcional.
+    const causalRaw = prompt(
+      'Causal de egreso (BPS Tabla 9) — código:\n'
+      + '1 Voluntario · 2 Despido · 3 Fallecimiento · 4 Término de Contrato · 5 Jubilación · 50 Otros motivos\n'
+      + '(dejar vacío si no corresponde)',
+      '1',
+    );
+    const causalEgresoCod = causalRaw && /^\d+$/.test(causalRaw.trim()) ? Number(causalRaw.trim()) : undefined;
     const motivo = prompt('Motivo de la baja (opcional):') || undefined;
-    bajaMutation.mutate({ contractId: c.id, fechaEgreso: fecha, motivo });
+    bajaMutation.mutate({ contractId: c.id, fechaEgreso: fecha, motivo, causalEgresoCod });
   };
 
   const openNew = () => {

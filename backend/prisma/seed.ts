@@ -10,12 +10,16 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('🌱 Iniciando seed...\n');
 
+  // Tabla 1 del codificador BPS (aportación). La migración codificador_bps las
+  // mantiene actualizadas en producción; acá se alinean para un seed limpio.
   const tiposAporte = [
-    { codigo: 1, nombre: 'Industria y Comercio' }, { codigo: 2, nombre: 'Civil' },
-    { codigo: 3, nombre: 'Rural' }, { codigo: 4, nombre: 'Construcción' },
+    { codigo: 1, nombre: 'IC — Industria y Comercio' }, { codigo: 2, nombre: 'CI — Civil' },
+    { codigo: 3, nombre: 'RU — Rural' }, { codigo: 4, nombre: 'CT — Construcción' },
     { codigo: 5, nombre: 'Notarial' }, { codigo: 6, nombre: 'Bancaria' },
-    { codigo: 7, nombre: 'Trabajo a domicilio' }, { codigo: 11, nombre: 'Profesional' },
-    { codigo: 13, nombre: 'Caja Policial' }, { codigo: 48, nombre: 'Servicio doméstico' },
+    { codigo: 7, nombre: 'TD — Trabajo a Domicilio' }, { codigo: 8, nombre: 'Escolar' },
+    { codigo: 11, nombre: 'Servicios Personales' }, { codigo: 12, nombre: 'Militar' },
+    { codigo: 13, nombre: 'Policial' }, { codigo: 14, nombre: 'Unión Postal' },
+    { codigo: 48, nombre: 'Servicio Doméstico' },
   ];
   for (const t of tiposAporte) await prisma.tipoAporte.upsert({ where: { codigo: t.codigo }, update: { nombre: t.nombre }, create: t });
 

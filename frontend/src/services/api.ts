@@ -171,10 +171,19 @@ export const importApi = {
   plantilla: () => api.get('/import/personas/plantilla', { responseType: 'blob' }).then((r) => r.data as Blob),
 };
 
+export interface CodigoBps { codigo: number; nombre: string }
+
 export const catalogsApi = {
   tiposAporte: () => api.get<TipoAporte[]>('/catalogs/tipos-aporte').then((r) => r.data),
   tiposContribuyente: () => api.get<TipoContribuyente[]>('/catalogs/tipos-contribuyente').then((r) => r.data),
   gruposActividad: () => api.get<GrupoActividad[]>('/catalogs/grupos-actividad').then((r) => r.data),
+  // Codificador BPS Versión 37
+  naturalezaJuridica: () => api.get<CodigoBps[]>('/catalogs/naturaleza-juridica').then((r) => r.data),
+  causalesEgreso: () => api.get<CodigoBps[]>('/catalogs/causales-egreso').then((r) => r.data),
+  vinculosFuncionales: () => api.get<CodigoBps[]>('/catalogs/vinculos-funcionales').then((r) => r.data),
+  tiposRemuneracion: () => api.get<CodigoBps[]>('/catalogs/tipos-remuneracion').then((r) => r.data),
+  segurosSalud: () => api.get<CodigoBps[]>('/catalogs/seguros-salud').then((r) => r.data),
+  exoneracionesAporte: () => api.get<CodigoBps[]>('/catalogs/exoneraciones-aporte').then((r) => r.data),
 };
 
 export const conceptsApi = {
@@ -205,9 +214,9 @@ export const contractsApi = {
   list: (employeeId: string) => api.get<Contrato[]>(`/employees/${employeeId}/contracts`).then((r) => r.data),
   create: (employeeId: string, data: object) => api.post<Contrato>(`/employees/${employeeId}/contracts`, data).then((r) => r.data),
   update: (employeeId: string, contractId: string, data: object) => api.put<Contrato>(`/employees/${employeeId}/contracts/${contractId}`, data).then((r) => r.data),
-  baja: (employeeId: string, contractId: string, fechaEgreso: string, motivo?: string) =>
+  baja: (employeeId: string, contractId: string, fechaEgreso: string, motivo?: string, causalEgresoCod?: number) =>
     api.post<Contrato & { liquidacionFinalId?: string | null; desvinculadaTotal?: boolean; aviso?: string }>(
-      `/employees/${employeeId}/contracts/${contractId}/baja`, { fechaEgreso, motivo },
+      `/employees/${employeeId}/contracts/${contractId}/baja`, { fechaEgreso, motivo, causalEgresoCod },
     ).then((r) => r.data),
   delete: (employeeId: string, contractId: string) => api.delete(`/employees/${employeeId}/contracts/${contractId}`).then((r) => r.data),
   listByCompany: (companyId: string) =>

@@ -30,3 +30,53 @@ catalogsRouter.get('/grupos-actividad', authenticate, async (_req: Request, res:
     res.json(data);
   } catch (err) { next(err); }
 });
+
+// ---- Codificador BPS (Versión 37) ----
+
+// GET /api/catalogs/naturaleza-juridica  (BPS Tabla 22)
+catalogsRouter.get('/naturaleza-juridica', authenticate, async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const data = await prisma.naturalezaJuridica.findMany({ orderBy: { codigo: 'asc' } });
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+// GET /api/catalogs/causales-egreso  (BPS Tabla 9)
+catalogsRouter.get('/causales-egreso', authenticate, async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const data = await prisma.causalEgreso.findMany({ orderBy: { codigo: 'asc' } });
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+// GET /api/catalogs/vinculos-funcionales  (BPS Tabla 3)
+catalogsRouter.get('/vinculos-funcionales', authenticate, async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const data = await prisma.vinculoFuncional.findMany({ orderBy: { codigo: 'asc' } });
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+// GET /api/catalogs/tipos-remuneracion  (BPS Tabla 2)
+catalogsRouter.get('/tipos-remuneracion', authenticate, async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const data = await prisma.tipoRemuneracion.findMany({ orderBy: { codigo: 'asc' } });
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+// GET /api/catalogs/seguros-salud  (BPS Tabla 8)
+catalogsRouter.get('/seguros-salud', authenticate, async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const data = await prisma.seguroSalud.findMany({ orderBy: { codigo: 'asc' } });
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+// GET /api/catalogs/exoneraciones-aporte  (BPS Tabla 10)
+catalogsRouter.get('/exoneraciones-aporte', authenticate, async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const data = await prisma.exoneracionAporte.findMany({ orderBy: { codigo: 'asc' } });
+    res.json(data);
+  } catch (err) { next(err); }
+});

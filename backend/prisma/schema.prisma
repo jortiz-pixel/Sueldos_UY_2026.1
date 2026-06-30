@@ -46,6 +46,49 @@ model SubgrupoActividad {
   @@map("subgrupos_actividad")
 }
 
+// Codificador BPS (Versión 37) — tablas de códigos oficiales para la nómina.
+model NaturalezaJuridica {
+  codigo Int    @id
+  nombre String
+
+  @@map("naturaleza_juridica")
+}
+
+model CausalEgreso {
+  codigo Int    @id
+  nombre String
+
+  @@map("causales_egreso")
+}
+
+model VinculoFuncional {
+  codigo Int    @id
+  nombre String
+
+  @@map("vinculos_funcionales")
+}
+
+model TipoRemuneracion {
+  codigo Int    @id
+  nombre String
+
+  @@map("tipos_remuneracion")
+}
+
+model SeguroSalud {
+  codigo Int    @id
+  nombre String
+
+  @@map("seguros_salud")
+}
+
+model ExoneracionAporte {
+  codigo Int    @id
+  nombre String
+
+  @@map("exoneraciones_aporte")
+}
+
 model Company {
   id               String   @id @default(cuid())
   rut              String   @unique
@@ -375,6 +418,7 @@ model Contrato {
   moneda           String     @default("UYU")
   grupoActividadNum Int?
   subgrupo         String?
+  causalEgresoCod  Int?
   observacion      String?
   activo           Boolean    @default(true)
   createdAt        DateTime   @default(now())

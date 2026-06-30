@@ -466,14 +466,23 @@ employeesRouter.post('/:id/contracts/:contractId/baja', authenticate, requireRol
     if (!employee) throw new NotFoundError('Empleado');
     await assertPersonaAccess(req, employee.id, employee.companyId);
 
-    const { fechaEgreso, motivo } = z.object({
+    const { fechaEgreso, motivo, causalEgresoCod } = z.object({
       fechaEgreso: z.string().min(1),
       motivo: z.string().optional(),
+      causalEgresoCod: z.number().int().optional(),
     }).parse(req.body);
     const fecha = new Date(fechaEgreso);
 
     const contrato = await prisma.contrato.findUnique({ where: { id: req.params.contractId } });
     if (!contrato || contrato.employeeId !== req.params.id) throw new NotFoundError('Contrato');
+
+    // Causal de egreso BPS (Tabla 9): texto para la bitácora del contrato.
+    let causalTexto: string | undefined;
+    if (causalEgresoCod != null) {
+      const causal = await prisma.causalEgreso.findUnique({ where: { codigo: causalEgresoCod } });
+      causalTexto = causal ? `Causal BPS ${causal.codigo} — ${causal.nombre}` : undefined;
+    }
+    const notaBaja = [causalTexto, motivo].filter(Boolean).join('. ');
 
     // 1) Cerrar el contrato a la fecha de egreso.
     const updated = await prisma.contrato.update({
@@ -481,7 +490,8 @@ employeesRouter.post('/:id/contracts/:contractId/baja', authenticate, requireRol
       data: {
         fechaFin: fecha,
         vigenciaHasta: fecha,
-        observacion: motivo ? `${contrato.observacion ? contrato.observacion + ' · ' : ''}Baja: ${motivo}` : contrato.observacion,
+        causalEgresoCod: causalEgresoCod ?? undefined,
+        observacion: notaBaja ? `${contrato.observacion ? contrato.observacion + ' · ' : ''}Baja: ${notaBaja}` : contrato.observacion,
       },
     });
 
