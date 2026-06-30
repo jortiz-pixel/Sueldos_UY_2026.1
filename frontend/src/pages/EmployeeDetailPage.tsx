@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Calendar, User, DollarSign, FileText, Briefcase, Plus, X, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Calendar, User, DollarSign, FileText, Briefcase, Plus, X, AlertCircle, UserMinus } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { employeesApi, contractsApi, companiesApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
@@ -107,6 +107,27 @@ export default function EmployeeDetailPage() {
       setFormError(message || 'Error al guardar el contrato.');
     },
   });
+
+  const bajaMutation = useMutation({
+    mutationFn: ({ contractId, fechaEgreso, motivo }: { contractId: string; fechaEgreso: string; motivo?: string }) =>
+      contractsApi.baja(id!, contractId, fechaEgreso, motivo),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['employee-contracts', id] });
+      queryClient.invalidateQueries({ queryKey: ['employee', id] });
+    },
+    onError: (err: unknown) => {
+      const message = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      alert(message || 'No se pudo dar de baja el contrato');
+    },
+  });
+
+  const handleBaja = (c: Contrato) => {
+    const fecha = prompt('Fecha de egreso / baja (AAAA-MM-DD):', new Date().toISOString().slice(0, 10));
+    if (!fecha) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) { alert('Fecha inválida. Usá el formato AAAA-MM-DD.'); return; }
+    const motivo = prompt('Motivo de la baja (opcional):') || undefined;
+    bajaMutation.mutate({ contractId: c.id, fechaEgreso: fecha, motivo });
+  };
 
   const openNew = () => {
     setFormError('');
@@ -240,11 +261,12 @@ export default function EmployeeDetailPage() {
                 <th className="px-4 py-3 text-left">Cargo</th>
                 <th className="px-4 py-3 text-right">Salario / Jornal</th>
                 <th className="px-4 py-3 text-left">Estado</th>
+                <th className="px-4 py-3 text-right">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {!contratos?.length ? (
-                <tr><td colSpan={6} className="px-4 py-6 text-center text-sm text-gray-400">Sin contratos</td></tr>
+                <tr><td colSpan={7} className="px-4 py-6 text-center text-sm text-gray-400">Sin contratos</td></tr>
               ) : contratos.map((c: Contrato) => (
                 <tr key={c.id} className="hover:bg-gray-50">
                   <td className="table-cell font-mono text-xs">{c.numero}</td>
@@ -260,6 +282,17 @@ export default function EmployeeDetailPage() {
                     {!c.vigenciaHasta && c.activo
                       ? <span className="badge-green badge">Vigente</span>
                       : <span className="badge-gray badge">Histórico</span>}
+                  </td>
+                  <td className="table-cell text-right">
+                    {isOperator && !c.vigenciaHasta && c.activo && (
+                      <button
+                        onClick={() => handleBaja(c)}
+                        className="inline-flex items-center gap-1 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 px-2 py-1 rounded-lg"
+                        title="Dar de baja (cerrar el contrato con fecha de egreso)"
+                      >
+                        <UserMinus size={14} /> Dar de baja
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

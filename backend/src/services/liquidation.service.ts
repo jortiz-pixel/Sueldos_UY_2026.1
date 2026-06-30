@@ -53,8 +53,16 @@ export async function generarLiquidacionMensual(
   const employee = await prisma.employee.findUnique({ where: { id: input.employeeId } });
   if (!employee) throw new AppError(404, 'Empleado no encontrado');
 
-  // Contrato vigente de la persona PARA ESTA EMPRESA en el período (fallback al dato legado)
+  // Contrato vigente de la persona PARA ESTA EMPRESA en el período.
+  // La liquidación es estrictamente por contrato: si no hay uno vigente
+  // (p. ej. un mes entre dos zafras), NO se liquida.
   const contrato = await resolverContratoVigente(input.employeeId, asOfDate, period.companyId);
+  if (!contrato) {
+    throw new AppError(
+      409,
+      `${employee.nombre} ${employee.apellido} no tiene un contrato vigente en ${period.company.razonSocial} para ${String(input.month).padStart(2, '0')}/${input.year}. Registrá el alta del contrato para ese período.`,
+    );
+  }
   const labor = datosLaboralesEfectivos(employee, contrato);
 
   const params = await parametersService.getPayrollParameters(asOfDate);

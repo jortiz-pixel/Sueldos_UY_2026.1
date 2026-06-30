@@ -459,6 +459,37 @@ employeesRouter.delete('/:id/contracts/:contractId', authenticate, requireRole(U
   } catch (err) { next(err); }
 });
 
+// POST /:id/contracts/:contractId/baja  → cierra el contrato con fecha de egreso.
+// El contrato sigue 'activo' (es real, fue cumplido) pero termina en esa fecha:
+// deja de ser vigente para liquidar a partir de ahí (genera el hueco entre zafras).
+// La persona queda disponible para una nueva alta (nuevo contrato) más adelante.
+employeesRouter.post('/:id/contracts/:contractId/baja', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const employee = await prisma.employee.findUnique({ where: { id: req.params.id } });
+    if (!employee) throw new NotFoundError('Empleado');
+    await assertPersonaAccess(req, employee.id, employee.companyId);
+
+    const { fechaEgreso, motivo } = z.object({
+      fechaEgreso: z.string().min(1),
+      motivo: z.string().optional(),
+    }).parse(req.body);
+    const fecha = new Date(fechaEgreso);
+
+    const contrato = await prisma.contrato.findUnique({ where: { id: req.params.contractId } });
+    if (!contrato || contrato.employeeId !== req.params.id) throw new NotFoundError('Contrato');
+
+    const updated = await prisma.contrato.update({
+      where: { id: req.params.contractId },
+      data: {
+        fechaFin: fecha,
+        vigenciaHasta: fecha,
+        observacion: motivo ? `${contrato.observacion ? contrato.observacion + ' · ' : ''}Baja: ${motivo}` : contrato.observacion,
+      },
+    });
+    res.json(serializeContrato(updated));
+  } catch (err) { next(err); }
+});
+
 employeesRouter.get('/:id/history', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const employee = await prisma.employee.findUnique({ where: { id: req.params.id } });
