@@ -96,7 +96,7 @@ export default function LoginPage() {
         <div aria-hidden className="absolute bottom-0 -left-20 w-80 h-80 rounded-full bg-brand-soft/20 blur-3xl" />
 
         <div className="relative z-10">
-          <AsysTaxLogo variant="light" height={34} />
+          <AsysTaxLogo variant="light" height={52} />
         </div>
 
         <div className="relative z-10 max-w-md">
@@ -127,7 +127,7 @@ export default function LoginPage() {
         <div className="w-full max-w-md">
           {/* Logo en celular */}
           <div className="lg:hidden mb-8 flex justify-center">
-            <AsysTaxLogo variant="dark" height={40} />
+            <AsysTaxLogo variant="dark" height={50} />
           </div>
 
           <div className="bg-white rounded-2xl shadow-xl shadow-navy/5 border border-hairline p-8">
