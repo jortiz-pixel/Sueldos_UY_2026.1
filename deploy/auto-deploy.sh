@@ -9,6 +9,8 @@ set -uo pipefail
 REPO_DIR="/root/Sueldos_UY_2026.1"
 BRANCH="claude/uruguayan-payroll-system-EojHu"
 
+FORCE="${1:-}"
+
 cd "$REPO_DIR" || { echo "No existe $REPO_DIR"; exit 1; }
 
 # ¿Hay algo nuevo en el remoto?
@@ -16,9 +18,11 @@ git fetch origin "$BRANCH" --quiet || { echo "[$(date '+%F %T')] git fetch fall�
 LOCAL=$(git rev-parse HEAD 2>/dev/null)
 REMOTE=$(git rev-parse "origin/$BRANCH" 2>/dev/null)
 [ -z "$REMOTE" ] && exit 0
-[ "$LOCAL" = "$REMOTE" ] && exit 0   # ya estamos al día
+if [ "$FORCE" != "--force" ] && [ "$LOCAL" = "$REMOTE" ]; then
+  exit 0   # ya estamos al día (salvo build forzado)
+fi
 
-echo "[$(date '+%F %T')] Nuevo commit detectado: $REMOTE — desplegando…"
+echo "[$(date '+%F %T')] Desplegando $REMOTE…"
 git reset --hard "origin/$BRANCH" || { echo "fallo git reset"; exit 1; }
 
 # Rebuild + levantar contenedores

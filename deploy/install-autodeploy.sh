@@ -41,6 +41,10 @@ systemctl daemon-reload
 systemctl enable --now sueldos-deploy.timer
 
 echo ""
+echo "⏳ Aplicando el estado actual del repositorio (build inicial)…"
+bash "$REPO_DIR/deploy/auto-deploy.sh" --force || echo "aviso: el build inicial reportó un error, revisá los logs"
+
+echo ""
 echo "✅ Auto-deploy instalado y activo."
 echo "   Cada push a la branch se aplica solo en ~1 minuto."
 echo ""
