@@ -70,14 +70,16 @@ export async function calcularLiquidacionLicencia(input: LicenciaInput) {
   // Aportes SOLO sobre la licencia (el salario vacacional es EXENTO de CESS).
   const aportesObreros = calcularAportesObreros({
     salarioNominal: importeLicencia,
-    fonasaFamilia: employee.fonasaFamilia,
+    hijosACargo: employee.hijosACargo,
+    conyugeACargo: employee.conyugeACargo,
     params,
     bseRateEmpresa: bseRate,
   });
 
   const aportesPatronales = calcularAportesPatronales({
     salarioNominal: importeLicencia,
-    fonasaFamilia: employee.fonasaFamilia,
+    hijosACargo: employee.hijosACargo,
+    conyugeACargo: employee.conyugeACargo,
     params,
     bseRateEmpresa: bseRate,
   });
@@ -303,13 +305,15 @@ export async function calcularLiquidacionFinal(
   const baseBpsIrpf = aguinaldoProporcional + licenciaPendiente + salarioVacacionalPendiente;
   const aportesObreros = calcularAportesObreros({
     salarioNominal: baseBpsIrpf,
-    fonasaFamilia: employee.fonasaFamilia,
+    hijosACargo: employee.hijosACargo,
+    conyugeACargo: employee.conyugeACargo,
     params,
     bseRateEmpresa: bseRate,
   });
   const aportesPatronales = calcularAportesPatronales({
     salarioNominal: baseBpsIrpf,
-    fonasaFamilia: employee.fonasaFamilia,
+    hijosACargo: employee.hijosACargo,
+    conyugeACargo: employee.conyugeACargo,
     params,
     bseRateEmpresa: bseRate,
   });

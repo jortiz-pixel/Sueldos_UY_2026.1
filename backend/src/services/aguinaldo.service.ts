@@ -73,14 +73,16 @@ export async function calcularAguinaldo(input: AguinaldoInput): Promise<{
 
   const aportesObreros = calcularAportesObreros({
     salarioNominal: aguinaldoBruto,
-    fonasaFamilia: employee.fonasaFamilia,
+    hijosACargo: employee.hijosACargo,
+    conyugeACargo: employee.conyugeACargo,
     params,
     bseRateEmpresa: bseRate,
   });
 
   const aportesPatronales = calcularAportesPatronales({
     salarioNominal: aguinaldoBruto,
-    fonasaFamilia: employee.fonasaFamilia,
+    hijosACargo: employee.hijosACargo,
+    conyugeACargo: employee.conyugeACargo,
     params,
     bseRateEmpresa: bseRate,
   });
@@ -166,7 +168,7 @@ export async function calcularAguinaldo(input: AguinaldoInput): Promise<{
         concepto: 'FONASA',
         descripcion: 'FONASA sobre aguinaldo',
         baseCalculo: aguinaldoBruto,
-        rate: params.fonasaBasicRate + (employee.fonasaFamilia ? params.fonasaFamiliaRate : 0),
+        rate: aportesObreros.detail.fonasaRateEfectivo,
         amount: aportesObreros.fonasaTotal,
         calculationDetail: Prisma.DbNull,
       },

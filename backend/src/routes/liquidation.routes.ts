@@ -392,7 +392,7 @@ async function recalcularLiquidacion(liquidationId: string): Promise<void> {
     if (gravado) baseGravada += it.amount;
   }
 
-  const obreros = calcularAportesObreros({ salarioNominal: baseGravada, fonasaFamilia: employee.fonasaFamilia, params, bseRateEmpresa: bseRate });
+  const obreros = calcularAportesObreros({ salarioNominal: baseGravada, hijosACargo: employee.hijosACargo, conyugeACargo: employee.conyugeACargo, params, bseRateEmpresa: bseRate });
   const patronales = calcularAportesPatronales({ salarioNominal: baseGravada, fonasaFamilia: employee.fonasaFamilia, params, bseRateEmpresa: bseRate, fonasaPatronalRate: 500 });
   const irpf = calcularIrpfMensual({
     salarioNominal: baseGravada,
