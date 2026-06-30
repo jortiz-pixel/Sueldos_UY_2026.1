@@ -24,7 +24,7 @@ membershipsRouter.get('/my', authenticate, async (req: Request, res: Response, n
     // Superadmin de plataforma: todas las empresas activas.
     if (req.user!.role === UserRole.ADMIN) {
       const companies = await prisma.company.findMany({
-        where: { active: true },
+        where: { active: true, hidden: false },
         orderBy: { razonSocial: 'asc' },
         select: { id: true, razonSocial: true, nombreFantasia: true },
       });
@@ -39,7 +39,7 @@ membershipsRouter.get('/my', authenticate, async (req: Request, res: Response, n
     }
 
     const memberships = await prisma.membership.findMany({
-      where: { userId: req.user!.userId, estado: MembershipStatus.ACTIVA, company: { active: true } },
+      where: { userId: req.user!.userId, estado: MembershipStatus.ACTIVA, company: { active: true, hidden: false } },
       include: { company: { select: { id: true, razonSocial: true, nombreFantasia: true } } },
       orderBy: { company: { razonSocial: 'asc' } },
     });

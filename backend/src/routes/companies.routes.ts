@@ -99,11 +99,35 @@ companiesRouter.put('/:id', authenticate, requireRole(UserRole.ADMIN, UserRole.O
   } catch (err) { next(err); }
 });
 
-// DELETE /api/companies/:id (soft delete)
+// PATCH /api/companies/:id/visibility  → ocultar / mostrar (no elimina)
+companiesRouter.patch('/:id/visibility', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { hidden } = z.object({ hidden: z.boolean() }).parse(req.body);
+    const company = await prisma.company.findUnique({ where: { id: req.params.id } });
+    if (!company) throw new NotFoundError('Empresa');
+    await assertCompanyAccess(req, company.id);
+    const updated = await prisma.company.update({ where: { id: req.params.id }, data: { hidden } });
+    res.json({ id: updated.id, hidden: updated.hidden });
+  } catch (err) { next(err); }
+});
+
+// DELETE /api/companies/:id (baja lógica) — solo si no tiene empleados activos.
 companiesRouter.delete('/:id', authenticate, requireRole(UserRole.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const company = await prisma.company.findUnique({ where: { id: req.params.id } });
+    if (!company) throw new NotFoundError('Empresa');
+
+    const empleadosActivos = await prisma.employee.count({ where: { companyId: req.params.id, active: true } });
+    if (empleadosActivos > 0) {
+      throw new AppError(
+        409,
+        `No se puede eliminar ${company.razonSocial}: tiene ${empleadosActivos} empleado(s) activo(s). ` +
+        `Desvinculá o trasladá a las personas primero, o usá "Ocultar" para sacarla del selector sin eliminarla.`,
+      );
+    }
+
     await prisma.company.update({ where: { id: req.params.id }, data: { active: false } });
-    res.json({ message: 'Empresa desactivada exitosamente' });
+    res.json({ message: 'Empresa eliminada exitosamente' });
   } catch (err) { next(err); }
 });
 

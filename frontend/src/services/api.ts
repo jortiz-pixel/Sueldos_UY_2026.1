@@ -66,6 +66,8 @@ export const companiesApi = {
   create: (data: Partial<Company>) => api.post<Company>('/companies', data).then((r) => r.data),
   update: (id: string, data: Partial<Company>) => api.put<Company>(`/companies/${id}`, data).then((r) => r.data),
   delete: (id: string) => api.delete(`/companies/${id}`).then((r) => r.data),
+  setVisibility: (id: string, hidden: boolean) =>
+    api.patch(`/companies/${id}/visibility`, { hidden }).then((r) => r.data),
   getUsers: (id: string) => api.get(`/companies/${id}/users`).then((r) => r.data),
   createUser: (id: string, data: object) => api.post(`/companies/${id}/users`, data).then((r) => r.data),
 };

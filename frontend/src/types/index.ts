@@ -58,6 +58,7 @@ export interface Company {
   diasTrabajadosMes?: number;
   observaciones?: string;
   active: boolean;
+  hidden?: boolean;
   _count?: { employees: number };
 }
 

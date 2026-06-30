@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
-import { Plus, Building2, Pencil, X, Users, AlertCircle } from 'lucide-react';
-import { companiesApi, catalogsApi } from '../services/api';
+import { Plus, Building2, Pencil, X, Users, AlertCircle, Share2, Eye, EyeOff, Trash2, UserPlus } from 'lucide-react';
+import { companiesApi, catalogsApi, membershipApi, CompanyMembership } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { Company } from '../types';
 
@@ -154,6 +154,36 @@ export default function CompaniesPage() {
     mutation.mutate(data);
   };
 
+  // ---- Ocultar / Mostrar ----
+  const visibilityMutation = useMutation({
+    mutationFn: ({ id, hidden }: { id: string; hidden: boolean }) => companiesApi.setVisibility(id, hidden),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      queryClient.invalidateQueries({ queryKey: ['my-companies'] });
+    },
+  });
+
+  // ---- Eliminar ----
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => companiesApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      queryClient.invalidateQueries({ queryKey: ['my-companies'] });
+    },
+    onError: (err: unknown) => {
+      const message = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      alert(message || 'No se pudo eliminar la empresa.');
+    },
+  });
+
+  const handleDelete = (c: Company) => {
+    if (!confirm(`¿Eliminar la empresa "${c.razonSocial}"?\n\nSe quita del sistema (baja lógica). Solo es posible si no tiene empleados activos.`)) return;
+    deleteMutation.mutate(c.id);
+  };
+
+  // ---- Compartir (accesos por empresa) ----
+  const [shareCompany, setShareCompany] = useState<Company | null>(null);
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -192,35 +222,63 @@ export default function CompaniesPage() {
               ) : !companies?.length ? (
                 <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">Sin empresas registradas</td></tr>
               ) : companies.map((c) => (
-                <tr key={c.id} className="hover:bg-gray-50 transition-colors">
+                <tr key={c.id} className={`hover:bg-canvas/60 transition-colors ${c.hidden ? 'opacity-55' : ''}`}>
                   <td className="table-cell">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
-                        <Building2 size={15} className="text-blue-700" />
+                      <div className="w-8 h-8 bg-brand-50 rounded-full flex items-center justify-center flex-shrink-0">
+                        <Building2 size={15} className="text-brand-600" />
                       </div>
                       <div>
-                        <p className="font-medium text-gray-800 text-sm">{c.razonSocial}</p>
-                        {c.nombreFantasia && <p className="text-xs text-gray-400">{c.nombreFantasia}</p>}
+                        <p className="font-medium text-ink text-sm flex items-center gap-2">
+                          {c.razonSocial}
+                          {c.hidden && <span className="badge-gray text-[10px]">Oculta</span>}
+                        </p>
+                        {c.nombreFantasia && <p className="text-xs text-ink-subtle">{c.nombreFantasia}</p>}
                       </div>
                     </div>
                   </td>
                   <td className="table-cell font-mono text-xs">{c.rut}</td>
                   <td className="table-cell text-xs">{c.localidad || '-'}</td>
                   <td className="table-cell text-right">
-                    <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+                    <span className="inline-flex items-center gap-1 text-xs text-ink-subtle">
                       <Users size={12} />{c._count?.employees ?? 0}
                     </span>
                   </td>
                   <td className="table-cell text-right text-xs font-mono">{(c.bseRate / 100).toFixed(3)}%</td>
                   <td className="table-cell">
                     {isAdmin && (
-                      <button
-                        onClick={() => openEdit(c)}
-                        className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                        title="Editar"
-                      >
-                        <Pencil size={15} />
-                      </button>
+                      <div className="flex items-center gap-0.5">
+                        <button
+                          onClick={() => openEdit(c)}
+                          className="p-1.5 text-ink-subtle hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
+                          title="Editar"
+                        >
+                          <Pencil size={15} />
+                        </button>
+                        <button
+                          onClick={() => setShareCompany(c)}
+                          className="p-1.5 text-ink-subtle hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
+                          title="Compartir (dar acceso a un usuario)"
+                        >
+                          <Share2 size={15} />
+                        </button>
+                        <button
+                          onClick={() => visibilityMutation.mutate({ id: c.id, hidden: !c.hidden })}
+                          disabled={visibilityMutation.isPending}
+                          className="p-1.5 text-ink-subtle hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
+                          title={c.hidden ? 'Mostrar (volver a incluir en el selector)' : 'Ocultar del selector de trabajo'}
+                        >
+                          {c.hidden ? <EyeOff size={15} /> : <Eye size={15} />}
+                        </button>
+                        <button
+                          onClick={() => handleDelete(c)}
+                          disabled={deleteMutation.isPending}
+                          className="p-1.5 text-ink-subtle hover:text-bad hover:bg-bad-bg rounded-lg transition-colors"
+                          title="Eliminar empresa"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
                     )}
                   </td>
                 </tr>
@@ -419,6 +477,175 @@ export default function CompaniesPage() {
           </div>
         </div>
       )}
+
+      {/* Modal Compartir */}
+      {shareCompany && (
+        <ShareModal company={shareCompany} onClose={() => setShareCompany(null)} />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Modal "Compartir": gestiona los accesos (membresías) de una empresa.
+// ---------------------------------------------------------------------------
+interface ShareForm {
+  email: string;
+  role: 'OWNER' | 'ADMIN' | 'OPERATOR' | 'VIEWER';
+  nombre?: string;
+  apellido?: string;
+  password?: string;
+}
+
+const ROLE_LABEL: Record<string, string> = {
+  OWNER: 'Propietario', ADMIN: 'Administrador', OPERATOR: 'Operador', VIEWER: 'Solo lectura',
+};
+
+function ShareModal({ company, onClose }: { company: Company; onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const [error, setError] = useState('');
+  const [showNew, setShowNew] = useState(false);
+
+  const { data: members, isLoading } = useQuery({
+    queryKey: ['company-members', company.id],
+    queryFn: () => membershipApi.listByCompany(company.id),
+  });
+
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<ShareForm>({
+    defaultValues: { email: '', role: 'OPERATOR' },
+  });
+
+  const shareMutation = useMutation({
+    mutationFn: (data: ShareForm) =>
+      membershipApi.share({
+        companyId: company.id,
+        email: data.email,
+        role: data.role,
+        nombre: data.nombre || undefined,
+        apellido: data.apellido || undefined,
+        password: data.password || undefined,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['company-members', company.id] });
+      queryClient.invalidateQueries({ queryKey: ['my-companies'] });
+      reset({ email: '', role: 'OPERATOR' });
+      setShowNew(false);
+      setError('');
+    },
+    onError: (err: unknown) => {
+      const message = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      setError(message || 'No se pudo compartir el acceso.');
+    },
+  });
+
+  const revokeMutation = useMutation({
+    mutationFn: (id: string) => membershipApi.update(id, { estado: 'REVOCADA' }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['company-members', company.id] }),
+    onError: (err: unknown) => {
+      const message = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      alert(message || 'No se pudo revocar el acceso.');
+    },
+  });
+
+  const activos = (members ?? []).filter((m: CompanyMembership) => m.estado !== 'REVOCADA');
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-hairline sticky top-0 bg-white z-10">
+          <div>
+            <h2 className="text-lg font-bold text-ink">Compartir empresa</h2>
+            <p className="text-xs text-ink-subtle">{company.razonSocial}</p>
+          </div>
+          <button onClick={onClose} className="p-1 text-ink-subtle hover:text-ink"><X size={20} /></button>
+        </div>
+
+        <div className="p-6 space-y-5">
+          {error && (
+            <div className="flex items-center gap-2 p-3 bg-bad-bg border border-bad/30 rounded-lg text-sm text-bad">
+              <AlertCircle size={16} className="flex-shrink-0" />{error}
+            </div>
+          )}
+
+          {/* Accesos actuales */}
+          <div>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-ink-subtle mb-2">Con acceso</h3>
+            {isLoading ? (
+              <p className="text-sm text-ink-subtle">Cargando…</p>
+            ) : !activos.length ? (
+              <p className="text-sm text-ink-subtle">Todavía nadie más tiene acceso a esta empresa.</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {activos.map((m: CompanyMembership) => (
+                  <li key={m.id} className="flex items-center justify-between gap-3 p-2.5 rounded-lg bg-canvas/60">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-ink truncate">{m.user.nombre} {m.user.apellido}</p>
+                      <p className="text-xs text-ink-subtle truncate">{m.user.email}</p>
+                    </div>
+                    <span className="badge-blue shrink-0">{ROLE_LABEL[m.role] ?? m.role}</span>
+                    <button
+                      onClick={() => { if (confirm(`¿Revocar el acceso de ${m.user.email}?`)) revokeMutation.mutate(m.id); }}
+                      className="p-1.5 text-ink-subtle hover:text-bad hover:bg-bad-bg rounded-lg transition-colors shrink-0"
+                      title="Revocar acceso"
+                    >
+                      <X size={15} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Form: dar acceso */}
+          <form onSubmit={handleSubmit((d) => shareMutation.mutate(d))} className="space-y-3 pt-2 border-t border-hairline">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-ink-subtle">Dar acceso</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2 sm:col-span-1">
+                <label className="form-label">Email del usuario</label>
+                <input {...register('email', { required: 'Requerido' })} type="email" className="form-input" placeholder="persona@empresa.uy" />
+                {errors.email && <p className="form-error">{errors.email.message}</p>}
+              </div>
+              <div className="col-span-2 sm:col-span-1">
+                <label className="form-label">Rol</label>
+                <select {...register('role')} className="form-input">
+                  <option value="OPERATOR">Operador</option>
+                  <option value="VIEWER">Solo lectura</option>
+                  <option value="ADMIN">Administrador</option>
+                  <option value="OWNER">Propietario</option>
+                </select>
+              </div>
+            </div>
+
+            <button type="button" onClick={() => setShowNew((v) => !v)} className="text-xs text-brand-600 hover:underline inline-flex items-center gap-1">
+              <UserPlus size={13} /> {showNew ? 'El usuario ya existe' : '¿Es un usuario nuevo? Crear con contraseña'}
+            </button>
+
+            {showNew && (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="form-label">Nombre</label>
+                  <input {...register('nombre')} className="form-input" />
+                </div>
+                <div>
+                  <label className="form-label">Apellido</label>
+                  <input {...register('apellido')} className="form-input" />
+                </div>
+                <div className="col-span-2">
+                  <label className="form-label">Contraseña inicial</label>
+                  <input {...register('password')} type="text" className="form-input" placeholder="mínimo 8 caracteres" />
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button type="button" onClick={onClose} className="btn-tertiary">Cerrar</button>
+              <button type="submit" disabled={shareMutation.isPending} className="btn-primary">
+                {shareMutation.isPending ? 'Compartiendo…' : 'Compartir'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
     </div>
   );
 }
