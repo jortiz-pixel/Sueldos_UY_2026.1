@@ -97,7 +97,7 @@ export default function AccessPage() {
         {activeCompanyId && (
           <button
             onClick={() => { reset(emptyForm); setFormError(''); setModalOpen(true); }}
-            className="flex items-center gap-2 bg-[#003DA5] text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-800"
+            className="flex items-center gap-2 bg-brand-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-700"
           >
             <UserPlus size={16} /> Compartir empresa
           </button>
@@ -128,7 +128,7 @@ export default function AccessPage() {
         <div className="flex flex-wrap gap-2">
           {(entitlements as Array<{ module: string; estado: string }> | undefined)?.length
             ? (entitlements as Array<{ module: string; estado: string }>).map((e) => (
-              <span key={e.module} className="px-3 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
+              <span key={e.module} className="px-3 py-1 rounded-full text-xs font-medium bg-brand-50 text-brand-700">
                 {e.module} · {e.estado}
               </span>
             ))
@@ -252,7 +252,7 @@ export default function AccessPage() {
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setModalOpen(false)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancelar</button>
                 <button type="submit" disabled={shareMutation.isPending}
-                  className="bg-[#003DA5] text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-800 disabled:opacity-50">
+                  className="bg-brand-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-50">
                   {shareMutation.isPending ? 'Compartiendo…' : 'Compartir'}
                 </button>
               </div>

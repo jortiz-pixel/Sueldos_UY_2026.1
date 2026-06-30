@@ -61,7 +61,7 @@ export default function DashboardPage() {
       label: 'Empleados Activos',
       value: employees?.pagination.total ?? '-',
       icon: Users,
-      tint: 'bg-blue-50 text-blue-600',
+      tint: 'bg-brand-50 text-brand-600',
       link: '/employees',
     },
     {
@@ -93,9 +93,9 @@ export default function DashboardPage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Hola, {user?.nombre} 👋</h1>
-        <p className="text-gray-500 text-sm mt-1">
-          Resumen de <span className="font-medium text-gray-700">{MESES[month]} {year}</span>
+        <h1 className="text-2xl font-bold text-ink font-brand">Hola, {user?.nombre} 👋</h1>
+        <p className="text-ink-subtle text-sm mt-1">
+          Resumen de <span className="font-medium text-ink-muted">{MESES[month]} {year}</span>
         </p>
       </div>
 
@@ -126,8 +126,8 @@ export default function DashboardPage() {
                 <Icon size={20} />
               </div>
             </div>
-            <p className="text-2xl font-bold text-gray-900 leading-none">{value}</p>
-            <p className="text-xs font-medium text-gray-500 mt-2 group-hover:text-gray-700 transition-colors">{label}</p>
+            <p className="text-2xl font-bold text-ink leading-none font-brand tabular-nums">{value}</p>
+            <p className="text-xs font-medium text-ink-subtle mt-2 group-hover:text-ink-muted transition-colors">{label}</p>
           </Link>
         ))}
       </div>
@@ -135,7 +135,7 @@ export default function DashboardPage() {
       {/* Próximos eventos */}
       <div className="card">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
-          <CalendarDays size={16} className="text-[#003DA5]" />
+          <CalendarDays size={16} className="text-brand-600" />
           <h2 className="text-sm font-semibold text-gray-700">Próximos eventos (45 días)</h2>
         </div>
         {eventos && eventos.length > 0 ? (
@@ -178,8 +178,8 @@ export default function DashboardPage() {
                 to={`/employees/${emp.id}`}
                 className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition-colors"
               >
-                <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
-                  <span className="text-blue-700 text-xs font-bold">
+                <div className="w-8 h-8 bg-brand-100 rounded-full flex items-center justify-center flex-shrink-0">
+                  <span className="text-brand-700 text-xs font-bold">
                     {emp.nombre[0]}{emp.apellido[0]}
                   </span>
                 </div>

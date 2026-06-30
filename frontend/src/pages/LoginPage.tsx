@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { Lock, Mail, AlertCircle, CheckCircle2, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
-import GroLogo from '../components/GroLogo';
+import AsysTaxLogo from '../components/AsysTaxLogo';
 import { GOOGLE_CLIENT_ID } from '../constants/google';
 
 interface LoginForm {
@@ -88,37 +88,37 @@ export default function LoginPage() {
   ];
 
   return (
-    <div className="min-h-screen flex bg-gray-50">
+    <div className="min-h-screen flex bg-canvas">
       {/* Panel de marca (izquierda, oculto en celular) */}
-      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-[#00307F] via-[#003DA5] to-[#75AADB] text-white p-12 flex-col justify-between">
+      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-navy text-white p-12 flex-col justify-between">
         {/* Formas decorativas */}
-        <div aria-hidden className="absolute -top-24 -right-24 w-96 h-96 rounded-full bg-white/10 blur-3xl" />
-        <div aria-hidden className="absolute bottom-0 -left-20 w-80 h-80 rounded-full bg-[#75AADB]/30 blur-3xl" />
+        <div aria-hidden className="absolute -top-24 -right-24 w-96 h-96 rounded-full bg-brand-600/25 blur-3xl" />
+        <div aria-hidden className="absolute bottom-0 -left-20 w-80 h-80 rounded-full bg-brand-soft/20 blur-3xl" />
 
         <div className="relative z-10">
-          <GroLogo variant="light" height={46} />
+          <AsysTaxLogo variant="light" height={34} />
         </div>
 
         <div className="relative z-10 max-w-md">
-          <h2 className="text-4xl font-extrabold leading-tight tracking-tight">
+          <h2 className="text-4xl font-extrabold leading-tight tracking-tight font-brand">
             Liquidá sueldos<br />sin complicaciones.
           </h2>
-          <p className="mt-4 text-blue-100/90 text-lg">
-            La plataforma de nómina de GRO Consultores & Asociados, al día con la normativa uruguaya 2026.
+          <p className="mt-4 text-white/70 text-lg">
+            La plataforma de nómina al día con la normativa uruguaya 2026.
           </p>
           <ul className="mt-8 space-y-3">
             {beneficios.map((b) => (
-              <li key={b} className="flex items-start gap-3 text-blue-50/90">
-                <CheckCircle2 size={20} className="flex-shrink-0 mt-0.5 text-white" />
+              <li key={b} className="flex items-start gap-3 text-white/80">
+                <CheckCircle2 size={20} className="flex-shrink-0 mt-0.5 text-brand-soft" />
                 <span className="text-sm">{b}</span>
               </li>
             ))}
           </ul>
         </div>
 
-        <div className="relative z-10 flex items-center gap-2 text-blue-100/70 text-xs">
+        <div className="relative z-10 flex items-center gap-2 text-white/50 text-xs">
           <ShieldCheck size={14} />
-          <span>Datos cifrados · GRO Consultores & Asociados · Uruguay 2026</span>
+          <span>Datos cifrados · AsysTax. Sueldos · Uruguay 2026</span>
         </div>
       </div>
 
@@ -127,13 +127,13 @@ export default function LoginPage() {
         <div className="w-full max-w-md">
           {/* Logo en celular */}
           <div className="lg:hidden mb-8 flex justify-center">
-            <GroLogo variant="dark" height={48} />
+            <AsysTaxLogo variant="dark" height={40} />
           </div>
 
-          <div className="bg-white rounded-2xl shadow-xl shadow-blue-900/5 border border-gray-100 p-8">
+          <div className="bg-white rounded-2xl shadow-xl shadow-navy/5 border border-hairline p-8">
             <div className="mb-7">
-              <h1 className="text-2xl font-bold text-gray-900">Ingresá a tu cuenta</h1>
-              <p className="text-gray-500 text-sm mt-1">Sistema de liquidación de sueldos</p>
+              <h1 className="text-2xl font-bold text-ink">Ingresá a tu cuenta</h1>
+              <p className="text-ink-subtle text-sm mt-1">Sistema de liquidación de sueldos</p>
             </div>
 
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -177,7 +177,7 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full justify-center py-2.5 text-sm font-semibold rounded-lg text-white bg-[#003DA5] hover:bg-[#00307F] transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#003DA5] disabled:opacity-60 inline-flex items-center gap-2"
+                className="w-full justify-center py-2.5 text-sm font-semibold rounded-xl text-white bg-brand-600 hover:bg-brand-700 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-600 disabled:opacity-60 inline-flex items-center gap-2"
               >
                 {loading ? (
                   <span className="flex items-center gap-2">
@@ -199,8 +199,8 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <p className="text-center text-xs text-gray-400 mt-6">
-            © {new Date().getFullYear()} GRO Consultores & Asociados
+          <p className="text-center text-xs text-ink-subtle mt-6">
+            © {new Date().getFullYear()} AsysTax · GRO Consultores & Asociados
           </p>
         </div>
       </div>

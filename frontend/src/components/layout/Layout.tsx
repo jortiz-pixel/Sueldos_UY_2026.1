@@ -8,7 +8,7 @@ import {
 import { useAuth } from '../../hooks/useAuth';
 import { useCompany } from '../../hooks/useCompany';
 import { versionApi } from '../../services/api';
-import GroLogo from '../GroLogo';
+import AsysTaxLogo from '../AsysTaxLogo';
 
 const navItems = [
   { to: '/', label: 'Panel', icon: LayoutDashboard, end: true },
@@ -42,14 +42,11 @@ export default function Layout() {
 
       {/* Barra lateral: cajón deslizable en celular, fija en escritorio */}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 w-64 bg-gradient-to-b from-[#00307F] to-[#003DA5] flex flex-col transform transition-transform duration-200 lg:static lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}
+        className={`fixed inset-y-0 left-0 z-40 w-64 bg-navy flex flex-col transform transition-transform duration-200 lg:static lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}
       >
         <div className="px-5 py-5 flex items-center justify-between">
-          <div className="flex flex-col gap-1">
-            <GroLogo variant="light" height={32} />
-            <p className="text-blue-200/80 text-[11px] tracking-wide pl-0.5">Sueldos · Nómina 2026</p>
-          </div>
-          <button onClick={() => setOpen(false)} className="text-blue-200 hover:text-white lg:hidden" aria-label="Cerrar menú">
+          <AsysTaxLogo variant="light" height={26} />
+          <button onClick={() => setOpen(false)} className="text-white/60 hover:text-white lg:hidden" aria-label="Cerrar menú">
             <X size={20} />
           </button>
         </div>
@@ -64,8 +61,8 @@ export default function Layout() {
               className={({ isActive }) =>
                 `group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                   isActive
-                    ? 'bg-white text-[#003DA5] shadow-sm shadow-blue-900/20'
-                    : 'text-blue-100 hover:bg-white/10 hover:text-white'
+                    ? 'bg-brand-600 text-white shadow-sm shadow-black/20'
+                    : 'text-[#8FA8D6] hover:bg-white/10 hover:text-white'
                 }`
               }
             >
@@ -82,18 +79,18 @@ export default function Layout() {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-white text-xs font-semibold truncate">{user?.nombre} {user?.apellido}</p>
-              <p className="text-blue-200/80 text-[11px] truncate">{user?.role}</p>
+              <p className="text-[#8FA8D6] text-[11px] truncate">{user?.role}</p>
             </div>
           </div>
           <button
             onClick={handleLogout}
-            className="flex items-center gap-2 text-blue-100 hover:text-white text-xs w-full px-2 py-2 rounded-lg hover:bg-white/10 transition-colors"
+            className="flex items-center gap-2 text-[#8FA8D6] hover:text-white text-xs w-full px-2 py-2 rounded-lg hover:bg-white/10 transition-colors"
           >
             <LogOut size={14} />
             Cerrar sesión
           </button>
           {appVersion && (
-            <p className="px-2 mt-2 text-[10px] text-blue-200/50" title={appVersion.builtAt ? `Compilado ${appVersion.builtAt}` : ''}>
+            <p className="px-2 mt-2 text-[10px] text-white/40" title={appVersion.builtAt ? `Compilado ${appVersion.builtAt}` : ''}>
               versión {appVersion.version}
             </p>
           )}
@@ -106,12 +103,12 @@ export default function Layout() {
             <button onClick={() => setOpen(true)} className="lg:hidden text-gray-500 hover:text-gray-700 p-1 -ml-1" aria-label="Abrir menú">
               <Menu size={22} />
             </button>
-            <Building2 size={16} className="text-[#003DA5] hidden sm:block shrink-0" />
+            <Building2 size={16} className="text-brand-600 hidden sm:block shrink-0" />
             {companies.length > 0 ? (
               <select
                 value={activeCompanyId}
                 onChange={(e) => setActiveCompanyId(e.target.value)}
-                className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm font-medium text-gray-700 bg-white max-w-[55vw] sm:max-w-xs truncate focus:outline-none focus:ring-2 focus:ring-[#003DA5]/30 focus:border-[#003DA5]"
+                className="border border-hairline rounded-lg px-2.5 py-1.5 text-sm font-medium text-ink-muted bg-white max-w-[55vw] sm:max-w-xs truncate focus:outline-none focus:ring-2 focus:ring-brand-600/30 focus:border-brand-600"
                 title="Empresa activa"
               >
                 {companies.map((c) => (

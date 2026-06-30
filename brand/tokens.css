@@ -1,0 +1,53 @@
+/* ============================================================
+   AsysTax. Sueldos — Design Tokens
+   Sub-marca de AsysTax · Software de liquidación de sueldos (UY)
+   v1.0
+   ============================================================ */
+
+:root {
+  /* ---- Marca ---- */
+  --color-navy: #0B1B3A;          /* texto principal, fondos oscuros, sidebar */
+  --color-primary: #1E5BFF;       /* acción principal, enlaces, el "punto" */
+  --color-primary-soft: #5B8DEF;  /* acento sobre fondos oscuros */
+  --color-primary-50: #EAF0FF;    /* fondos suaves, hover, botón secundario */
+
+  /* ---- Superficies ---- */
+  --color-bg: #E9EDF4;            /* fondo general de la app */
+  --color-surface: #FFFFFF;       /* tarjetas, paneles, modales */
+  --color-border: #E1E7F1;        /* bordes sutiles, divisores */
+
+  /* ---- Texto ---- */
+  --color-text: #0B1B3A;          /* texto principal */
+  --color-text-muted: #4A5872;    /* texto secundario */
+  --color-text-subtle: #8493AD;   /* labels, placeholders, captions */
+
+  /* ---- Estados ---- */
+  --color-success: #22C3A6;       /* aprobado, liquidado, ok */
+  --color-success-bg: #ECFAF5;
+  --color-warning: #F5A524;       /* pendiente, atención */
+  --color-warning-bg: #FEF3DC;
+  --color-error: #E5484D;         /* error, rechazado */
+  --color-error-bg: #FDECEC;
+
+  /* ---- Tipografía ---- */
+  --font-brand: 'Space Grotesk', sans-serif;   /* marca, títulos, cifras */
+  --font-ui: 'Plus Jakarta Sans', sans-serif;  /* interfaz, cuerpo, tablas */
+
+  /* ---- Radios ---- */
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 18px;
+
+  /* ---- Escala tipográfica ---- */
+  --text-display: 34px;   /* títulos de pantalla (font-brand, 700) */
+  --text-title: 22px;     /* títulos de sección (font-ui, 700) */
+  --text-body: 15px;      /* cuerpo (font-ui, 400) */
+  --text-figure: 20px;    /* cifras (font-brand, 500, tabular-nums) */
+  --text-label: 12px;     /* labels en mayúsculas (font-ui, 600) */
+}
+
+/* Cifras y montos: usar siempre para que las columnas alineen */
+.figure {
+  font-family: var(--font-brand);
+  font-variant-numeric: tabular-nums;
+}
