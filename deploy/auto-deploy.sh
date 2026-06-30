@@ -25,10 +25,21 @@ fi
 echo "[$(date '+%F %T')] Desplegando $REMOTE…"
 git reset --hard "origin/$BRANCH" || { echo "fallo git reset"; exit 1; }
 
-# Rebuild + levantar contenedores
-docker compose up -d --build || { echo "fallo docker compose up"; exit 1; }
+# 1) Construir las imágenes nuevas. Los contenedores ANTERIORES siguen sirviendo
+#    durante todo el build → cero interrupción en este paso.
+echo "[$(date '+%F %T')] Construyendo imágenes…"
+docker compose build || { echo "fallo docker compose build — se mantiene la versión anterior"; exit 1; }
 
-# Migraciones de base (idempotente: aplica solo lo pendiente; si no hay, no hace nada)
-docker compose exec -T backend npm run prisma:migrate || echo "aviso: prisma:migrate devolvió error (puede no haber migraciones pendientes)"
+# 2) Aplicar migraciones de base con la imagen NUEVA, en un contenedor temporal,
+#    ANTES de cambiar la app en vivo. Si falla, se ABORTA y queda la versión
+#    anterior corriendo (no se deja la base/código en estado inconsistente).
+echo "[$(date '+%F %T')] Aplicando migraciones…"
+docker compose run --rm -T backend npm run prisma:migrate || {
+  echo "[$(date '+%F %T')] ❌ MIGRACIÓN FALLÓ — se mantiene la versión anterior. Revisar a mano.";
+  exit 1;
+}
+
+# 3) Cambiar a las imágenes nuevas (recreación rápida = pocos segundos).
+docker compose up -d || { echo "fallo docker compose up"; exit 1; }
 
 echo "[$(date '+%F %T')] Deploy OK ($REMOTE)"
