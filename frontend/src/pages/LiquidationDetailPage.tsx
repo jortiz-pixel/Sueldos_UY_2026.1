@@ -235,18 +235,18 @@ export default function LiquidationDetailPage() {
   return (
     <div className="space-y-5 max-w-4xl">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <Link to="/liquidation" className="btn-secondary btn-sm">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <Link to="/liquidation" className="btn-secondary btn-sm self-start">
           <ArrowLeft size={14} />
           Volver
         </Link>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <h1 className="text-xl font-bold text-gray-900">
             Liquidación — {MESES[liq.month]} {liq.year}
           </h1>
           <p className="text-gray-500 text-sm">Tipo: {liq.type} · {liq.diasTrabajados} días trabajados</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className={`badge ${
             liq.status === 'CONFIRMADO' ? 'badge-green'
             : liq.status === 'BORRADOR' ? 'badge-yellow'
@@ -298,7 +298,7 @@ export default function LiquidationDetailPage() {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
         <div className="card p-4 text-center">
           <p className="text-xs text-gray-500">Total Haberes</p>
           <p className="text-lg font-bold text-gray-900 mt-1">{formatPesos(liq.totalHaberes)}</p>
@@ -307,9 +307,9 @@ export default function LiquidationDetailPage() {
           <p className="text-xs text-gray-500">Total Descuentos</p>
           <p className="text-lg font-bold text-red-600 mt-1">({formatPesos(liq.totalDescuentos)})</p>
         </div>
-        <div className="card p-4 text-center border-2 border-green-200">
+        <div className="card p-4 text-center ring-2 ring-emerald-200 col-span-2 sm:col-span-1">
           <p className="text-xs text-gray-500">Líquido a Percibir</p>
-          <p className="text-lg font-bold text-green-700 mt-1">{formatPesos(liq.liquidoPercibir)}</p>
+          <p className="text-lg font-bold text-emerald-700 mt-1">{formatPesos(liq.liquidoPercibir)}</p>
         </div>
       </div>
 
@@ -339,10 +339,10 @@ export default function LiquidationDetailPage() {
         />
 
         {/* Net */}
-        <div className="px-4 py-4 bg-blue-50">
-          <div className="flex justify-between items-center">
-            <span className="font-bold text-blue-900">LÍQUIDO A PERCIBIR</span>
-            <span className="font-bold text-xl text-blue-900 font-mono">{formatPesos(liq.liquidoPercibir)}</span>
+        <div className="px-4 py-4 bg-brand-50">
+          <div className="flex justify-between items-center gap-2">
+            <span className="font-bold text-brand-900 text-sm sm:text-base">LÍQUIDO A PERCIBIR</span>
+            <span className="font-bold text-lg sm:text-xl text-brand-900 font-mono">{formatPesos(liq.liquidoPercibir)}</span>
           </div>
         </div>
 
