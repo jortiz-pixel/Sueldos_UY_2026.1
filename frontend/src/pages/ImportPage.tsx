@@ -24,20 +24,22 @@ const CAMPO_LABEL: Record<string, string> = {
 
 export default function ImportPage() {
   const { activeCompanyId, companies } = useCompany();
-  const empresa = companies.find((c) => c.companyId === activeCompanyId);
+  const [targetCompanyId, setTargetCompanyId] = useState('');
+  const companyId = targetCompanyId || activeCompanyId;
+  const empresa = companies.find((c) => c.companyId === companyId);
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [committed, setCommitted] = useState(false);
   const [error, setError] = useState('');
 
   const previewMutation = useMutation({
-    mutationFn: (f: File) => importApi.personas(activeCompanyId, f, false),
+    mutationFn: (f: File) => importApi.personas(companyId, f, false),
     onSuccess: (r) => { setResult(r); setCommitted(false); setError(''); },
     onError: (e: unknown) => setError(msg(e)),
   });
 
   const commitMutation = useMutation({
-    mutationFn: (f: File) => importApi.personas(activeCompanyId, f, true),
+    mutationFn: (f: File) => importApi.personas(companyId, f, true),
     onSuccess: (r) => { setResult(r); setCommitted(true); setError(''); },
     onError: (e: unknown) => setError(msg(e)),
   });
@@ -54,7 +56,22 @@ export default function ImportPage() {
     <div className="space-y-5 max-w-5xl">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Importar personas</h1>
-        <p className="text-gray-500 text-sm">Cargá un Excel o CSV para dar de alta varias personas y su primer contrato en <b>{empresa?.nombreFantasia || empresa?.razonSocial || 'la empresa activa'}</b>.</p>
+        <p className="text-gray-500 text-sm">Cargá un Excel o CSV para dar de alta varias personas y su primer contrato.</p>
+      </div>
+
+      {/* Empresa destino (explícita) */}
+      <div className="card p-4">
+        <label className="form-label">Importar a la empresa</label>
+        <select
+          value={companyId}
+          onChange={(e) => { setTargetCompanyId(e.target.value); setResult(null); setCommitted(false); setError(''); }}
+          className="form-input w-full md:w-96"
+        >
+          {companies.map((c) => (
+            <option key={c.companyId} value={c.companyId}>{c.nombreFantasia || c.razonSocial}</option>
+          ))}
+        </select>
+        <p className="text-xs text-gray-400 mt-1">Las personas se crean en <b>{empresa?.nombreFantasia || empresa?.razonSocial || '—'}</b>. La misma cédula puede existir en otra empresa: solo se valida que no esté repetida en esta.</p>
       </div>
 
       {/* Instrucciones */}
@@ -79,7 +96,7 @@ export default function ImportPage() {
         </div>
         <button
           onClick={() => file && previewMutation.mutate(file)}
-          disabled={!file || !activeCompanyId || previewMutation.isPending}
+          disabled={!file || !companyId || previewMutation.isPending}
           className="btn-primary"
         >
           <Upload size={16} /> {previewMutation.isPending ? 'Analizando…' : 'Previsualizar'}

@@ -133,7 +133,7 @@ export function validateRows(rows: ImportRow[], existingCIs: Set<string>): void 
     const ciDigits = soloDigitos(d.ci);
     if (!ciDigits) row.errores.push('Falta cédula');
     else if (!validarCedula(ciDigits)) row.errores.push('Cédula inválida (dígito verificador)');
-    else if (existingCIs.has(ciDigits)) row.errores.push('La cédula ya existe en el sistema');
+    else if (existingCIs.has(ciDigits)) row.errores.push('La cédula ya existe en esta empresa');
     else if (seen.has(ciDigits)) row.errores.push('Cédula duplicada en el archivo');
     if (ciDigits) seen.add(ciDigits);
 
