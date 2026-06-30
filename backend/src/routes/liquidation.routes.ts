@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import { UserRole, LiquidationStatus, PeriodStatus } from '@prisma/client';
+import { UserRole, LiquidationStatus, PeriodStatus, ItemType, LiquidationType } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { authenticate, requireRole } from '../middleware/auth';
 import { assertCompanyAccess } from '../middleware/tenancy';
@@ -8,6 +8,9 @@ import { AppError, NotFoundError } from '../middleware/errorHandler';
 import { generarLiquidacionMensual, confirmarLiquidacion } from '../services/liquidation.service';
 import { calcularAguinaldo } from '../services/aguinaldo.service';
 import { calcularLiquidacionLicencia, calcularLiquidacionFinal } from '../services/vacation.service';
+import { calcularAportesObreros, calcularAportesPatronales } from '../services/bps.service';
+import { calcularIrpfMensual } from '../services/irpf.service';
+import { parametersService } from '../services/parameters.service';
 import { generateReciboPDF } from '../services/pdf.service';
 
 export const liquidationRouter = Router();
@@ -339,6 +342,93 @@ async function recalcularTotales(liquidationId: string): Promise<void> {
   });
 }
 
+// Conceptos HABER que NO entran a la base de aportes (no gravados).
+const HABER_NO_GRAVADO = new Set(['SALARIO_VACACIONAL', 'AJUSTE_NO_GRAVADO']);
+
+// Para liquidaciones MENSUALES, recomputa los aportes legales (BPS/FONASA/FRL/
+// IRPF + patronales) sobre la base gravada ACTUAL — así los conceptos manuales
+// gravados (p. ej. prima por antigüedad) entran al monto imponible. Luego
+// recalcula los totales. Para otros tipos, solo recalcula totales.
+async function recalcularLiquidacion(liquidationId: string): Promise<void> {
+  const liq = await prisma.liquidation.findUnique({
+    where: { id: liquidationId },
+    include: { items: true, period: { include: { company: true } } },
+  });
+  if (!liq) return;
+  if (liq.type !== LiquidationType.MENSUAL) { await recalcularTotales(liquidationId); return; }
+
+  const employee = await prisma.employee.findUnique({ where: { id: liq.employeeId } });
+  if (!employee) { await recalcularTotales(liquidationId); return; }
+
+  const asOf = new Date(liq.year, liq.month - 1, 1);
+  const params = await parametersService.getPayrollParameters(asOf);
+  const bseRate = liq.period?.company?.bseRate ?? 0;
+
+  // Gravado de los conceptos configurados de la empresa (por código).
+  const companyId = liq.period?.companyId;
+  const conceptos = companyId
+    ? await prisma.concepto.findMany({ where: { OR: [{ companyId }, { companyId: null }] }, select: { codigo: true, gravado: true } })
+    : [];
+  const gravadoPorCodigo = new Map(conceptos.map((c) => [c.codigo, c.gravado]));
+
+  // Base gravada = suma de los HABER gravados (incluye los manuales por defecto).
+  let baseGravada = 0n;
+  for (const it of liq.items) {
+    if (it.itemType !== ItemType.HABER) continue;
+    let gravado: boolean;
+    if (HABER_NO_GRAVADO.has(it.concepto)) gravado = false;
+    else if (gravadoPorCodigo.has(it.concepto)) gravado = gravadoPorCodigo.get(it.concepto)!;
+    else gravado = true;
+    if (gravado) baseGravada += it.amount;
+  }
+
+  const obreros = calcularAportesObreros({ salarioNominal: baseGravada, fonasaFamilia: employee.fonasaFamilia, params, bseRateEmpresa: bseRate });
+  const patronales = calcularAportesPatronales({ salarioNominal: baseGravada, fonasaFamilia: employee.fonasaFamilia, params, bseRateEmpresa: bseRate, fonasaPatronalRate: 500 });
+  const irpf = calcularIrpfMensual({
+    salarioNominal: baseGravada,
+    fonasaMensual: obreros.fonasaTotal,
+    bpsMensual: obreros.jubilatorio,
+    hijosACargo: employee.hijosACargo,
+    hijosDiscapacitados: employee.hijosDiscapacitados,
+    conyugeACargo: employee.conyugeACargo,
+    params,
+  });
+
+  const updates: Array<{ concepto: string; amount: bigint; rate?: number }> = [
+    { concepto: 'BPS_JUBILATORIO', amount: obreros.jubilatorio, rate: params.bpsJubilatorioRate },
+    { concepto: 'FONASA', amount: obreros.fonasaTotal },
+    { concepto: 'FRL', amount: obreros.frl, rate: params.frlObreroRate },
+    { concepto: 'BPS_IVS_PATRONAL', amount: patronales.bpsIvs, rate: params.bpsIvsPatronalRate },
+    { concepto: 'FONASA_PATRONAL', amount: patronales.fonasa },
+    { concepto: 'FRL_PATRONAL', amount: patronales.frl, rate: params.frlPatronalRate },
+    { concepto: 'BSE', amount: patronales.bse, rate: bseRate },
+  ];
+  for (const u of updates) {
+    const item = liq.items.find((i) => i.concepto === u.concepto);
+    if (item) {
+      await prisma.payrollItem.update({
+        where: { id: item.id },
+        data: { baseCalculo: baseGravada, amount: u.amount, ...(u.rate !== undefined ? { rate: u.rate } : {}) },
+      });
+    }
+  }
+
+  const irpfItem = liq.items.find((i) => i.concepto === 'IRPF');
+  if (irpfItem) {
+    await prisma.payrollItem.update({ where: { id: irpfItem.id }, data: { baseCalculo: baseGravada, amount: irpf.retencionMensual } });
+  } else if (irpf.retencionMensual > 0n) {
+    await prisma.payrollItem.create({
+      data: {
+        liquidationId, employeeId: liq.employeeId, itemType: ItemType.DESCUENTO_OBRERO,
+        concepto: 'IRPF', descripcion: 'IRPF — Impuesto a la Renta de las Personas Físicas (Cat. II)',
+        baseCalculo: baseGravada, amount: irpf.retencionMensual,
+      },
+    });
+  }
+
+  await recalcularTotales(liquidationId);
+}
+
 // POST /api/liquidation/:id/item — agregar un concepto manual (suma o resta) y recalcular
 liquidationRouter.post('/:id/item', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -346,6 +436,7 @@ liquidationRouter.post('/:id/item', authenticate, requireRole(UserRole.ADMIN, Us
       descripcion: z.string().min(1),
       monto: z.number().positive(),                 // en pesos
       itemType: z.enum(['HABER', 'DESCUENTO_OBRERO']),
+      gravado: z.boolean().optional(),              // solo aplica a HABER; por defecto gravado
     });
     const data = schema.parse(req.body);
 
@@ -355,17 +446,20 @@ liquidationRouter.post('/:id/item', authenticate, requireRole(UserRole.ADMIN, Us
       throw new AppError(409, 'Solo se pueden agregar conceptos a liquidaciones en BORRADOR. Desconfirmá primero.');
     }
 
+    // Un haber manual es gravado por defecto (entra al imponible). Si se marca
+    // como no gravado, se etiqueta para excluirlo de la base de aportes.
+    const noGravado = data.itemType === 'HABER' && data.gravado === false;
     await prisma.payrollItem.create({
       data: {
         liquidationId: liquidation.id,
         employeeId: liquidation.employeeId,
         itemType: data.itemType,
-        concepto: 'AJUSTE',
+        concepto: noGravado ? 'AJUSTE_NO_GRAVADO' : 'AJUSTE',
         descripcion: data.descripcion,
         amount: BigInt(Math.round(data.monto * 100)),
       },
     });
-    await recalcularTotales(liquidation.id);
+    await recalcularLiquidacion(liquidation.id);
     res.status(201).json({ message: 'Concepto agregado' });
   } catch (err) { next(err); }
 });
@@ -380,11 +474,11 @@ liquidationRouter.delete('/:id/item/:itemId', authenticate, requireRole(UserRole
     }
     const item = await prisma.payrollItem.findUnique({ where: { id: req.params.itemId } });
     if (!item || item.liquidationId !== liquidation.id) throw new NotFoundError('Concepto');
-    if (item.concepto !== 'AJUSTE') {
+    if (!item.concepto.startsWith('AJUSTE')) {
       throw new AppError(409, 'Solo se pueden quitar los conceptos agregados manualmente');
     }
     await prisma.payrollItem.delete({ where: { id: item.id } });
-    await recalcularTotales(liquidation.id);
+    await recalcularLiquidacion(liquidation.id);
     res.json({ message: 'Concepto eliminado' });
   } catch (err) { next(err); }
 });
@@ -413,7 +507,7 @@ liquidationRouter.patch('/:id/item/:itemId', authenticate, requireRole(UserRole.
         amount: data.monto !== undefined ? BigInt(Math.round(data.monto * 100)) : undefined,
       },
     });
-    await recalcularTotales(liquidation.id);
+    await recalcularLiquidacion(liquidation.id);
     res.json({ message: 'Concepto actualizado' });
   } catch (err) { next(err); }
 });
