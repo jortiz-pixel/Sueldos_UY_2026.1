@@ -42,6 +42,10 @@ api.interceptors.response.use(
   },
 );
 
+export const versionApi = {
+  get: () => api.get<{ version: string; builtAt: string | null }>('/version').then((r) => r.data),
+};
+
 export const authApi = {
   login: (email: string, password: string) =>
     api.post<AuthResponse>('/auth/login', { email, password }).then((r) => r.data),

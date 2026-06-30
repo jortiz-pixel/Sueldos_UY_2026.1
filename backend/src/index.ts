@@ -68,8 +68,16 @@ app.use('/api/attachments', attachmentsRouter);
 app.use('/api/calendar', calendarRouter);
 app.use('/api/import', importRouter);
 
+const APP_VERSION = process.env.APP_VERSION || 'dev';
+const APP_BUILT_AT = process.env.APP_BUILT_AT || null;
+
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString(), version: '1.0.0' });
+  res.json({ status: 'ok', timestamp: new Date().toISOString(), version: APP_VERSION, builtAt: APP_BUILT_AT });
+});
+
+// Versión desplegada (pública, sin auth) para el indicador del frontend.
+app.get('/api/version', (_req, res) => {
+  res.json({ version: APP_VERSION, builtAt: APP_BUILT_AT });
 });
 
 app.use((_req, res) => {

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, FileText, BarChart2,
@@ -6,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useCompany } from '../../hooks/useCompany';
+import { versionApi } from '../../services/api';
 import GroLogo from '../GroLogo';
 
 const navItems = [
@@ -26,6 +28,7 @@ export default function Layout() {
   const { companies, activeCompanyId, setActiveCompanyId } = useCompany();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const { data: appVersion } = useQuery({ queryKey: ['app-version'], queryFn: () => versionApi.get(), staleTime: 5 * 60 * 1000 });
 
   const handleLogout = async () => {
     await logout();
@@ -89,6 +92,11 @@ export default function Layout() {
             <LogOut size={14} />
             Cerrar sesión
           </button>
+          {appVersion && (
+            <p className="px-2 mt-2 text-[10px] text-blue-200/50" title={appVersion.builtAt ? `Compilado ${appVersion.builtAt}` : ''}>
+              versión {appVersion.version}
+            </p>
+          )}
         </div>
       </aside>
 

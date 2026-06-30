@@ -37,6 +37,9 @@ services:
       # Dominios con alta automática por Google (coma-separados). Vacío = solo
       # usuarios ya dados de alta pueden entrar. Ej: GOOGLE_ALLOWED_DOMAINS=gro.com.uy
       GOOGLE_ALLOWED_DOMAINS: ${GOOGLE_ALLOWED_DOMAINS:-}
+      # Versión desplegada (la setea deploy/deploy.sh con el commit y la fecha).
+      APP_VERSION: ${APP_VERSION:-dev}
+      APP_BUILT_AT: ${APP_BUILT_AT:-}
     ports:
       - "3000:3000"
     volumes:
