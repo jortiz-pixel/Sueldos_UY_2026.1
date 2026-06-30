@@ -8,7 +8,7 @@ import { salarioProporcional } from '../utils/money';
 import { calcularAportesObreros, calcularAportesPatronales, calcularHorasExtra } from './bps.service';
 import { calcularIrpfMensual, calcularIrpfSimplificado } from './irpf.service';
 import { parametersService } from './parameters.service';
-import { resolverContratoVigente, datosLaboralesEfectivos } from './contract.service';
+import { resolverContratoEnMes, diasTrabajadosEnMes, datosLaboralesEfectivos } from './contract.service';
 import { evaluarConcepto, ConceptoContext } from './concept.engine';
 import { AppError } from '../middleware/errorHandler';
 
@@ -53,10 +53,10 @@ export async function generarLiquidacionMensual(
   const employee = await prisma.employee.findUnique({ where: { id: input.employeeId } });
   if (!employee) throw new AppError(404, 'Empleado no encontrado');
 
-  // Contrato vigente de la persona PARA ESTA EMPRESA en el período.
-  // La liquidación es estrictamente por contrato: si no hay uno vigente
-  // (p. ej. un mes entre dos zafras), NO se liquida.
-  const contrato = await resolverContratoVigente(input.employeeId, asOfDate, period.companyId);
+  // Contrato que solapa el mes (≥1 día vigente), aunque el alta/baja caigan a
+  // mitad de mes. La liquidación es estrictamente por contrato: si no hay
+  // ninguno que cubra el período (p. ej. un mes entre dos zafras), NO se liquida.
+  const contrato = await resolverContratoEnMes(input.employeeId, input.year, input.month, period.companyId);
   if (!contrato) {
     throw new AppError(
       409,
@@ -69,7 +69,9 @@ export async function generarLiquidacionMensual(
   const bseRate = period.company.bseRate;
   const fonasaPatronalRate = 500;
 
-  const diasTrabajados = input.diasTrabajados ?? 30;
+  // Días trabajados: los indicados, o los que surgen del solapamiento del
+  // contrato con el mes (alta/baja a mitad de mes → liquidación parcial).
+  const diasTrabajados = input.diasTrabajados ?? diasTrabajadosEnMes(contrato, input.year, input.month);
   const salarioBase = labor.salaryType === 'MENSUAL'
     ? salarioProporcional(labor.salarioNominal, diasTrabajados, 30)
     : (labor.jornal ?? 0n) * BigInt(diasTrabajados);
