@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { Plus, Play, RefreshCw, CheckCircle, Eye, Download, RotateCcw } from 'lucide-react';
-import { liquidationApi, employeesApi } from '../services/api';
+import { Plus, Play, RefreshCw, CheckCircle, Eye, Download, RotateCcw, Trash2 } from 'lucide-react';
+import { liquidationApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
 import { abrirBlobEnPestania } from '../utils/file';
-import { formatPesos, MESES, PayrollPeriod, Employee } from '../types';
+import { formatPesos, MESES, PayrollPeriod } from '../types';
 
 interface LiqRow {
   id: string;
@@ -53,10 +53,11 @@ export default function LiquidationPage() {
     enabled: !!selectedPeriodId,
   });
 
-  const { data: employees } = useQuery({
-    queryKey: ['employees-roster', companyId],
-    queryFn: () => employeesApi.list({ companyId, limit: 500 }),
-    enabled: !!companyId,
+  // Roster: personas con ≥1 día de contrato vigente en el período seleccionado.
+  const { data: rosterData } = useQuery({
+    queryKey: ['period-roster', selectedPeriodId],
+    queryFn: () => liquidationApi.periodRoster(selectedPeriodId!),
+    enabled: !!selectedPeriodId,
   });
 
   const createPeriodMutation = useMutation({
@@ -65,6 +66,30 @@ export default function LiquidationPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['periods'] });
       setShowNewPeriod(false);
+    },
+  });
+
+  const deletePeriodMutation = useMutation({
+    mutationFn: (periodId: string) => liquidationApi.deletePeriod(periodId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['periods'] });
+      setSelectedPeriodId(null);
+    },
+    onError: (e: unknown) => {
+      const err = e as { response?: { data?: { error?: string } } };
+      alert(err.response?.data?.error || 'No se pudo eliminar el período');
+    },
+  });
+
+  const confirmBatchMutation = useMutation({
+    mutationFn: () => liquidationApi.confirmBatch(selectedPeriodId!),
+    onSuccess: (r) => {
+      queryClient.invalidateQueries({ queryKey: ['period-liquidations'] });
+      if (r.failed > 0) alert(`Confirmadas: ${r.confirmed}. Con error: ${r.failed}.`);
+    },
+    onError: (e: unknown) => {
+      const err = e as { response?: { data?: { error?: string } } };
+      alert(err.response?.data?.error || 'No se pudieron confirmar');
     },
   });
 
@@ -120,7 +145,8 @@ export default function LiquidationPage() {
   });
 
   const liquidaciones = periodLiquidations ?? [];
-  const roster: Employee[] = employees?.data ?? [];
+  const roster = rosterData ?? [];
+  const hayBorradores = liquidaciones.some((l) => l.status === 'BORRADOR');
   const empConMensual = new Set(liquidaciones.filter((l) => l.type === 'MENSUAL').map((l) => l.employeeId));
   const pendientes = roster.filter((emp) => !empConMensual.has(emp.id));
   const liquidados = empConMensual.size;
@@ -178,23 +204,33 @@ export default function LiquidationPage() {
             ) : !periods?.length ? (
               <p className="px-4 py-6 text-sm text-gray-400 text-center">Sin períodos. Creá uno con +</p>
             ) : periods.map((period: PayrollPeriod) => (
-              <button
+              <div
                 key={period.id}
-                onClick={() => setSelectedPeriodId(period.id)}
-                className={`w-full flex items-center justify-between px-4 py-3 text-left transition-colors border-l-2 ${
+                className={`group w-full flex items-center justify-between px-4 py-3 transition-colors border-l-2 ${
                   selectedPeriodId === period.id ? 'bg-brand-50 border-brand-600' : 'border-transparent hover:bg-gray-50'
                 }`}
               >
-                <div>
+                <button onClick={() => setSelectedPeriodId(period.id)} className="flex-1 text-left">
                   <p className="text-sm font-medium text-gray-800">{MESES[period.month]} {period.year}</p>
                   <p className="text-xs text-gray-500">{period._count?.liquidations ?? 0} liquidaciones</p>
+                </button>
+                <div className="flex items-center gap-2">
+                  <span className={`badge text-xs ${
+                    period.status === 'CERRADO' ? 'badge-gray'
+                    : period.status === 'CONFIRMADO' ? 'badge-green'
+                    : 'badge-yellow'
+                  }`}>{period.status}</span>
+                  {isOperator && period.status !== 'CERRADO' && (
+                    <button
+                      onClick={() => { if (confirm(`¿Eliminar el período ${MESES[period.month]} ${period.year}? Se borran las liquidaciones en borrador de ese período. (Bloquea si hay confirmadas.)`)) deletePeriodMutation.mutate(period.id); }}
+                      className="p-1 text-gray-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="Eliminar período"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </div>
-                <span className={`badge text-xs ${
-                  period.status === 'CERRADO' ? 'badge-gray'
-                  : period.status === 'CONFIRMADO' ? 'badge-green'
-                  : 'badge-yellow'
-                }`}>{period.status}</span>
-              </button>
+              </div>
             ))}
           </div>
         </div>
@@ -222,6 +258,12 @@ export default function LiquidationPage() {
                       {batchMutation.isPending ? <RefreshCw size={14} className="animate-spin" /> : <Play size={14} />}
                       Generar todos
                     </button>
+                    {hayBorradores && (
+                      <button onClick={() => { if (confirm('¿Confirmar todas las liquidaciones en borrador de este período?')) confirmBatchMutation.mutate(); }} disabled={confirmBatchMutation.isPending} className="btn-primary btn-sm" title="Confirmar todos los borradores">
+                        {confirmBatchMutation.isPending ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                        Confirmar todos
+                      </button>
+                    )}
                   </div>
                 )}
               </div>

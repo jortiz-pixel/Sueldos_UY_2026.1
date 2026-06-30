@@ -220,6 +220,10 @@ export const liquidationApi = {
     api.get<PayrollPeriod[]>('/liquidation/periods', { params }).then((r) => r.data),
   createPeriod: (data: { companyId: string; year: number; month: number }) =>
     api.post<PayrollPeriod>('/liquidation/periods', data).then((r) => r.data),
+  deletePeriod: (periodId: string) => api.delete(`/liquidation/periods/${periodId}`).then((r) => r.data),
+  confirmBatch: (periodId: string) => api.post('/liquidation/confirm-batch', { periodId }).then((r) => r.data as { confirmed: number; failed: number }),
+  periodRoster: (periodId: string) =>
+    api.get(`/liquidation/period/${periodId}/roster`).then((r) => r.data as Array<{ id: string; ci: string; employeeNumber?: number | null; nombre: string; apellido: string; active: boolean; cargo?: string | null; salarioNominal: string; fechaIngreso: string }>),
   generate: (data: object) => api.post('/liquidation/generate', data).then((r) => r.data),
   generateBatch: (data: object) => api.post('/liquidation/generate-batch', data).then((r) => r.data),
   generateAguinaldo: (data: object) => api.post('/liquidation/aguinaldo', data).then((r) => r.data),

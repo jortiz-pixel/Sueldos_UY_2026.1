@@ -56,6 +56,84 @@ liquidationRouter.post('/periods', authenticate, requireRole(UserRole.ADMIN, Use
   } catch (err) { next(err); }
 });
 
+// DELETE /api/liquidation/periods/:id — elimina un período (y sus borradores).
+// Bloquea si tiene liquidaciones confirmadas o el período está cerrado.
+liquidationRouter.delete('/periods/:id', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const period = await prisma.payrollPeriod.findUnique({ where: { id: req.params.id } });
+    if (!period) throw new NotFoundError('Período');
+    await assertCompanyAccess(req, period.companyId);
+    if (period.status === PeriodStatus.CERRADO) {
+      throw new AppError(409, 'El período está cerrado; reabrilo antes de eliminarlo.');
+    }
+    const confirmadas = await prisma.liquidation.count({ where: { periodId: req.params.id, status: LiquidationStatus.CONFIRMADO } });
+    if (confirmadas > 0) {
+      throw new AppError(409, `El período tiene ${confirmadas} liquidación(es) confirmada(s). Desconfirmalas o anulalas antes de eliminar el período.`);
+    }
+    await prisma.$transaction([
+      prisma.payrollItem.deleteMany({ where: { liquidation: { periodId: req.params.id } } }),
+      prisma.payrollAdjustment.deleteMany({ where: { liquidation: { periodId: req.params.id } } }),
+      prisma.liquidation.deleteMany({ where: { periodId: req.params.id } }),
+      prisma.payrollPeriod.delete({ where: { id: req.params.id } }),
+    ]);
+    res.json({ message: 'Período eliminado' });
+  } catch (err) { next(err); }
+});
+
+// POST /api/liquidation/confirm-batch { periodId } — confirma TODOS los borradores del período.
+liquidationRouter.post('/confirm-batch', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { periodId } = z.object({ periodId: z.string().cuid() }).parse(req.body);
+    const period = await prisma.payrollPeriod.findUnique({ where: { id: periodId } });
+    if (!period) throw new NotFoundError('Período');
+    await assertCompanyAccess(req, period.companyId);
+    if (period.status === PeriodStatus.CERRADO) throw new AppError(409, 'El período está cerrado.');
+
+    const borradores = await prisma.liquidation.findMany({ where: { periodId, status: LiquidationStatus.BORRADOR }, select: { id: true } });
+    let confirmed = 0;
+    const errors: Array<{ id: string; error: string }> = [];
+    for (const l of borradores) {
+      try {
+        await recalcularLiquidacion(l.id);
+        await confirmarLiquidacion(l.id, req.user!.userId);
+        confirmed++;
+      } catch (e) { errors.push({ id: l.id, error: (e as Error).message }); }
+    }
+    res.json({ confirmed, failed: errors.length, errors });
+  } catch (err) { next(err); }
+});
+
+// GET /api/liquidation/period/:id/roster — personas con ≥1 día de contrato vigente en el período.
+liquidationRouter.get('/period/:id/roster', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const period = await prisma.payrollPeriod.findUnique({ where: { id: req.params.id } });
+    if (!period) throw new NotFoundError('Período');
+    await assertCompanyAccess(req, period.companyId);
+    const monthStart = new Date(period.year, period.month - 1, 1);
+    const monthEnd = new Date(period.year, period.month, 0);
+    const contratos = await prisma.contrato.findMany({
+      where: {
+        companyId: period.companyId,
+        activo: true,
+        vigenciaDesde: { lte: monthEnd },
+        AND: [
+          { OR: [{ vigenciaHasta: null }, { vigenciaHasta: { gte: monthStart } }] },
+          { OR: [{ fechaFin: null }, { fechaFin: { gte: monthStart } }] },
+        ],
+      },
+      select: { employeeId: true },
+      distinct: ['employeeId'],
+    });
+    const ids = contratos.map((c) => c.employeeId);
+    const employees = await prisma.employee.findMany({
+      where: { id: { in: ids } },
+      orderBy: [{ apellido: 'asc' }, { nombre: 'asc' }],
+      select: { id: true, ci: true, employeeNumber: true, nombre: true, apellido: true, active: true, cargo: true, salarioNominal: true, fechaIngreso: true },
+    });
+    res.json(employees.map((e) => ({ ...e, salarioNominal: e.salarioNominal.toString() })));
+  } catch (err) { next(err); }
+});
+
 // POST /api/liquidation/generate
 liquidationRouter.post('/generate', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
   try {
