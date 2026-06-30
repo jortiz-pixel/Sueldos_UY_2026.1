@@ -185,9 +185,20 @@ export function generateReciboPDF(
     const Wt = X1 - X0;
     const MIDX = X0 + Wt / 2;
 
+    // Paleta de marca AsysTax
+    const NAVY = '#0B1B3A';
+    const PRIMARY = '#1E5BFF';
+
     function label(x: number, y: number, etiqueta: string, valor: string, vx = 0) {
       doc.font('Helvetica-Bold').fontSize(7).fillColor('#444').text(etiqueta, x, y);
       doc.font('Helvetica').fontSize(8).fillColor('#000').text(valor, x + (vx || etiqueta.length * 3.6 + 6), y - 0.5);
+    }
+
+    // Sello de marca "AsysTax." dibujado con segmentos de color (sutil).
+    function asystaxMark(x: number, y: number, size: number) {
+      doc.fontSize(size).font('Helvetica-Bold');
+      doc.fillColor(NAVY).text('Asys', x, y, { continued: true });
+      doc.fillColor(PRIMARY).text('Tax.', { continued: false });
     }
 
     function drawCopia(top: number, copiaLabel: string): number {
@@ -195,7 +206,7 @@ export function generateReciboPDF(
       doc.lineWidth(0.6).strokeColor('#888');
 
       // Encabezado: empresa + liquidación
-      doc.font('Helvetica-Bold').fontSize(11).fillColor('#003DA5').text((co?.nombreFantasia || co?.razonSocial || '—').toUpperCase(), X0 + 6, y + 5, { width: Wt * 0.62 });
+      doc.font('Helvetica-Bold').fontSize(11).fillColor(NAVY).text((co?.nombreFantasia || co?.razonSocial || '—').toUpperCase(), X0 + 6, y + 5, { width: Wt * 0.62 });
       doc.font('Helvetica').fontSize(7.5).fillColor('#000');
       doc.text(`Liquidación: Mensualidad ${liquidation.month}/${liquidation.year}`, MIDX, y + 5, { width: Wt / 2 - 6, align: 'right' });
       doc.text(copiaLabel, MIDX, y + 16, { width: Wt / 2 - 6, align: 'right' });
@@ -215,7 +226,7 @@ export function generateReciboPDF(
       doc.rect(X0, boxTop - 3, Wt, y - boxTop + 1).stroke();
 
       // DATOS DEL EMPLEADO
-      doc.font('Helvetica-Bold').fontSize(7.5).fillColor('#003DA5').text('DATOS DEL EMPLEADO', X0 + 6, y);
+      doc.font('Helvetica-Bold').fontSize(7.5).fillColor(PRIMARY).text('DATOS DEL EMPLEADO', X0 + 6, y);
       y += 11;
       const eTop = y;
       label(X0 + 6, y, 'Apellidos:', employee.apellido, 48);
@@ -239,9 +250,9 @@ export function generateReciboPDF(
       const colMid = MIDX;
       // Cabeceras
       doc.font('Helvetica-Bold').fontSize(7.5);
-      doc.rect(X0, y, Wt / 2 - 2, 13).fill('#e5e7eb');
-      doc.rect(colMid, y, Wt / 2, 13).fill('#e5e7eb');
-      doc.fillColor('#1f2937').text('HABERES', X0 + 4, y + 3);
+      doc.rect(X0, y, Wt / 2 - 2, 13).fill('#EAF0FF');
+      doc.rect(colMid, y, Wt / 2, 13).fill('#EAF0FF');
+      doc.fillColor(NAVY).text('HABERES', X0 + 4, y + 3);
       doc.text('DESCUENTOS', colMid + 4, y + 3);
       y += 13;
       // Subcabeceras
@@ -288,11 +299,11 @@ export function generateReciboPDF(
       y += 14;
 
       // Líquido a cobrar
-      doc.lineWidth(1).strokeColor('#003DA5').rect(X0, y, Wt, 30).stroke();
+      doc.lineWidth(1).strokeColor(PRIMARY).rect(X0, y, Wt, 30).stroke();
       doc.font('Helvetica').fontSize(7).fillColor('#000');
       doc.text(`Total neto: $ ${fmt(liqCent)}`, X0 + 8, y + 4);
       doc.text(`Redondeo: $ ${fmt(redondeoCent)}`, X0 + 8, y + 16);
-      doc.font('Helvetica-Bold').fontSize(13).fillColor('#003DA5');
+      doc.font('Helvetica-Bold').fontSize(13).fillColor(PRIMARY);
       doc.text(`Líquido a Cobrar:  $ ${fmt(BigInt(liqEnteroPesos) * 100n)}`, MIDX, y + 8, { width: Wt / 2 - 8, align: 'right' });
       y += 36;
 
@@ -306,6 +317,11 @@ export function generateReciboPDF(
       // Firma
       doc.lineWidth(0.6).strokeColor('#000').moveTo(X1 - 180, y + 6).lineTo(X1 - 24, y + 6).stroke();
       doc.font('Helvetica').fontSize(7).fillColor('#000').text('Firma del empleado', X1 - 180, y + 8, { width: 156, align: 'center' });
+
+      // Pie de marca, muy sutil, alineado a la izquierda (frente a la firma).
+      const pre = 'Generado con ';
+      doc.font('Helvetica').fontSize(6).fillColor('#8493AD').text(pre, X0 + 4, y + 9);
+      asystaxMark(X0 + 4 + doc.widthOfString(pre), y + 9, 6);
 
       return y + 20;
     }
