@@ -6,6 +6,7 @@ import { authenticate, requireRole } from '../middleware/auth';
 import { assertCompanyAccess, accessibleCompanyIds } from '../middleware/tenancy';
 import { AppError, NotFoundError } from '../middleware/errorHandler';
 import { calcularAntiguedad, diasLicenciaCorrespondientes } from '../utils/date';
+import { calcularLiquidacionFinal } from '../services/vacation.service';
 
 export const employeesRouter = Router();
 
@@ -478,6 +479,7 @@ employeesRouter.post('/:id/contracts/:contractId/baja', authenticate, requireRol
     const contrato = await prisma.contrato.findUnique({ where: { id: req.params.contractId } });
     if (!contrato || contrato.employeeId !== req.params.id) throw new NotFoundError('Contrato');
 
+    // 1) Cerrar el contrato a la fecha de egreso.
     const updated = await prisma.contrato.update({
       where: { id: req.params.contractId },
       data: {
@@ -486,7 +488,39 @@ employeesRouter.post('/:id/contracts/:contractId/baja', authenticate, requireRol
         observacion: motivo ? `${contrato.observacion ? contrato.observacion + ' · ' : ''}Baja: ${motivo}` : contrato.observacion,
       },
     });
-    res.json(serializeContrato(updated));
+
+    // 2) Generar automáticamente la liquidación final (egreso) a esa fecha,
+    //    para la empresa del contrato (desvinculación en todos sus términos).
+    let liquidacionFinalId: string | null = null;
+    let avisoFinal: string | undefined;
+    try {
+      const result = await calcularLiquidacionFinal(req.params.id, req.params.contractId, fecha, req.user!.userId, contrato.companyId);
+      liquidacionFinalId = result.liquidacionId;
+    } catch (e) {
+      avisoFinal = `El contrato se dio de baja, pero no se pudo generar la liquidación final: ${(e as Error).message}`;
+    }
+
+    // 3) Si no le quedan contratos vigentes en NINGUNA empresa, inactivar la persona.
+    const otrosVigentes = await prisma.contrato.count({
+      where: {
+        employeeId: req.params.id,
+        activo: true,
+        AND: [
+          { OR: [{ vigenciaHasta: null }, { vigenciaHasta: { gt: fecha } }] },
+          { OR: [{ fechaFin: null }, { fechaFin: { gt: fecha } }] },
+        ],
+      },
+    });
+    if (otrosVigentes === 0) {
+      await prisma.employee.update({ where: { id: req.params.id }, data: { fechaEgreso: fecha, active: false } });
+    }
+
+    res.json({
+      ...serializeContrato(updated),
+      liquidacionFinalId,
+      desvinculadaTotal: otrosVigentes === 0,
+      aviso: avisoFinal,
+    });
   } catch (err) { next(err); }
 });
 

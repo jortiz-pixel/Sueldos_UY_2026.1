@@ -14,6 +14,7 @@ import {
   calcularAntiguedadMeses,
   diasPreavisoCorrespondientes,
 } from '../utils/date';
+import { resolverContratoVigente } from './contract.service';
 import { AppError } from '../middleware/errorHandler';
 
 export interface LicenciaInput {
@@ -245,6 +246,7 @@ export async function calcularLiquidacionFinal(
   periodId: string,
   fechaEgreso: Date,
   userId?: string,
+  companyIdParam?: string,
 ) {
   const params = await parametersService.getPayrollParameters(fechaEgreso);
 
@@ -253,9 +255,16 @@ export async function calcularLiquidacionFinal(
     include: { company: true },
   });
   if (!employee) throw new AppError(404, 'Empleado no encontrado');
-  const companyId = employee.companyId;
+  const companyId = companyIdParam ?? employee.companyId;
   if (!companyId) throw new AppError(400, 'La persona no tiene empresa asociada para la liquidación final');
-  const bseRate = employee.company?.bseRate ?? 0;
+  // Empresa y contrato vigente a la fecha de egreso: la base se toma del CONTRATO
+  // de esa empresa (no del dato global), para que sea correcto en multiempresa.
+  const company = companyId === employee.companyId
+    ? employee.company
+    : await prisma.company.findUnique({ where: { id: companyId } });
+  const bseRate = company?.bseRate ?? 0;
+  const contrato = await resolverContratoVigente(employeeId, fechaEgreso, companyId);
+  const salarioBase = contrato?.salarioNominal ?? employee.salarioNominal;
 
   const year = fechaEgreso.getFullYear();
   const month = fechaEgreso.getMonth() + 1;
@@ -264,16 +273,16 @@ export async function calcularLiquidacionFinal(
   const antiguedadAnios = Math.floor(antiguedadMeses / 12);
 
   const mesesIndemnizacion = Math.min(antiguedadAnios, 6);
-  const indemnizacion = employee.salarioNominal * BigInt(mesesIndemnizacion);
+  const indemnizacion = salarioBase * BigInt(mesesIndemnizacion);
 
   const diasPraveiso = diasPreavisoCorrespondientes(antiguedadMeses);
-  const salarioDiario = multiplyFraction(employee.salarioNominal, 1, 30);
+  const salarioDiario = multiplyFraction(salarioBase, 1, 30);
   const preaviso = salarioDiario * BigInt(diasPraveiso);
 
   const mesInicioSemestre = month <= 6 ? 1 : 7;
   const mesesEnSemestre = month - mesInicioSemestre + 1;
   const aguinaldoProporcional = multiplyFraction(
-    employee.salarioNominal * BigInt(mesesEnSemestre),
+    salarioBase * BigInt(mesesEnSemestre),
     1, 12,
   );
 
@@ -285,7 +294,7 @@ export async function calcularLiquidacionFinal(
   const mesesTrabajadosAnio = month;
   const diasLicenciaProporcional = Math.round(diasLicenciaAnuales * mesesTrabajadosAnio / 12);
   const diasLicenciaPendientes = Math.max(0, diasLicenciaProporcional - diasTomados);
-  const licenciaPendiente = multiplyFraction(employee.salarioNominal, diasLicenciaPendientes, 25);
+  const licenciaPendiente = multiplyFraction(salarioBase, diasLicenciaPendientes, 25);
   const salarioVacacionalPendiente = licenciaPendiente;
 
   const totalBruto = indemnizacion + preaviso + aguinaldoProporcional
@@ -361,7 +370,7 @@ export async function calcularLiquidacionFinal(
       {
         liquidationId: liquidacion.id, employeeId, itemType: ItemType.HABER,
         concepto: 'INDEMNIZACION', descripcion: `Indemnización por despido (${mesesIndemnizacion} meses)`,
-        baseCalculo: employee.salarioNominal, rate: null, amount: indemnizacion,
+        baseCalculo: salarioBase, rate: null, amount: indemnizacion,
         calculationDetail: { mesesIndemnizacion, antiguedadAnios } as unknown as Prisma.InputJsonValue,
       },
       {
@@ -373,13 +382,13 @@ export async function calcularLiquidacionFinal(
       {
         liquidationId: liquidacion.id, employeeId, itemType: ItemType.HABER,
         concepto: 'AGUINALDO_PROPORCIONAL', descripcion: `Proporcional aguinaldo (${mesesEnSemestre} meses)`,
-        baseCalculo: employee.salarioNominal, rate: null, amount: aguinaldoProporcional,
+        baseCalculo: salarioBase, rate: null, amount: aguinaldoProporcional,
         calculationDetail: { mesesEnSemestre } as unknown as Prisma.InputJsonValue,
       },
       {
         liquidationId: liquidacion.id, employeeId, itemType: ItemType.HABER,
         concepto: 'LICENCIA_PENDIENTE', descripcion: `Licencia pendiente (${diasLicenciaPendientes} días)`,
-        baseCalculo: employee.salarioNominal, rate: null, amount: licenciaPendiente,
+        baseCalculo: salarioBase, rate: null, amount: licenciaPendiente,
         calculationDetail: { diasLicenciaPendientes, diasTomados } as unknown as Prisma.InputJsonValue,
       },
       {
@@ -415,10 +424,8 @@ export async function calcularLiquidacionFinal(
     ],
   });
 
-  await prisma.employee.update({
-    where: { id: employeeId },
-    data: { fechaEgreso, active: false },
-  });
+  // Nota: la desvinculación de la persona (inactivar / fechaEgreso) la maneja
+  // el endpoint de baja según si le quedan contratos vigentes en otras empresas.
 
   return {
     liquidacionId: liquidacion.id,

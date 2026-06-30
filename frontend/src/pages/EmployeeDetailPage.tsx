@@ -111,9 +111,18 @@ export default function EmployeeDetailPage() {
   const bajaMutation = useMutation({
     mutationFn: ({ contractId, fechaEgreso, motivo }: { contractId: string; fechaEgreso: string; motivo?: string }) =>
       contractsApi.baja(id!, contractId, fechaEgreso, motivo),
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['employee-contracts', id] });
       queryClient.invalidateQueries({ queryKey: ['employee', id] });
+      queryClient.invalidateQueries({ queryKey: ['employee-liquidations', id] });
+      if (data?.aviso) {
+        alert(data.aviso);
+      } else if (data?.liquidacionFinalId) {
+        alert(
+          'Baja registrada. Se generó la liquidación final (egreso) en estado BORRADOR — revisala en Liquidaciones.'
+          + (data.desvinculadaTotal ? '\nLa persona quedó inactiva (sin contratos vigentes en ninguna empresa).' : ''),
+        );
+      }
     },
     onError: (err: unknown) => {
       const message = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
@@ -122,6 +131,7 @@ export default function EmployeeDetailPage() {
   });
 
   const handleBaja = (c: Contrato) => {
+    if (!confirm('Dar de baja cierra el contrato y genera la liquidación final (egreso) a la fecha indicada. ¿Continuar?')) return;
     const fecha = prompt('Fecha de egreso / baja (AAAA-MM-DD):', new Date().toISOString().slice(0, 10));
     if (!fecha) return;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) { alert('Fecha inválida. Usá el formato AAAA-MM-DD.'); return; }
