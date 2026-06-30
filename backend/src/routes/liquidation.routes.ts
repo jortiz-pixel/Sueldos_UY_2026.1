@@ -228,7 +228,8 @@ liquidationRouter.get('/:id/preview', authenticate, async (req: Request, res: Re
       include: {
         items: { orderBy: [{ itemType: 'asc' }, { concepto: 'asc' }] },
         adjustments: true,
-        period: true,
+        period: { include: { company: { select: { razonSocial: true, nombreFantasia: true } } } },
+        employee: { select: { id: true, nombre: true, apellido: true, ci: true, employeeNumber: true } },
       },
     });
     if (!liquidation) throw new NotFoundError('Liquidación');

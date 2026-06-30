@@ -250,10 +250,24 @@ export default function LiquidationDetailPage() {
           Volver
         </Link>
         <div className="flex-1 min-w-0">
-          <h1 className="text-xl font-bold text-gray-900">
-            Liquidación — {MESES[liq.month]} {liq.year}
-          </h1>
-          <p className="text-gray-500 text-sm">Tipo: {liq.type} · {liq.diasTrabajados} días trabajados</p>
+          {(() => {
+            const emp = (liq as unknown as { employee?: { nombre: string; apellido: string; ci: string; employeeNumber?: number | null } }).employee;
+            const empresa = (liq as unknown as { period?: { company?: { razonSocial: string; nombreFantasia?: string | null } } }).period?.company;
+            const nombreEmpresa = empresa?.nombreFantasia || empresa?.razonSocial;
+            return (
+              <>
+                <h1 className="text-xl font-bold text-gray-900">
+                  {emp ? `${emp.apellido}, ${emp.nombre}` : 'Liquidación'}
+                </h1>
+                <p className="text-gray-500 text-sm">
+                  {nombreEmpresa ? <span className="font-medium text-gray-700">{nombreEmpresa}</span> : null}
+                  {nombreEmpresa ? ' · ' : ''}{MESES[liq.month]} {liq.year} · {liq.type} · {liq.diasTrabajados} días
+                  {emp?.employeeNumber ? ` · Legajo ${emp.employeeNumber}` : ''}
+                  {emp?.ci ? ` · C.I. ${emp.ci}` : ''}
+                </p>
+              </>
+            );
+          })()}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <span className={`badge ${
