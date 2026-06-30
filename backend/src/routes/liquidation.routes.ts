@@ -256,6 +256,9 @@ liquidationRouter.post('/:id/confirm', authenticate, requireRole(UserRole.ADMIN,
     if (liquidation.status !== LiquidationStatus.BORRADOR) {
       throw new AppError(409, 'Solo se pueden confirmar liquidaciones en estado BORRADOR');
     }
+    // Recalcular aportes sobre la base gravada actual (incluye conceptos
+    // manuales gravados) antes de cerrar la liquidación.
+    await recalcularLiquidacion(req.params.id);
     await confirmarLiquidacion(req.params.id, req.user!.userId);
     res.json({ message: 'Liquidación confirmada exitosamente' });
   } catch (err) { next(err); }
