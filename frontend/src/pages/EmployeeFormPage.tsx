@@ -12,6 +12,7 @@ import { SalaryType, EstadoCivil, formatCedula, validarCedula } from '../types';
 
 interface EmployeeForm {
   ci: string;
+  employeeNumber?: number | string;
   nombre: string;
   apellido: string;
   fechaNacimiento?: string;
@@ -75,7 +76,7 @@ export default function EmployeeFormPage() {
     if (employee) {
       reset({
         ...emptyForm,
-        ci: employee.ci, nombre: employee.nombre, apellido: employee.apellido,
+        ci: employee.ci, employeeNumber: employee.employeeNumber ?? '', nombre: employee.nombre, apellido: employee.apellido,
         fechaNacimiento: employee.fechaNacimiento ? employee.fechaNacimiento.slice(0, 10) : '',
         estadoCivil: employee.estadoCivil,
         email: employee.email ?? '', telefono: employee.telefono ?? '', domicilio: employee.domicilio ?? '',
@@ -90,7 +91,9 @@ export default function EmployeeFormPage() {
   const mutation = useMutation({
     mutationFn: (data: EmployeeForm) => {
       const persona = {
-        ci: data.ci, nombre: data.nombre, apellido: data.apellido,
+        ci: data.ci,
+        employeeNumber: data.employeeNumber !== '' && data.employeeNumber != null ? Number(data.employeeNumber) : undefined,
+        nombre: data.nombre, apellido: data.apellido,
         fechaNacimiento: data.fechaNacimiento ? new Date(data.fechaNacimiento).toISOString() : undefined,
         estadoCivil: data.estadoCivil,
         email: data.email || undefined, telefono: data.telefono || undefined, domicilio: data.domicilio || undefined,
@@ -144,6 +147,17 @@ export default function EmployeeFormPage() {
           <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400">Datos personales</h3>
           <div className="flex flex-col md:flex-row gap-6">
             <div className="grid grid-cols-2 gap-4 flex-1">
+            <div>
+              <label className="form-label">Legajo / N° de empleado</label>
+              <input
+                {...register('employeeNumber')}
+                type="number"
+                min="1"
+                className="form-input"
+                placeholder="Automático"
+              />
+              <p className="text-xs text-gray-400 mt-1">Único por empresa. Vacío = se asigna solo.</p>
+            </div>
             <div>
               <label className="form-label">Cédula de Identidad *</label>
               <input

@@ -12,6 +12,7 @@ export const employeesRouter = Router();
 
 const personFields = {
   ci: z.string().min(1),
+  employeeNumber: z.number().int().positive().optional(),
   nombre: z.string().min(1),
   apellido: z.string().min(1),
   fechaNacimiento: z.string().optional(),
@@ -128,7 +129,7 @@ employeesRouter.get('/', authenticate, async (req: Request, res: Response, next:
         skip: (page - 1) * limit,
         take: limit,
         select: {
-          id: true, ci: true, nombre: true, apellido: true,
+          id: true, ci: true, employeeNumber: true, nombre: true, apellido: true,
           estadoCivil: true, email: true, telefono: true,
           cargo: true, categoria: true, salaryType: true,
           salarioNominal: true, fechaIngreso: true, fechaEgreso: true,
@@ -192,64 +193,29 @@ employeesRouter.post('/', authenticate, requireRole(UserRole.ADMIN, UserRole.OPE
 
     const fechaIngreso = new Date(c.fechaIngreso);
 
-    // La persona es global (CI único). Si ya existe, NO se bloquea: se la
-    // vincula a esta empresa con un contrato nuevo (puede estar en varias).
-    const existing = await prisma.employee.findUnique({
-      where: { ci: data.ci },
-      include: { contratos: { select: { companyId: true, activo: true } } },
+    // El CI es único POR EMPRESA (puede repetirse entre empresas). Cada empresa
+    // tiene su propia ficha de la persona, identificada por su legajo.
+    const dupEnEmpresa = await prisma.employee.findFirst({
+      where: { companyId: c.companyId, ci: data.ci },
     });
-    if (existing) {
-      const yaEnEmpresa = existing.contratos.some((ct) => ct.companyId === c.companyId && ct.activo);
-      if (yaEnEmpresa) {
-        throw new AppError(409, `${existing.nombre} ${existing.apellido} (CI ${data.ci}) ya está cargada en esta empresa`);
-      }
-      await prisma.contrato.create({
-        data: {
-          employeeId: existing.id,
-          companyId: c.companyId,
-          numero: existing.contratos.length + 1,
-          vigenciaDesde: c.vigenciaDesde ? new Date(c.vigenciaDesde) : fechaIngreso,
-          fechaFin: c.fechaFin ? new Date(c.fechaFin) : undefined,
-          fechaIngreso,
-          tipoContrato: c.tipoContrato,
-          cargo: c.cargo,
-          sector: c.sector,
-          categoria: c.categoria,
-          nivel: c.nivel,
-          salaryType: c.salaryType,
-          cobra: c.cobra,
-          salarioNominal: c.salarioNominal,
-          jornal: c.jornal,
-          horasDia: c.horasDia,
-          regimenHorario: c.regimenHorario,
-          sucursal: c.sucursal,
-          moneda: c.moneda,
-          grupoActividadNum: c.grupoActividadNum ?? undefined,
-          subgrupo: c.subgrupo,
-          observacion: c.observacion,
-        },
-      });
-      const currentYear = new Date().getFullYear();
-      const antiguedad = calcularAntiguedad(fechaIngreso);
-      await prisma.vacationAccrual.upsert({
-        where: { employeeId_year: { employeeId: existing.id, year: currentYear } },
-        update: {},
-        create: {
-          employeeId: existing.id,
-          year: currentYear,
-          diasCorresponden: diasLicenciaCorrespondientes(antiguedad),
-          diasTomados: 0,
-          diasPendientes: diasLicenciaCorrespondientes(antiguedad),
-        },
-      });
-      const { contratos: _ignore, ...rest } = existing;
-      res.status(201).json({ ...serializeEmployee(rest), vinculado: true });
-      return;
+    if (dupEnEmpresa) {
+      throw new AppError(409, `Ya existe una persona con CI ${data.ci} en esta empresa (legajo ${dupEnEmpresa.employeeNumber ?? '—'})`);
+    }
+
+    // Legajo (employeeNumber): el indicado, o automático = máximo de la empresa + 1.
+    let employeeNumber = data.employeeNumber;
+    if (employeeNumber == null) {
+      const maxEN = await prisma.employee.aggregate({ where: { companyId: c.companyId }, _max: { employeeNumber: true } });
+      employeeNumber = (maxEN._max.employeeNumber ?? 0) + 1;
+    } else {
+      const enTomado = await prisma.employee.findFirst({ where: { companyId: c.companyId, employeeNumber } });
+      if (enTomado) throw new AppError(409, `El legajo ${employeeNumber} ya está usado en esta empresa`);
     }
 
     const employee = await prisma.employee.create({
       data: {
         ci: data.ci,
+        employeeNumber,
         nombre: data.nombre,
         apellido: data.apellido,
         fechaNacimiento: data.fechaNacimiento ? new Date(data.fechaNacimiento) : undefined,

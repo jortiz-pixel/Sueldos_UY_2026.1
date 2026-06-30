@@ -295,7 +295,11 @@ enum SexoBiologico {
 model Employee {
   id               String      @id @default(cuid())
   companyId        String?
-  ci               String      @unique
+  // Legajo / número de empleado: único por empresa (cada empresa numera 1,2,3…).
+  employeeNumber   Int?
+  // El CI ya NO es único global: puede repetirse entre empresas (misma persona
+  // en varias empresas = una ficha por empresa). Único dentro de cada empresa.
+  ci               String
   nombre           String
   apellido         String
   fechaNacimiento  DateTime?
@@ -342,6 +346,8 @@ model Employee {
   leaveRequests    LeaveRequest[]
   adjustments      PayrollAdjustment[]
 
+  @@unique([companyId, ci])
+  @@unique([companyId, employeeNumber])
   @@map("employees")
 }
 

@@ -64,6 +64,7 @@ export interface Company {
 export interface Employee {
   id: string;
   companyId?: string | null;
+  employeeNumber?: number | null;
   ci: string;
   nombre: string;
   apellido: string;

@@ -35,7 +35,8 @@ importRouter.post('/personas', authenticate, requireRole(UserRole.ADMIN, UserRol
     const { headers, mapeo, rows } = parsePersonasExcel(req.file.buffer);
     if (rows.length === 0) throw new AppError(400, 'El archivo no tiene filas de datos');
 
-    const existing = await prisma.employee.findMany({ select: { ci: true } });
+    // El CI es único POR EMPRESA: solo se valida contra los CI de ESTA empresa.
+    const existing = await prisma.employee.findMany({ where: { companyId }, select: { ci: true } });
     const existingCIs = new Set(existing.map((e) => soloDigitos(e.ci)));
     validateRows(rows, existingCIs);
 
@@ -47,16 +48,22 @@ importRouter.post('/personas', authenticate, requireRole(UserRole.ADMIN, UserRol
       return;
     }
 
+    // Legajo automático: arranca en el máximo de la empresa + 1 y se incrementa.
+    const maxEN = await prisma.employee.aggregate({ where: { companyId }, _max: { employeeNumber: true } });
+    let nextEN = (maxEN._max.employeeNumber ?? 0) + 1;
+
     let creadas = 0;
     for (const row of validas) {
       const d = row.datos;
       const fechaIngreso = new Date(d.fechaIngreso!);
       const salarioCent = BigInt(Math.round((d.salarioNominal as number) * 100));
       try {
+        const enAsignado = nextEN++;
         await prisma.$transaction(async (tx) => {
           const emp = await tx.employee.create({
             data: {
               ci: soloDigitos(d.ci),
+              employeeNumber: enAsignado,
               nombre: d.nombre,
               apellido: d.apellido,
               fechaNacimiento: d.fechaNacimiento ? new Date(d.fechaNacimiento) : undefined,

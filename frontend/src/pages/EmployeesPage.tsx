@@ -114,7 +114,7 @@ export default function EmployeesPage() {
                       </div>
                       <div>
                         <p className="font-medium text-gray-800 text-sm">{emp.apellido}, {emp.nombre}</p>
-                        <p className="text-xs text-gray-400">Ingreso: {new Date(emp.fechaIngreso).toLocaleDateString('es-UY')}</p>
+                        <p className="text-xs text-gray-400">Legajo {emp.employeeNumber ?? '—'} · Ingreso: {new Date(emp.fechaIngreso).toLocaleDateString('es-UY')}</p>
                       </div>
                     </div>
                   </td>
