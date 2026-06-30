@@ -320,7 +320,13 @@ liquidationRouter.get('/:id/recibo', authenticate, async (req: Request, res: Res
     });
     if (!employee) throw new NotFoundError('Empleado');
 
-    const pdfBuffer = await generateReciboPDF(liquidation, employee);
+    // Contrato vigente (para Nº de contrato, cargo, sector, horario en el recibo).
+    const contrato = await prisma.contrato.findFirst({
+      where: { employeeId: employee.id, companyId: liquidation.period?.companyId ?? employee.companyId ?? undefined },
+      orderBy: { vigenciaDesde: 'desc' },
+    });
+
+    const pdfBuffer = await generateReciboPDF(liquidation, employee, contrato);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="recibo_${liquidation.employeeId}_${liquidation.year}_${liquidation.month}.pdf"`);
     res.send(pdfBuffer);

@@ -1,12 +1,15 @@
 /**
- * SERVICIO DE GENERACIÓN DE PDF
- * Genera recibos de sueldo en formato PDF usando PDFKit.
+ * SERVICIO DE GENERACIÓN DE PDF — Recibo de sueldo
+ *
+ * Replica el formato uruguayo clásico (estilo GNS): encabezado con datos del
+ * empleador y del empleado, dos columnas Haberes / Descuentos con detalle,
+ * totales, bloque IRPF, líquido con redondeo, textos legales, importe en
+ * letras y firma. Se imprime DOS veces en la hoja: Original Empresa y Copia
+ * Empleado.
  */
 
 import PDFDocument from 'pdfkit';
 import { ItemType } from '@prisma/client';
-import { toPesos, formatPesos } from '../utils/money';
-import { formatDate } from '../utils/date';
 
 interface LiquidationForPdf {
   id: string;
@@ -29,6 +32,17 @@ interface LiquidationForPdf {
   }>;
 }
 
+interface CompanyForPdf {
+  razonSocial: string;
+  nombreFantasia?: string | null;
+  rut: string;
+  domicilio: string | null;
+  numeroBps?: string | null;
+  numeroBse?: string | null;
+  grupoActividadNum?: number | null;
+  subgrupo?: string | null;
+}
+
 interface EmployeeForPdf {
   ci: string;
   nombre: string;
@@ -36,12 +50,17 @@ interface EmployeeForPdf {
   cargo: string | null;
   categoria: string | null;
   fechaIngreso: Date;
+  salaryType: string;
   salarioNominal: bigint;
-  company: {
-    razonSocial: string;
-    rut: string;
-    domicilio: string | null;
-  } | null;
+  company: CompanyForPdf | null;
+}
+
+interface ContratoForPdf {
+  numero?: number | null;
+  cargo?: string | null;
+  sector?: string | null;
+  regimenHorario?: string | null;
+  salaryType?: string | null;
 }
 
 const MESES = [
@@ -49,172 +68,243 @@ const MESES = [
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
 ];
 
+// ── Helpers ──────────────────────────────────────────────────────
+function fmt(cents: bigint): string {
+  const neg = cents < 0n;
+  const c = neg ? -cents : cents;
+  const entero = (c / 100n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  const dec = (c % 100n).toString().padStart(2, '0');
+  return `${neg ? '-' : ''}${entero},${dec}`;
+}
+
+function ddmmyy(d: Date | null | undefined): string {
+  if (!d) return '';
+  const x = new Date(d);
+  return `${String(x.getDate()).padStart(2, '0')}/${String(x.getMonth() + 1).padStart(2, '0')}/${String(x.getFullYear()).slice(-2)}`;
+}
+
+// Número entero a letras en español (0 .. 999.999.999).
+function numeroALetras(n: number): string {
+  if (n === 0) return 'Cero';
+  const UNI = ['', 'Uno', 'Dos', 'Tres', 'Cuatro', 'Cinco', 'Seis', 'Siete', 'Ocho', 'Nueve', 'Diez', 'Once', 'Doce', 'Trece', 'Catorce', 'Quince', 'Dieciséis', 'Diecisiete', 'Dieciocho', 'Diecinueve', 'Veinte'];
+  const DEC = ['', '', 'Veinti', 'Treinta', 'Cuarenta', 'Cincuenta', 'Sesenta', 'Setenta', 'Ochenta', 'Noventa'];
+  const CEN = ['', 'Ciento', 'Doscientos', 'Trescientos', 'Cuatrocientos', 'Quinientos', 'Seiscientos', 'Setecientos', 'Ochocientos', 'Novecientos'];
+  function hasta999(x: number): string {
+    if (x === 0) return '';
+    if (x === 100) return 'Cien';
+    let s = '';
+    const c = Math.floor(x / 100); const resto = x % 100;
+    if (c) s += CEN[c] + ' ';
+    if (resto <= 20) s += UNI[resto];
+    else {
+      const d = Math.floor(resto / 10); const u = resto % 10;
+      if (d === 2) s += u ? 'Veinti' + UNI[u].toLowerCase() : 'Veinte';
+      else s += DEC[d] + (u ? ' y ' + UNI[u] : '');
+    }
+    return s.trim();
+  }
+  let resultado = '';
+  const millones = Math.floor(n / 1000000);
+  const miles = Math.floor((n % 1000000) / 1000);
+  const resto = n % 1000;
+  if (millones) resultado += (millones === 1 ? 'Un Millón' : hasta999(millones) + ' Millones') + ' ';
+  if (miles) resultado += (miles === 1 ? 'Mil' : hasta999(miles) + ' Mil') + ' ';
+  if (resto) resultado += hasta999(resto);
+  return resultado.trim();
+}
+
 export function generateReciboPDF(
   liquidation: LiquidationForPdf,
   employee: EmployeeForPdf,
+  contrato?: ContratoForPdf | null,
 ): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'A4', margin: 40 });
+    const doc = new PDFDocument({ size: 'A4', margin: 24 });
     const chunks: Buffer[] = [];
-
-    doc.on('data', (chunk) => chunks.push(chunk));
+    doc.on('data', (c) => chunks.push(c));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
 
-    const W = doc.page.width - 80; // usable width
-    const COL1 = 40;
-    const COL2 = 320;
-
-    // ── Header ─────────────────────────────────────────────────
-    doc.fontSize(14).font('Helvetica-Bold').text('RECIBO DE SUELDO', COL1, 40, { align: 'center', width: W });
-    doc.fontSize(10).font('Helvetica').text(
-      `${MESES[liquidation.month]} ${liquidation.year}`,
-      COL1, 58, { align: 'center', width: W },
-    );
-
-    // Horizontal rule
-    doc.moveTo(COL1, 75).lineTo(COL1 + W, 75).stroke();
-
-    // ── Empresa ────────────────────────────────────────────────
-    let y = 85;
-    doc.fontSize(9).font('Helvetica-Bold').text('EMPRESA:', COL1, y);
-    doc.font('Helvetica').text(employee.company?.razonSocial ?? '—', COL1 + 55, y);
-    doc.font('Helvetica-Bold').text('RUT:', COL2, y);
-    doc.font('Helvetica').text(employee.company?.rut ?? '—', COL2 + 30, y);
-
-    y += 14;
-    if (employee.company?.domicilio) {
-      doc.font('Helvetica-Bold').text('DOMICILIO:', COL1, y);
-      doc.font('Helvetica').text(employee.company.domicilio, COL1 + 65, y);
-    }
-
-    // ── Empleado ───────────────────────────────────────────────
-    y += 20;
-    doc.moveTo(COL1, y).lineTo(COL1 + W, y).stroke();
-    y += 8;
-
-    doc.font('Helvetica-Bold').text('EMPLEADO:', COL1, y);
-    doc.font('Helvetica').text(`${employee.apellido}, ${employee.nombre}`, COL1 + 65, y);
-    doc.font('Helvetica-Bold').text('C.I.:', COL2, y);
-    doc.font('Helvetica').text(employee.ci, COL2 + 25, y);
-
-    y += 14;
-    doc.font('Helvetica-Bold').text('CARGO:', COL1, y);
-    doc.font('Helvetica').text(employee.cargo || '-', COL1 + 45, y);
-    doc.font('Helvetica-Bold').text('INGRESO:', COL2, y);
-    doc.font('Helvetica').text(formatDate(employee.fechaIngreso), COL2 + 55, y);
-
-    y += 14;
-    doc.font('Helvetica-Bold').text('CATEGORÍA:', COL1, y);
-    doc.font('Helvetica').text(employee.categoria || '-', COL1 + 65, y);
-    doc.font('Helvetica-Bold').text('DÍAS TRAB.:', COL2, y);
-    doc.font('Helvetica').text(String(liquidation.diasTrabajados), COL2 + 70, y);
-
-    // ── Items table ────────────────────────────────────────────
-    y += 24;
-    doc.moveTo(COL1, y).lineTo(COL1 + W, y).stroke();
-    y += 6;
-
-    // Table header
-    doc.font('Helvetica-Bold').fontSize(8);
-    doc.text('CONCEPTO', COL1, y);
-    doc.text('BASE', COL1 + 220, y, { width: 80, align: 'right' });
-    doc.text('TASA', COL1 + 310, y, { width: 50, align: 'right' });
-    doc.text('IMPORTE', COL1 + 370, y, { width: W - 370, align: 'right' });
-
-    y += 12;
-    doc.moveTo(COL1, y).lineTo(COL1 + W, y).stroke();
-    y += 4;
-
-    // HABERES
-    doc.font('Helvetica-Bold').fontSize(8).text('HABERES', COL1, y);
-    y += 12;
-
+    const co = employee.company;
     const haberes = liquidation.items.filter((i) => i.itemType === ItemType.HABER);
-    for (const item of haberes) {
-      doc.font('Helvetica').fontSize(8).text(`  ${item.descripcion}`, COL1, y, { width: 215 });
-      if (item.baseCalculo) {
-        doc.text(formatPesos(item.baseCalculo), COL1 + 220, y, { width: 80, align: 'right' });
+    const descuentosRaw = liquidation.items.filter((i) => i.itemType === ItemType.DESCUENTO_OBRERO);
+
+    // Base gravada (la que usan los aportes): la baseCalculo del BPS/FONASA.
+    const baseAporte = descuentosRaw.find((d) => d.concepto === 'BPS_JUBILATORIO' || d.concepto === 'FONASA')?.baseCalculo ?? liquidation.totalHaberes;
+
+    // Construir las filas de descuentos al estilo GNS (FONASA dividido en
+    // "Seguro x Enfermedad" 3% + "Adic. Sist. Nac. Int. de Salud").
+    type Fila = { nombre: string; detalle: string; importe: bigint };
+    const descFilas: Fila[] = [];
+    for (const d of descuentosRaw) {
+      const baseTxt = d.baseCalculo ? `de ${fmt(d.baseCalculo)}` : '';
+      if (d.concepto === 'BPS_JUBILATORIO') {
+        descFilas.push({ nombre: 'Aporte Jubilatorio', detalle: `${((d.rate ?? 0) / 100)} % ${baseTxt}`, importe: d.amount });
+      } else if (d.concepto === 'FONASA') {
+        const base = d.baseCalculo ?? 0n;
+        const seguro = (base * 3n) / 100n;
+        const adic = d.amount - seguro;
+        descFilas.push({ nombre: 'Seguro x Enfermedad', detalle: `3 % ${baseTxt}`, importe: seguro });
+        if (adic > 0n) {
+          const adicRate = ((d.rate ?? 0) - 300) / 100;
+          descFilas.push({ nombre: 'Adic. Sist. Nac. Int. de Salud', detalle: `${adicRate} % ${baseTxt}`, importe: adic });
+        }
+      } else if (d.concepto === 'FRL') {
+        descFilas.push({ nombre: 'FRL', detalle: `${((d.rate ?? 0) / 100)} % ${baseTxt}`, importe: d.amount });
+      } else if (d.concepto === 'IRPF') {
+        descFilas.push({ nombre: 'I.R.P.F.', detalle: '', importe: d.amount });
+      } else {
+        descFilas.push({ nombre: d.descripcion, detalle: d.rate ? `${(d.rate / 100)} % ${baseTxt}` : '', importe: d.amount });
       }
-      if (item.rate) {
-        doc.text(`${(item.rate / 100).toFixed(2)}%`, COL1 + 310, y, { width: 50, align: 'right' });
-      }
-      doc.text(formatPesos(item.amount), COL1 + 370, y, { width: W - 370, align: 'right' });
-      y += 12;
-      if (y > 700) { doc.addPage(); y = 40; }
+    }
+    const habFilas: Fila[] = haberes.map((h) => ({
+      nombre: h.descripcion.replace(/\s*\(.*\)\s*$/, ''),
+      detalle: h.rate ? `${(h.rate / 100)} % ${h.baseCalculo ? 'de ' + fmt(h.baseCalculo) : ''}` : '',
+      importe: h.amount,
+    }));
+
+    // Redondeo al peso entero.
+    const liqCent = liquidation.liquidoPercibir;
+    const liqEnteroPesos = Math.round(Number(liqCent) / 100);
+    const redondeoCent = BigInt(liqEnteroPesos) * 100n - liqCent;
+    const letras = numeroALetras(liqEnteroPesos);
+
+    // ── Dibuja UNA copia a partir de originY ────────────────────────
+    const X0 = 24;
+    const X1 = doc.page.width - 24;
+    const Wt = X1 - X0;
+    const MIDX = X0 + Wt / 2;
+
+    function label(x: number, y: number, etiqueta: string, valor: string, vx = 0) {
+      doc.font('Helvetica-Bold').fontSize(7).fillColor('#444').text(etiqueta, x, y);
+      doc.font('Helvetica').fontSize(8).fillColor('#000').text(valor, x + (vx || etiqueta.length * 3.6 + 6), y - 0.5);
     }
 
-    y += 4;
-    doc.moveTo(COL1 + 220, y).lineTo(COL1 + W, y).stroke();
-    y += 4;
-    doc.font('Helvetica-Bold').fontSize(8).text('TOTAL HABERES', COL1, y);
-    doc.text(formatPesos(liquidation.totalHaberes), COL1 + 370, y, { width: W - 370, align: 'right' });
-    y += 16;
+    function drawCopia(top: number, copiaLabel: string): number {
+      let y = top;
+      doc.lineWidth(0.6).strokeColor('#888');
 
-    // DESCUENTOS
-    doc.font('Helvetica-Bold').fontSize(8).text('DESCUENTOS', COL1, y);
-    y += 12;
+      // Encabezado: empresa + liquidación
+      doc.font('Helvetica-Bold').fontSize(11).fillColor('#003DA5').text((co?.nombreFantasia || co?.razonSocial || '—').toUpperCase(), X0 + 6, y + 5, { width: Wt * 0.62 });
+      doc.font('Helvetica').fontSize(7.5).fillColor('#000');
+      doc.text(`Liquidación: Mensualidad ${liquidation.month}/${liquidation.year}`, MIDX, y + 5, { width: Wt / 2 - 6, align: 'right' });
+      doc.text(copiaLabel, MIDX, y + 16, { width: Wt / 2 - 6, align: 'right' });
 
-    const descuentos = liquidation.items.filter((i) => i.itemType === ItemType.DESCUENTO_OBRERO);
-    for (const item of descuentos) {
-      doc.font('Helvetica').fontSize(8).text(`  ${item.descripcion}`, COL1, y, { width: 215 });
-      if (item.baseCalculo) {
-        doc.text(formatPesos(item.baseCalculo), COL1 + 220, y, { width: 80, align: 'right' });
-      }
-      if (item.rate) {
-        doc.text(`${(item.rate / 100).toFixed(3)}%`, COL1 + 310, y, { width: 50, align: 'right' });
-      }
-      doc.text(formatPesos(item.amount), COL1 + 370, y, { width: W - 370, align: 'right' });
+      y += 24;
+      // Caja datos empleador
+      const boxTop = y;
+      label(X0 + 6, y, 'RUT:', co?.rut ?? '—', 28);
+      label(MIDX + 6, y, 'BPS:', co?.numeroBps ?? '', 28);
       y += 12;
-      if (y > 700) { doc.addPage(); y = 40; }
-    }
+      label(X0 + 6, y, 'Dirección:', co?.domicilio ?? '', 50);
+      label(MIDX + 6, y, 'BSE:', co?.numeroBse ?? '', 28);
+      y += 12;
+      label(X0 + 6, y, 'Mes:', `${MESES[liquidation.month]} ${liquidation.year}`, 28);
+      label(MIDX + 6, y, 'Grupo/Sub:', co?.grupoActividadNum ? `${co.grupoActividadNum}${co.subgrupo ? ' / ' + co.subgrupo : ''}` : '', 56);
+      y += 16;
+      doc.rect(X0, boxTop - 3, Wt, y - boxTop + 1).stroke();
 
-    y += 4;
-    doc.moveTo(COL1 + 220, y).lineTo(COL1 + W, y).stroke();
-    y += 4;
-    doc.font('Helvetica-Bold').fontSize(8).text('TOTAL DESCUENTOS', COL1, y);
-    doc.text(formatPesos(liquidation.totalDescuentos), COL1 + 370, y, { width: W - 370, align: 'right' });
-    y += 20;
+      // DATOS DEL EMPLEADO
+      doc.font('Helvetica-Bold').fontSize(7.5).fillColor('#003DA5').text('DATOS DEL EMPLEADO', X0 + 6, y);
+      y += 11;
+      const eTop = y;
+      label(X0 + 6, y, 'Apellidos:', employee.apellido, 48);
+      label(MIDX + 6, y, 'C.I.:', employee.ci, 26);
+      y += 12;
+      label(X0 + 6, y, 'Nombres:', employee.nombre, 48);
+      label(MIDX + 6, y, 'Cargo:', contrato?.cargo || employee.cargo || '', 34);
+      y += 12;
+      label(X0 + 6, y, 'Fecha Ingreso:', ddmmyy(employee.fechaIngreso), 66);
+      label(MIDX + 6, y, 'Sector:', contrato?.sector || '', 34);
+      y += 12;
+      label(X0 + 6, y, 'Nº Contrato:', contrato?.numero != null ? String(contrato.numero) : '', 58);
+      label(MIDX + 6, y, 'Remuneración:', (contrato?.salaryType || employee.salaryType) === 'JORNALERO' ? 'Jornalero' : 'Mensual', 66);
+      y += 12;
+      if (contrato?.regimenHorario) { label(X0 + 6, y, 'Horario:', contrato.regimenHorario, 40); y += 12; }
+      doc.rect(X0, eTop - 3, Wt, y - eTop + 1).stroke();
 
-    // ── Neto ───────────────────────────────────────────────────
-    doc.moveTo(COL1, y).lineTo(COL1 + W, y).lineWidth(2).stroke();
-    doc.lineWidth(1);
-    y += 8;
-    doc.font('Helvetica-Bold').fontSize(11).text('LÍQUIDO A PERCIBIR:', COL1, y);
-    doc.fontSize(11).text(formatPesos(liquidation.liquidoPercibir), COL1 + 370, y, { width: W - 370, align: 'right' });
-    y += 20;
-
-    // Aportes patronales (informativos)
-    const patronal = liquidation.items.filter((i) => i.itemType === ItemType.APORTE_PATRONAL);
-    if (patronal.length > 0) {
-      doc.moveTo(COL1, y).lineTo(COL1 + W, y).dash(3, { space: 3 }).stroke();
-      doc.undash();
-      y += 8;
-      doc.font('Helvetica-Bold').fontSize(7).text('APORTES PATRONALES (informativos — no deducidos del neto)', COL1, y);
+      // ── Dos columnas: HABERES | DESCUENTOS ──────────────────────
+      y += 6;
+      const tblTop = y;
+      const colMid = MIDX;
+      // Cabeceras
+      doc.font('Helvetica-Bold').fontSize(7.5).fillColor('#fff');
+      doc.rect(X0, y, Wt / 2 - 2, 13).fill('#16a34a');
+      doc.rect(colMid, y, Wt / 2, 13).fill('#dc2626');
+      doc.fillColor('#fff').text('HABERES', X0 + 4, y + 3);
+      doc.text('DESCUENTOS', colMid + 4, y + 3);
+      y += 13;
+      // Subcabeceras
+      doc.font('Helvetica-Bold').fontSize(6.5).fillColor('#666');
+      doc.text('Detalle', X0 + 4, y + 2);
+      doc.text('Importe', X0 + 4, y + 2, { width: Wt / 2 - 8, align: 'right' });
+      doc.text('Detalle', colMid + 4, y + 2);
+      doc.text('Importe', colMid + 4, y + 2, { width: Wt / 2 - 8, align: 'right' });
       y += 10;
-      for (const item of patronal) {
-        doc.font('Helvetica').fontSize(7).text(`  ${item.descripcion}`, COL1, y);
-        doc.text(formatPesos(item.amount), COL1 + 370, y, { width: W - 370, align: 'right' });
-        y += 10;
+      const rowsTop = y;
+      doc.font('Helvetica').fontSize(7.5).fillColor('#000');
+      const nFilas = Math.max(habFilas.length, descFilas.length, 1);
+      let yh = y; let yd = y;
+      for (let i = 0; i < nFilas; i++) {
+        const h = habFilas[i]; const d = descFilas[i];
+        if (h) {
+          doc.font('Helvetica').fontSize(7.5).text(h.nombre, X0 + 4, yh, { width: Wt / 2 - 70 });
+          if (h.detalle) doc.fontSize(6).fillColor('#888').text(h.detalle, X0 + 4, yh + 8, { width: Wt / 2 - 70 });
+          doc.fontSize(7.5).fillColor('#000').text(fmt(h.importe), X0 + 4, yh, { width: Wt / 2 - 8, align: 'right' });
+          yh += h.detalle ? 16 : 11;
+        }
+        if (d) {
+          doc.font('Helvetica').fontSize(7.5).fillColor('#000').text(d.nombre, colMid + 4, yd, { width: Wt / 2 - 70 });
+          if (d.detalle) doc.fontSize(6).fillColor('#888').text(d.detalle, colMid + 4, yd + 8, { width: Wt / 2 - 70 });
+          doc.fontSize(7.5).fillColor('#000').text(fmt(d.importe), colMid + 4, yd, { width: Wt / 2 - 8, align: 'right' });
+          yd += d.detalle ? 16 : 11;
+        }
       }
-      doc.font('Helvetica-Bold').fontSize(7).text('TOTAL PATRONAL:', COL1, y);
-      doc.text(formatPesos(liquidation.totalPatronal), COL1 + 370, y, { width: W - 370, align: 'right' });
+      y = Math.max(yh, yd) + 2;
+      // Bordes columnas
+      doc.lineWidth(0.6).strokeColor('#888');
+      doc.rect(X0, tblTop, Wt / 2 - 2, y - tblTop).stroke();
+      doc.rect(colMid, tblTop, Wt / 2, y - tblTop).stroke();
+
+      // Totales
+      doc.font('Helvetica-Bold').fontSize(7.5).fillColor('#000');
+      doc.text(`Total de Haberes:  $ ${fmt(liquidation.totalHaberes)}`, X0 + 4, y + 3, { width: Wt / 2 - 8, align: 'right' });
+      doc.text(`Total de Descuentos:  $ ${fmt(liquidation.totalDescuentos)}`, colMid + 4, y + 3, { width: Wt / 2 - 8, align: 'right' });
+      y += 16;
+
+      // Bloque IRPF + neto
+      doc.font('Helvetica').fontSize(6.5).fillColor('#000');
+      doc.text(`Total Gravado: $ ${fmt(baseAporte)}    ·    Monto computable IRPF: ${fmt(baseAporte)}    ·    Tipo IRPF: adelanto de mes ${MESES[liquidation.month]}-${String(liquidation.year).slice(-2)}`, X0 + 4, y, { width: Wt - 8 });
+      y += 14;
+
+      // Líquido a cobrar
+      doc.lineWidth(1).strokeColor('#003DA5').rect(X0, y, Wt, 30).stroke();
+      doc.font('Helvetica').fontSize(7).fillColor('#000');
+      doc.text(`Total neto: $ ${fmt(liqCent)}`, X0 + 8, y + 4);
+      doc.text(`Redondeo: $ ${fmt(redondeoCent)}`, X0 + 8, y + 16);
+      doc.font('Helvetica-Bold').fontSize(13).fillColor('#003DA5');
+      doc.text(`Líquido a Cobrar:  $ ${fmt(BigInt(liqEnteroPesos) * 100n)}`, MIDX, y + 8, { width: Wt / 2 - 8, align: 'right' });
+      y += 36;
+
+      // Texto legal + importe en letras
+      doc.font('Helvetica').fontSize(6.3).fillColor('#333');
+      doc.text(`Recibí el importe de Pesos Uruguayos ${letras} y copia de esta liquidación, no teniendo nada que reclamar por ningún concepto.`, X0 + 4, y, { width: Wt - 8 });
+      y += 16;
+      doc.text('La empresa declara haber efectuado los aportes de seguridad social y DGI correspondientes a los haberes del mes anterior según decreto 278/017. Conforme Res. 192 del MTSS de 11/2017, el Nº de transacción se encuentra consignado en el documento emitido por la institución de intermediación financiera.', X0 + 4, y, { width: Wt - 8 });
+      y += 24;
+
+      // Firma
+      doc.lineWidth(0.6).strokeColor('#000').moveTo(X1 - 180, y + 6).lineTo(X1 - 24, y + 6).stroke();
+      doc.font('Helvetica').fontSize(7).fillColor('#000').text('Firma del empleado', X1 - 180, y + 8, { width: 156, align: 'center' });
+
+      return y + 20;
     }
 
-    // ── Footer ─────────────────────────────────────────────────
-    doc.fontSize(7).font('Helvetica').text(
-      `Liquidación ID: ${liquidation.id} | Generado: ${new Date().toLocaleString('es-UY')}`,
-      COL1, doc.page.height - 50,
-      { align: 'center', width: W },
-    );
-
-    // Firma
-    y = doc.page.height - 110;
-    doc.moveTo(COL1 + 20, y).lineTo(COL1 + 140, y).stroke();
-    doc.moveTo(COL1 + W - 140, y).lineTo(COL1 + W - 20, y).stroke();
-    y += 5;
-    doc.fontSize(7).text('Firma Empresa', COL1 + 20, y, { width: 120, align: 'center' });
-    doc.text('Firma Empleado', COL1 + W - 140, y, { width: 120, align: 'center' });
+    // Dos copias en la misma hoja
+    const yAfter1 = drawCopia(28, 'Original Empresa');
+    // Separador punteado
+    doc.lineWidth(0.5).strokeColor('#bbb').dash(3, { space: 3 }).moveTo(X0, yAfter1 + 6).lineTo(X1, yAfter1 + 6).stroke().undash();
+    drawCopia(yAfter1 + 16, 'Copia Empleado');
 
     doc.end();
   });
