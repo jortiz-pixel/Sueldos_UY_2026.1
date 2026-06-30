@@ -267,7 +267,8 @@ export default function ConceptsPage() {
 
       {/* Conceptos del sistema (núcleo legal, calculados por el motor) */}
       <div>
-        <h2 className="text-sm font-semibold text-gray-700 mb-2">Del sistema <span className="font-normal text-gray-400">(calculados por el motor)</span></h2>
+        <h2 className="text-sm font-semibold text-gray-700 mb-1">Del sistema <span className="font-normal text-gray-400">(calculados por el motor)</span></h2>
+        <p className="text-xs text-gray-400 mb-2">Son el núcleo legal: no se editan ni se borran (cambiarlos no cambiaría el cálculo). Usá <b>Duplicar</b> para crear tu propia versión editable, o <b>+ Nuevo Concepto</b> para uno nuevo (esos sí se editan y eliminan).</p>
         <div className="card overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">

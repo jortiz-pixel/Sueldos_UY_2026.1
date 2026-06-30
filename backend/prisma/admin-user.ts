@@ -42,6 +42,7 @@ Uso: npx tsx prisma/admin-user.ts <comando> [args]
   create-admin <email> <password> <nombre> <apellido>
   promote <email>
   activate <email>
+  rename <email> <nombre> <apellido>
 `);
   process.exit(1);
 }
@@ -102,6 +103,14 @@ async function activate(email: string) {
   console.log(`✅ ${email} reactivado.`);
 }
 
+async function rename(email: string, nombre: string, apellido: string) {
+  if (!email || !nombre || !apellido) uso();
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user) { console.error(`❌ No existe un usuario con email "${email}".`); process.exit(1); }
+  await prisma.user.update({ where: { email }, data: { nombre, apellido } });
+  console.log(`✅ ${email} ahora se llama ${nombre} ${apellido}.`);
+}
+
 async function main() {
   const [comando, ...args] = process.argv.slice(2);
   switch (comando) {
@@ -110,6 +119,7 @@ async function main() {
     case 'create-admin': await createAdmin(args[0], args[1], args[2], args[3]); break;
     case 'promote': await promote(args[0]); break;
     case 'activate': await activate(args[0]); break;
+    case 'rename': await rename(args[0], args[1], args[2]); break;
     default: uso();
   }
 }
