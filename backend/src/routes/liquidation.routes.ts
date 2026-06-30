@@ -404,21 +404,21 @@ async function recalcularLiquidacion(liquidationId: string): Promise<void> {
     params,
   });
 
-  const updates: Array<{ concepto: string; amount: bigint; rate?: number }> = [
-    { concepto: 'BPS_JUBILATORIO', amount: obreros.jubilatorio, rate: params.bpsJubilatorioRate },
-    { concepto: 'FONASA', amount: obreros.fonasaTotal },
-    { concepto: 'FRL', amount: obreros.frl, rate: params.frlObreroRate },
-    { concepto: 'BPS_IVS_PATRONAL', amount: patronales.bpsIvs, rate: params.bpsIvsPatronalRate },
-    { concepto: 'FONASA_PATRONAL', amount: patronales.fonasa },
-    { concepto: 'FRL_PATRONAL', amount: patronales.frl, rate: params.frlPatronalRate },
-    { concepto: 'BSE', amount: patronales.bse, rate: bseRate },
+  const updates: Array<{ concepto: string; amount: bigint; rate?: number; descripcion: string }> = [
+    { concepto: 'BPS_JUBILATORIO', amount: obreros.jubilatorio, rate: params.bpsJubilatorioRate, descripcion: 'BPS Jubilatorio' },
+    { concepto: 'FONASA', amount: obreros.fonasaTotal, descripcion: 'FONASA' },
+    { concepto: 'FRL', amount: obreros.frl, rate: params.frlObreroRate, descripcion: 'Fondo de Reconversión Laboral' },
+    { concepto: 'BPS_IVS_PATRONAL', amount: patronales.bpsIvs, rate: params.bpsIvsPatronalRate, descripcion: 'BPS IVS Patronal' },
+    { concepto: 'FONASA_PATRONAL', amount: patronales.fonasa, descripcion: 'FONASA Patronal' },
+    { concepto: 'FRL_PATRONAL', amount: patronales.frl, rate: params.frlPatronalRate, descripcion: 'Fondo de Reconversión Laboral (Patronal)' },
+    { concepto: 'BSE', amount: patronales.bse, rate: bseRate, descripcion: 'BSE — Seguro de Accidentes del Trabajo' },
   ];
   for (const u of updates) {
     const item = liq.items.find((i) => i.concepto === u.concepto);
     if (item) {
       await prisma.payrollItem.update({
         where: { id: item.id },
-        data: { baseCalculo: baseGravada, amount: u.amount, ...(u.rate !== undefined ? { rate: u.rate } : {}) },
+        data: { baseCalculo: baseGravada, amount: u.amount, descripcion: u.descripcion, ...(u.rate !== undefined ? { rate: u.rate } : {}) },
       });
     }
   }

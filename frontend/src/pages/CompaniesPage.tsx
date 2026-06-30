@@ -139,6 +139,8 @@ export default function CompaniesPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['companies'] });
+      // Refrescar el selector de empresa (usa 'my-companies') para que tome el nombre nuevo.
+      queryClient.invalidateQueries({ queryKey: ['my-companies'] });
       setModalOpen(false);
     },
     onError: (err: unknown) => {
