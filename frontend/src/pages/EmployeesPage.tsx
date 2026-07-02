@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { Plus, Search, UserCheck, UserX, Eye, Pencil, X } from 'lucide-react';
-import { employeesApi } from '../services/api';
+import { Plus, Search, UserCheck, UserX, Eye, Pencil, X, ClipboardCheck, AlertTriangle } from 'lucide-react';
+import { employeesApi, nominaApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
 import { Employee, formatCedula } from '../types';
@@ -29,6 +29,12 @@ export default function EmployeesPage() {
       limit: 20,
       includeInactive,
     }),
+    enabled: !!companyId,
+  });
+
+  const { data: checklist } = useQuery({
+    queryKey: ['nomina-checklist', companyId],
+    queryFn: () => nominaApi.checklist(companyId),
     enabled: !!companyId,
   });
 
@@ -84,6 +90,36 @@ export default function EmployeesPage() {
           Incluir inactivos
         </label>
       </div>
+
+      {checklist && (checklist.totalIncompletas > 0 || checklist.empresa.faltantes.length > 0) ? (
+        <div className="card p-4 border-warn/40 bg-warn-bg/40">
+          <div className="flex items-start gap-3">
+            <AlertTriangle size={18} className="text-warn shrink-0 mt-0.5" />
+            <div className="text-sm text-ink-muted space-y-1">
+              <p className="font-semibold text-ink">Datos pendientes para la nómina BPS</p>
+              {checklist.empresa.faltantes.length > 0 && (
+                <p>Empresa: falta {checklist.empresa.faltantes.join(', ')}.</p>
+              )}
+              {checklist.totalIncompletas > 0 && (
+                <ul className="list-disc pl-4 space-y-0.5">
+                  {checklist.personas.slice(0, 5).map((p) => (
+                    <li key={p.id}>
+                      <Link to={`/employees/${p.id}`} className="text-brand-600 hover:underline">{p.apellido}, {p.nombre}</Link>
+                      {': '}{p.faltantes.join(', ')}
+                    </li>
+                  ))}
+                  {checklist.totalIncompletas > 5 && <li>… y {checklist.totalIncompletas - 5} persona(s) más</li>}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : checklist ? (
+        <div className="card p-3 flex items-center gap-2 text-sm text-ok border-ok/30 bg-ok-bg/40">
+          <ClipboardCheck size={16} className="shrink-0" />
+          Datos completos: esta empresa está lista para generar la nómina BPS ({checklist.totalPersonas} persona(s)).
+        </div>
+      ) : null}
 
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">

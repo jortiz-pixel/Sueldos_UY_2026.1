@@ -14,8 +14,12 @@ interface EmployeeForm {
   ci: string;
   employeeNumber?: number | string;
   nombre: string;
+  nombre2?: string;
   apellido: string;
+  apellido2?: string;
   fechaNacimiento?: string;
+  sexo?: '' | 'M' | 'F';
+  nacionalidad?: number | string;
   estadoCivil: EstadoCivil;
   email?: string;
   telefono?: string;
@@ -38,7 +42,7 @@ interface EmployeeForm {
 }
 
 const emptyForm: EmployeeForm = {
-  ci: '', nombre: '', apellido: '', fechaNacimiento: '', estadoCivil: 'SOLTERO',
+  ci: '', nombre: '', nombre2: '', apellido: '', apellido2: '', fechaNacimiento: '', sexo: '', nacionalidad: 1, estadoCivil: 'SOLTERO',
   email: '', telefono: '', domicilio: '',
   conyugeACargo: false, hijosACargo: 0, hijosDiscapacitados: 0,
   irpfMetodo: 'PROYECCION', fonasaFamilia: false, observaciones: '',
@@ -77,7 +81,9 @@ export default function EmployeeFormPage() {
       reset({
         ...emptyForm,
         ci: employee.ci, employeeNumber: employee.employeeNumber ?? '', nombre: employee.nombre, apellido: employee.apellido,
+        nombre2: employee.nombre2 ?? '', apellido2: employee.apellido2 ?? '',
         fechaNacimiento: employee.fechaNacimiento ? employee.fechaNacimiento.slice(0, 10) : '',
+        sexo: employee.sexo ?? '', nacionalidad: employee.nacionalidad ?? 1,
         estadoCivil: employee.estadoCivil,
         email: employee.email ?? '', telefono: employee.telefono ?? '', domicilio: employee.domicilio ?? '',
         conyugeACargo: employee.conyugeACargo, hijosACargo: employee.hijosACargo,
@@ -94,7 +100,10 @@ export default function EmployeeFormPage() {
         ci: data.ci,
         employeeNumber: data.employeeNumber !== '' && data.employeeNumber != null ? Number(data.employeeNumber) : undefined,
         nombre: data.nombre, apellido: data.apellido,
+        nombre2: data.nombre2 || null, apellido2: data.apellido2 || null,
         fechaNacimiento: data.fechaNacimiento ? new Date(data.fechaNacimiento).toISOString() : undefined,
+        sexo: data.sexo || null,
+        nacionalidad: data.nacionalidad ? Number(data.nacionalidad) : undefined,
         estadoCivil: data.estadoCivil,
         email: data.email || undefined, telefono: data.telefono || undefined, domicilio: data.domicilio || undefined,
         conyugeACargo: data.conyugeACargo, hijosACargo: Number(data.hijosACargo),
@@ -173,18 +182,42 @@ export default function EmployeeFormPage() {
                 : (ciValue && validarCedula(ciValue) && <p className="text-xs text-green-600 mt-1">{formatCedula(ciValue)}</p>)}
             </div>
             <div>
-              <label className="form-label">Nombre *</label>
+              <label className="form-label">Primer nombre *</label>
               <input {...register('nombre', { required: 'Requerido' })} className="form-input" />
               {errors.nombre && <p className="form-error">{errors.nombre.message}</p>}
             </div>
             <div>
-              <label className="form-label">Apellido *</label>
+              <label className="form-label">Segundo nombre</label>
+              <input {...register('nombre2')} className="form-input" placeholder="(BPS)" />
+            </div>
+            <div>
+              <label className="form-label">Primer apellido *</label>
               <input {...register('apellido', { required: 'Requerido' })} className="form-input" />
               {errors.apellido && <p className="form-error">{errors.apellido.message}</p>}
             </div>
             <div>
+              <label className="form-label">Segundo apellido</label>
+              <input {...register('apellido2')} className="form-input" placeholder="(BPS)" />
+            </div>
+            <div>
               <label className="form-label">Fecha de nacimiento</label>
               <input {...register('fechaNacimiento')} type="date" className="form-input" />
+            </div>
+            <div>
+              <label className="form-label">Sexo</label>
+              <select {...register('sexo')} className="form-input">
+                <option value="">— Seleccionar —</option>
+                <option value="M">Masculino</option>
+                <option value="F">Femenino</option>
+              </select>
+            </div>
+            <div>
+              <label className="form-label">Nacionalidad (BPS)</label>
+              <select {...register('nacionalidad')} className="form-input">
+                <option value={1}>1 — Uruguayo/a (ciudadano natural)</option>
+                <option value={2}>2 — Ciudadano/a legal</option>
+                <option value={3}>3 — Extranjero/a</option>
+              </select>
             </div>
             <div>
               <label className="form-label">Estado civil</label>

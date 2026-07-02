@@ -186,6 +186,29 @@ export const catalogsApi = {
   tiposRemuneracion: () => api.get<CodigoBps[]>('/catalogs/tipos-remuneracion').then((r) => r.data),
   segurosSalud: () => api.get<CodigoBps[]>('/catalogs/seguros-salud').then((r) => r.data),
   exoneracionesAporte: () => api.get<CodigoBps[]>('/catalogs/exoneraciones-aporte').then((r) => r.data),
+  computosEspeciales: () => api.get<CodigoBps[]>('/catalogs/computos-especiales').then((r) => r.data),
+  conceptosBps: () => api.get<CodigoBps[]>('/catalogs/conceptos-bps').then((r) => r.data),
+};
+
+export interface NominaChecklist {
+  empresa: { id: string; razonSocial: string; faltantes: string[] };
+  personas: Array<{
+    id: string;
+    employeeNumber: number | null;
+    ci: string;
+    nombre: string;
+    apellido: string;
+    contratoId: string | null;
+    faltantes: string[];
+  }>;
+  totalPersonas: number;
+  totalIncompletas: number;
+  listaParaNomina: boolean;
+}
+
+export const nominaApi = {
+  checklist: (companyId: string) =>
+    api.get<NominaChecklist>('/nomina/checklist', { params: { companyId } }).then((r) => r.data),
 };
 
 export const conceptsApi = {

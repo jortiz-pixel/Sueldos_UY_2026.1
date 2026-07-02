@@ -18,6 +18,7 @@ import { membershipsRouter, entitlementsRouter } from './routes/memberships.rout
 import { attachmentsRouter } from './routes/attachments.routes';
 import { calendarRouter } from './routes/calendar.routes';
 import { importRouter } from './routes/import.routes';
+import { nominaRouter } from './routes/nomina.routes';
 import { errorHandler } from './middleware/errorHandler';
 import { logger } from './utils/logger';
 
@@ -61,6 +62,7 @@ app.use('/api/liquidation', liquidationRouter);
 app.use('/api/parameters', parametersRouter);
 app.use('/api/reports', reportsRouter);
 app.use('/api/catalogs', catalogsRouter);
+app.use('/api/nomina', nominaRouter);
 app.use('/api/concepts', conceptsRouter);
 app.use('/api/memberships', membershipsRouter);
 app.use('/api/entitlements', entitlementsRouter);

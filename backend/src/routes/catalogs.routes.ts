@@ -80,3 +80,19 @@ catalogsRouter.get('/exoneraciones-aporte', authenticate, async (_req: Request, 
     res.json(data);
   } catch (err) { next(err); }
 });
+
+// GET /api/catalogs/computos-especiales  (BPS Tabla 12)
+catalogsRouter.get('/computos-especiales', authenticate, async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const data = await prisma.computoEspecial.findMany({ orderBy: { codigo: 'asc' } });
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+// GET /api/catalogs/conceptos-bps  (BPS Tabla 15)
+catalogsRouter.get('/conceptos-bps', authenticate, async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const data = await prisma.conceptoBps.findMany({ orderBy: { codigo: 'asc' } });
+    res.json(data);
+  } catch (err) { next(err); }
+});

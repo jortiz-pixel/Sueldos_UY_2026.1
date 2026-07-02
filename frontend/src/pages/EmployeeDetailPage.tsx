@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Calendar, User, DollarSign, FileText, Briefcase, Plus, X, AlertCircle, UserMinus } from 'lucide-react';
 import { useForm } from 'react-hook-form';
-import { employeesApi, contractsApi, companiesApi } from '../services/api';
+import { employeesApi, contractsApi, companiesApi, catalogsApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
 import AttachmentsPanel from '../components/AttachmentsPanel';
@@ -34,6 +34,12 @@ interface ContractForm {
   horasDia?: number;
   regimenHorario?: string;
   sucursal?: string;
+  // Historia Laboral BPS
+  vinculoFuncional?: string;
+  seguroSalud?: string;
+  computosEspeciales?: string;
+  exoneracionAporte?: string;
+  horasSemanales?: number;
   observacion?: string;
 }
 
@@ -52,6 +58,10 @@ export default function EmployeeDetailPage() {
   });
 
   const { data: companies } = useQuery({ queryKey: ['companies'], queryFn: () => companiesApi.list() });
+  const { data: vinculos } = useQuery({ queryKey: ['cat-vinculos'], queryFn: () => catalogsApi.vinculosFuncionales(), staleTime: Infinity });
+  const { data: segurosSalud } = useQuery({ queryKey: ['cat-seguros-salud'], queryFn: () => catalogsApi.segurosSalud(), staleTime: Infinity });
+  const { data: computos } = useQuery({ queryKey: ['cat-computos'], queryFn: () => catalogsApi.computosEspeciales(), staleTime: Infinity });
+  const { data: exoneraciones } = useQuery({ queryKey: ['cat-exoneraciones'], queryFn: () => catalogsApi.exoneracionesAporte(), staleTime: Infinity });
 
   const { data: contratos } = useQuery({
     queryKey: ['employee-contracts', id],
@@ -93,6 +103,11 @@ export default function EmployeeDetailPage() {
         horasDia: data.horasDia ? Number(data.horasDia) : undefined,
         regimenHorario: data.regimenHorario || undefined,
         sucursal: data.sucursal || undefined,
+        vinculoFuncional: data.vinculoFuncional ? Number(data.vinculoFuncional) : undefined,
+        seguroSalud: data.seguroSalud ? Number(data.seguroSalud) : undefined,
+        computosEspeciales: data.computosEspeciales ? Number(data.computosEspeciales) : undefined,
+        exoneracionAporte: data.exoneracionAporte ? Number(data.exoneracionAporte) : undefined,
+        horasSemanales: data.horasSemanales ? Number(data.horasSemanales) : undefined,
         observacion: data.observacion || undefined,
       };
       return contractsApi.create(id!, payload);
@@ -160,6 +175,11 @@ export default function EmployeeDetailPage() {
       nivel: employee?.nivel ?? '',
       salarioNominalPesos: employee ? Number(employee.salarioNominal) / 100 : 0,
       jornalPesos: employee?.jornal ? Number(employee.jornal) / 100 : undefined,
+      vinculoFuncional: '12',
+      seguroSalud: '',
+      computosEspeciales: '99',
+      exoneracionAporte: '9',
+      horasSemanales: 44,
     });
     setModalOpen(true);
   };
@@ -198,7 +218,7 @@ export default function EmployeeDetailPage() {
             Datos Personales
           </div>
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Nombre completo" value={`${employee.nombre} ${employee.apellido}`} />
+            <Field label="Nombre completo" value={[employee.nombre, employee.nombre2, employee.apellido, employee.apellido2].filter(Boolean).join(' ')} />
             <Field label="Cédula de Identidad" value={employee.ci} />
             <Field label="Estado civil" value={employee.estadoCivil} />
             <Field label="Email" value={employee.email} />
@@ -292,7 +312,14 @@ export default function EmployeeDetailPage() {
                   <td className="table-cell text-xs">
                     {fmtFecha(c.vigenciaDesde)} — {c.vigenciaHasta ? fmtFecha(c.vigenciaHasta) : 'Vigente'}
                   </td>
-                  <td className="table-cell text-xs">{c.cargo || '-'}</td>
+                  <td className="table-cell text-xs">
+                    {c.cargo || '-'}
+                    {c.vinculoFuncional != null && (
+                      <span className="block text-[10px] text-ink-subtle">
+                        BPS: VF {c.vinculoFuncional} · SS {c.seguroSalud ?? '—'} · {c.horasSemanales ?? '—'} hs/sem
+                      </span>
+                    )}
+                  </td>
                   <td className="table-cell text-right font-mono text-xs">
                     {c.salaryType === 'MENSUAL' ? formatPesos(c.salarioNominal) : (c.jornal ? `${formatPesos(c.jornal)}/día` : formatPesos(c.salarioNominal))}
                   </td>
@@ -440,6 +467,43 @@ export default function EmployeeDetailPage() {
                 <div>
                   <label className="form-label">Sucursal</label>
                   <input {...register('sucursal')} className="form-input" />
+                </div>
+                <div className="col-span-2 pt-2 mt-1 border-t border-hairline">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-ink-subtle mb-3">Historia Laboral — BPS</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="form-label">Vínculo funcional (Tabla 3)</label>
+                      <select {...register('vinculoFuncional')} className="form-input">
+                        {vinculos?.map((v) => <option key={v.codigo} value={v.codigo}>{v.codigo} — {v.nombre}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="form-label">Seguro de salud (Tabla 8)</label>
+                      <select {...register('seguroSalud')} className="form-input">
+                        <option value="">— Según hijos/cónyuge a cargo —</option>
+                        {segurosSalud?.map((v) => <option key={v.codigo} value={v.codigo}>{v.codigo} — {v.nombre}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="form-label">Horas semanales</label>
+                      <select {...register('horasSemanales', { valueAsNumber: true })} className="form-input">
+                        {[5, 10, 15, 20, 24, 25, 30, 36, 40, 44, 48].map((h) => <option key={h} value={h}>{h}</option>)}
+                        <option value={99}>99 — No aplica</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="form-label">Cómputos especiales (Tabla 12)</label>
+                      <select {...register('computosEspeciales')} className="form-input">
+                        {computos?.map((v) => <option key={v.codigo} value={v.codigo}>{v.codigo} — {v.nombre}</option>)}
+                      </select>
+                    </div>
+                    <div className="col-span-2">
+                      <label className="form-label">Exoneración de aportes (Tabla 10)</label>
+                      <select {...register('exoneracionAporte')} className="form-input">
+                        {exoneraciones?.map((v) => <option key={v.codigo} value={v.codigo}>{v.codigo} — {v.nombre}</option>)}
+                      </select>
+                    </div>
+                  </div>
                 </div>
                 <div className="col-span-2">
                   <label className="form-label">Observación</label>

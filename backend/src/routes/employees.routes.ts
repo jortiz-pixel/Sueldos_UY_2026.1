@@ -14,8 +14,13 @@ const personFields = {
   ci: z.string().min(1),
   employeeNumber: z.number().int().positive().optional(),
   nombre: z.string().min(1),
+  nombre2: z.string().optional().nullable(),
   apellido: z.string().min(1),
+  apellido2: z.string().optional().nullable(),
   fechaNacimiento: z.string().optional(),
+  sexo: z.enum(['M', 'F']).optional().nullable(),
+  nacionalidad: z.number().int().min(1).max(3).optional(),
+  tipoDocumento: z.string().optional(),
   estadoCivil: z.nativeEnum(EstadoCivil).default(EstadoCivil.SOLTERO),
   domicilio: z.string().optional(),
   localidad: z.string().optional(),
@@ -52,6 +57,13 @@ const contratoFields = {
   moneda: z.string().default('UYU'),
   grupoActividadNum: z.number().int().optional().nullable(),
   subgrupo: z.string().optional(),
+  // Historia Laboral BPS
+  vinculoFuncional: z.number().int().optional().nullable(),
+  seguroSalud: z.number().int().optional().nullable(),
+  computosEspeciales: z.number().int().optional().nullable(),
+  exoneracionAporte: z.number().int().optional().nullable(),
+  acumulacionLaboral: z.number().int().optional().nullable(),
+  horasSemanales: z.number().int().min(1).max(99).optional().nullable(),
   observacion: z.string().optional(),
 };
 
@@ -73,6 +85,14 @@ function serializeContrato(c: Contrato) {
     salarioNominal: c.salarioNominal.toString(),
     jornal: c.jornal != null ? c.jornal.toString() : null,
   };
+}
+
+// Seguro de salud BPS (Tabla 8) según la situación FONASA de la persona:
+// 1 con hijos sin cónyuge · 15 sin hijos sin cónyuge · 16 con hijos con cónyuge ·
+// 17 sin hijos con cónyuge.
+function seguroSaludPorDefecto(hijosACargo: number, conyugeACargo: boolean): number {
+  if (hijosACargo > 0) return conyugeACargo ? 16 : 1;
+  return conyugeACargo ? 17 : 15;
 }
 
 async function checkCompanyAccess(req: Request, companyId: string | null): Promise<void> {
@@ -217,8 +237,13 @@ employeesRouter.post('/', authenticate, requireRole(UserRole.ADMIN, UserRole.OPE
         ci: data.ci,
         employeeNumber,
         nombre: data.nombre,
+        nombre2: data.nombre2 ?? undefined,
         apellido: data.apellido,
+        apellido2: data.apellido2 ?? undefined,
         fechaNacimiento: data.fechaNacimiento ? new Date(data.fechaNacimiento) : undefined,
+        sexo: data.sexo ?? undefined,
+        nacionalidad: data.nacionalidad,
+        tipoDocumento: data.tipoDocumento,
         estadoCivil: data.estadoCivil,
         domicilio: data.domicilio,
         localidad: data.localidad,
@@ -267,6 +292,13 @@ employeesRouter.post('/', authenticate, requireRole(UserRole.ADMIN, UserRole.OPE
         moneda: c.moneda,
         grupoActividadNum: c.grupoActividadNum ?? undefined,
         subgrupo: c.subgrupo,
+        // Historia Laboral BPS: lo indicado o los defaults típicos.
+        vinculoFuncional: c.vinculoFuncional ?? 12,
+        seguroSalud: c.seguroSalud ?? seguroSaludPorDefecto(data.hijosACargo, data.conyugeACargo),
+        computosEspeciales: c.computosEspeciales ?? 99,
+        exoneracionAporte: c.exoneracionAporte ?? 9,
+        acumulacionLaboral: c.acumulacionLaboral ?? 1,
+        horasSemanales: c.horasSemanales ?? undefined,
         observacion: c.observacion,
       },
     });
@@ -404,6 +436,13 @@ employeesRouter.post('/:id/contracts', authenticate, requireRole(UserRole.ADMIN,
         moneda: data.moneda,
         grupoActividadNum: data.grupoActividadNum ?? undefined,
         subgrupo: data.subgrupo,
+        // Historia Laboral BPS: lo indicado o los defaults típicos.
+        vinculoFuncional: data.vinculoFuncional ?? 12,
+        seguroSalud: data.seguroSalud ?? seguroSaludPorDefecto(employee.hijosACargo, employee.conyugeACargo),
+        computosEspeciales: data.computosEspeciales ?? 99,
+        exoneracionAporte: data.exoneracionAporte ?? 9,
+        acumulacionLaboral: data.acumulacionLaboral ?? 1,
+        horasSemanales: data.horasSemanales ?? undefined,
         observacion: data.observacion,
       },
     });

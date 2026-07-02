@@ -68,8 +68,13 @@ export interface Employee {
   employeeNumber?: number | null;
   ci: string;
   nombre: string;
+  nombre2?: string | null;
   apellido: string;
+  apellido2?: string | null;
   fechaNacimiento?: string;
+  sexo?: 'M' | 'F' | null;
+  nacionalidad?: number;
+  tipoDocumento?: string;
   estadoCivil: EstadoCivil;
   domicilio?: string;
   email?: string;
@@ -117,6 +122,12 @@ export interface Contrato {
   moneda: string;
   grupoActividadNum?: number | null;
   subgrupo?: string;
+  vinculoFuncional?: number | null;
+  seguroSalud?: number | null;
+  computosEspeciales?: number | null;
+  exoneracionAporte?: number | null;
+  acumulacionLaboral?: number | null;
+  horasSemanales?: number | null;
   observacion?: string;
   activo: boolean;
 }

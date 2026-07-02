@@ -46,7 +46,9 @@ interface CompanyForPdf {
 interface EmployeeForPdf {
   ci: string;
   nombre: string;
+  nombre2?: string | null;
   apellido: string;
+  apellido2?: string | null;
   cargo: string | null;
   categoria: string | null;
   fechaIngreso: Date;
@@ -229,10 +231,10 @@ export function generateReciboPDF(
       doc.font('Helvetica-Bold').fontSize(7.5).fillColor(PRIMARY).text('DATOS DEL EMPLEADO', X0 + 6, y);
       y += 11;
       const eTop = y;
-      label(X0 + 6, y, 'Apellidos:', employee.apellido, 48);
+      label(X0 + 6, y, 'Apellidos:', [employee.apellido, employee.apellido2].filter(Boolean).join(' '), 48);
       label(MIDX + 6, y, 'C.I.:', employee.ci, 26);
       y += 12;
-      label(X0 + 6, y, 'Nombres:', employee.nombre, 48);
+      label(X0 + 6, y, 'Nombres:', [employee.nombre, employee.nombre2].filter(Boolean).join(' '), 48);
       label(MIDX + 6, y, 'Cargo:', contrato?.cargo || employee.cargo || '', 34);
       y += 12;
       label(X0 + 6, y, 'Fecha Ingreso:', ddmmyy(employee.fechaIngreso), 66);
