@@ -120,6 +120,27 @@ nominaRouter.get('/rectificativa/archivo', authenticate, async (req: Request, re
   } catch (err) { next(err); }
 });
 
+// GET /api/nomina/declaraciones?companyId=  → última declaración presentada + historial
+nominaRouter.get('/declaraciones', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const companyId = String(req.query.companyId ?? '');
+    if (!companyId) throw new AppError(400, 'companyId requerido');
+    await assertCompanyAccess(req, companyId);
+    const declaraciones = await prisma.nominaDeclaracion.findMany({
+      where: { companyId },
+      orderBy: { createdAt: 'desc' },
+      take: 6,
+      select: { id: true, year: true, month: true, tipo: true, filename: true, montoTotal: true, createdAt: true },
+    });
+    res.json({
+      ultima: declaraciones[0]
+        ? { ...declaraciones[0], montoTotal: declaraciones[0].montoTotal.toString() }
+        : null,
+      historial: declaraciones.map((d) => ({ ...d, montoTotal: d.montoTotal.toString() })),
+    });
+  } catch (err) { next(err); }
+});
+
 // GET /api/nomina/checklist?companyId=...
 // Valida empresa, personas y contratos contra los datos que exige la nominada.
 nominaRouter.get('/checklist', authenticate, async (req: Request, res: Response, next: NextFunction) => {

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { Link } from 'react-router-dom';
-import { Eye, Plus, X, AlertCircle, Pencil } from 'lucide-react';
+import { Eye, Plus, X, AlertCircle, Pencil, Printer } from 'lucide-react';
 import { contractsApi, catalogsApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
@@ -30,6 +30,19 @@ interface ContractForm {
   exoneracionAporte?: string;
   horasSemanales?: number;
   observacion?: string;
+}
+
+// Abre el contrato de trabajo A PRUEBA (90 días, rescindible sin IPD) en una
+// pestaña nueva, listo para imprimir.
+async function imprimirContratoPrueba(employeeId: string, contractId: string) {
+  try {
+    const blob = await contractsApi.documento(employeeId, contractId, true);
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch {
+    alert('No se pudo generar el contrato a prueba.');
+  }
 }
 
 export default function ContractsPage() {
@@ -201,6 +214,13 @@ export default function ContractsPage() {
                       {isOperator && (
                         <button onClick={() => openEdit(c as ContratoRow)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg inline-flex" title="Editar contrato"><Pencil size={15} /></button>
                       )}
+                      <button
+                        onClick={() => imprimirContratoPrueba(c.employee.id, c.id)}
+                        className="p-1.5 text-gray-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg inline-flex"
+                        title="Imprimir contrato a prueba (90 días — rescindible sin IPD)"
+                      >
+                        <Printer size={15} />
+                      </button>
                       <Link to={`/employees/${c.employee.id}`} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg inline-flex" title="Ver persona"><Eye size={15} /></Link>
                     </div>
                   </td>

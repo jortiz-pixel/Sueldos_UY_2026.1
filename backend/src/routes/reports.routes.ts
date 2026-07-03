@@ -375,3 +375,34 @@ reportsRouter.get('/costo-personal', authenticate, async (req: Request, res: Res
     });
   } catch (err) { next(err); }
 });
+
+// GET /api/reports/acumulado-anual?companyId=&year=
+// Acumulado del año a la fecha (liquidaciones confirmadas de todos los períodos).
+reportsRouter.get('/acumulado-anual', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const companyId = (req.query.companyId as string) || req.user!.companyId;
+    if (!companyId) throw new AppError(400, 'companyId requerido');
+    await assertCompanyAccess(req, companyId);
+    const year = parseInt(req.query.year as string) || new Date().getFullYear();
+
+    const liqs = await prisma.liquidation.findMany({
+      where: {
+        status: LiquidationStatus.CONFIRMADO,
+        period: { companyId, year },
+      },
+      include: { items: true },
+    });
+
+    const resumen = resumenPagos(liqs as unknown as LiqConItems[]);
+    const haberes = liqs.reduce((s, l) => s + l.totalHaberes, 0n);
+    const meses = new Set(liqs.map((l) => l.month)).size;
+
+    res.json({
+      year,
+      meses,
+      liquidaciones: liqs.length,
+      haberes: haberes.toString(),
+      ...resumen,
+    });
+  } catch (err) { next(err); }
+});

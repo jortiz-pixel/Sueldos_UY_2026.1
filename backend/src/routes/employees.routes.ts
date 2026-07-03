@@ -511,9 +511,11 @@ employeesRouter.get('/:id/contracts/:contractId/documento', authenticate, async 
     const company = contrato.company;
     if (!company) throw new AppError(409, 'El contrato no tiene empresa asociada');
 
-    const pdf = await generateContratoPDF(employee, contrato, company);
+    const aPrueba = String(req.query.prueba ?? '') === '1';
+    const pdf = await generateContratoPDF(employee, contrato, company, { aPrueba });
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${contratoFilename(employee, company)}.pdf"`);
+    // inline: el navegador lo abre en una pestaña listo para imprimir.
+    res.setHeader('Content-Disposition', `inline; filename="${contratoFilename(employee, company)}${aPrueba ? ' (a prueba)' : ''}.pdf"`);
     res.send(pdf);
   } catch (err) { next(err); }
 });

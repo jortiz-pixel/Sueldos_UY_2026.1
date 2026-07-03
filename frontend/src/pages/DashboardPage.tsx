@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Users, FileText, DollarSign, TrendingUp, AlertCircle, CalendarDays, Cake, AlertTriangle, UserPlus, UserMinus, X, Landmark, Plane } from 'lucide-react';
-import { employeesApi, liquidationApi, reportsApi, calendarApi, CalendarEventType, contractsApi, catalogsApi } from '../services/api';
+import { employeesApi, liquidationApi, reportsApi, calendarApi, CalendarEventType, contractsApi, catalogsApi, nominaApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useForm } from 'react-hook-form';
 import { useCompany } from '../hooks/useCompany';
@@ -58,6 +58,18 @@ export default function DashboardPage() {
   const { data: eventos } = useQuery({
     queryKey: ['calendar', companyId],
     queryFn: () => calendarApi.upcoming(companyId, 45),
+    enabled: !!companyId,
+  });
+
+  const { data: declaraciones } = useQuery({
+    queryKey: ['nomina-declaraciones', companyId],
+    queryFn: () => nominaApi.declaraciones(companyId),
+    enabled: !!companyId,
+  });
+
+  const { data: acumulado } = useQuery({
+    queryKey: ['acumulado-anual', companyId, year],
+    queryFn: () => reportsApi.acumuladoAnual(companyId, year),
     enabled: !!companyId,
   });
 
@@ -149,6 +161,62 @@ export default function DashboardPage() {
             <p className="text-xs font-medium text-ink-subtle mt-2 group-hover:text-ink-muted transition-colors">{label}</p>
           </Link>
         ))}
+      </div>
+
+      {/* Última declaración BPS + acumulado del año */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="card p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <Landmark size={16} className="text-brand-600" />
+            <h2 className="text-sm font-semibold text-ink">Última declaración BPS</h2>
+          </div>
+          {declaraciones?.ultima ? (
+            <>
+              <p className="text-lg font-bold text-ink figure">
+                {declaraciones.ultima.tipo === 'N' ? 'Nómina' : 'Rectificativa'} {MESES[declaraciones.ultima.month]} {declaraciones.ultima.year}
+              </p>
+              <p className="text-sm text-ink-muted mt-1">
+                Monto imponible: <span className="figure font-semibold">{formatPesos(declaraciones.ultima.montoTotal)}</span>
+              </p>
+              <p className="text-xs text-ink-subtle mt-1">
+                Generada el {new Date(declaraciones.ultima.createdAt).toLocaleString('es-UY')} · <span className="font-mono">{declaraciones.ultima.filename}</span>
+              </p>
+              {declaraciones.historial.length > 1 && (
+                <div className="mt-3 pt-3 border-t border-hairline space-y-1">
+                  {declaraciones.historial.slice(1, 4).map((d) => (
+                    <p key={d.id} className="text-xs text-ink-subtle flex justify-between">
+                      <span>{d.tipo} · {MESES[d.month]} {d.year}</span>
+                      <span className="figure">{formatPesos(d.montoTotal)}</span>
+                    </p>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="text-sm text-ink-subtle">
+              Todavía no se generó ninguna declaración. <Link to="/nomina" className="text-brand-600 hover:underline">Ir a Nómina BPS</Link>
+            </p>
+          )}
+        </div>
+
+        <div className="card p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <TrendingUp size={16} className="text-brand-600" />
+            <h2 className="text-sm font-semibold text-ink">Acumulado {year}</h2>
+          </div>
+          {acumulado && acumulado.liquidaciones > 0 ? (
+            <div className="space-y-1.5 text-sm">
+              <p className="flex justify-between"><span className="text-ink-muted">Haberes liquidados</span><span className="figure font-semibold text-ink">{formatPesos(acumulado.haberes)}</span></p>
+              <p className="flex justify-between"><span className="text-ink-muted">Líquidos pagados</span><span className="figure">{formatPesos(acumulado.liquidos)}</span></p>
+              <p className="flex justify-between"><span className="text-ink-muted">BPS (obrero + patronal)</span><span className="figure">{formatPesos(acumulado.bps.total)}</span></p>
+              <p className="flex justify-between"><span className="text-ink-muted">IRPF retenido</span><span className="figure">{formatPesos(acumulado.irpf)}</span></p>
+              <p className="flex justify-between pt-1.5 border-t border-hairline"><span className="font-semibold text-ink">Desembolso total</span><span className="figure font-bold text-brand-700">{formatPesos(acumulado.totalDesembolso)}</span></p>
+              <p className="text-[11px] text-ink-subtle pt-1">{acumulado.meses} mes(es) con liquidaciones confirmadas · {acumulado.liquidaciones} liquidación(es)</p>
+            </div>
+          ) : (
+            <p className="text-sm text-ink-subtle">Sin liquidaciones confirmadas en {year}.</p>
+          )}
+        </div>
       </div>
 
       {/* Próximos eventos */}

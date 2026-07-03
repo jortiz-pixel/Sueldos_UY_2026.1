@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Calendar, User, DollarSign, FileText, Briefcase, Plus, X, AlertCircle, UserMinus, Pencil, FileDown } from 'lucide-react';
+import { ArrowLeft, Calendar, User, DollarSign, FileText, Briefcase, Plus, X, AlertCircle, UserMinus, Pencil, FileDown, Printer } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { employeesApi, contractsApi, companiesApi, catalogsApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
@@ -149,6 +149,17 @@ export default function EmployeeDetailPage() {
       alert(message || 'No se pudo dar de baja el contrato');
     },
   });
+
+  const imprimirContratoPrueba = async (c: Contrato) => {
+    try {
+      const blob = await contractsApi.documento(id!, c.id, true);
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch {
+      alert('No se pudo generar el contrato a prueba.');
+    }
+  };
 
   const descargarContrato = async (c: Contrato) => {
     try {
@@ -383,6 +394,13 @@ export default function EmployeeDetailPage() {
                       title="Generar el contrato de trabajo en PDF (para firmar)"
                     >
                       <FileDown size={13} /> Contrato PDF
+                    </button>
+                    <button
+                      onClick={() => imprimirContratoPrueba(c)}
+                      className="inline-flex items-center gap-1 text-xs text-ink-muted hover:text-brand-700 hover:bg-brand-50 px-2 py-1 rounded-lg mr-1"
+                      title="Imprimir contrato a prueba (90 días — rescindible sin IPD)"
+                    >
+                      <Printer size={13} /> A prueba
                     </button>
                     {isOperator && (
                       <button

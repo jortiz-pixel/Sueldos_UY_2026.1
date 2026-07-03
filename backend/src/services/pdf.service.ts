@@ -384,6 +384,7 @@ export function generateContratoPDF(
   persona: PersonaContrato,
   contrato: ContratoDoc,
   empresa: EmpresaContrato,
+  opts?: { aPrueba?: boolean },
 ): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margins: { top: 64, bottom: 64, left: 64, right: 64 } });
@@ -411,7 +412,8 @@ export function generateContratoPDF(
       : `$ ${fmt(remBruta)} (pesos uruguayos ${numeroALetras(remPesos)}) nominales mensuales`;
 
     // Título
-    doc.font('Helvetica-Bold').fontSize(16).fillColor(NAVY).text('CONTRATO DE TRABAJO', { align: 'center' });
+    doc.font('Helvetica-Bold').fontSize(16).fillColor(NAVY)
+      .text(opts?.aPrueba ? 'CONTRATO DE TRABAJO A PRUEBA' : 'CONTRATO DE TRABAJO', { align: 'center' });
     doc.moveDown(0.3);
     doc.lineWidth(1.2).strokeColor(PRIMARY)
       .moveTo(doc.page.width / 2 - 60, doc.y).lineTo(doc.page.width / 2 + 60, doc.y).stroke();
@@ -436,7 +438,11 @@ export function generateContratoPDF(
     };
 
     clausula('PRIMERO (Objeto).', `El empleador contrata los servicios personales del trabajador para desempeñarse como ${contrato.cargo || 'dependiente'}${contrato.sector ? `, en el sector ${contrato.sector}` : ''}, comprometiéndose el trabajador a cumplir las tareas propias del cargo con diligencia y responsabilidad.`);
-    clausula('SEGUNDO (Plazo).', `La relación laboral se inicia el ${fechaIngresoTxt}${contrato.tipoContrato ? `, bajo la modalidad de contrato ${contrato.tipoContrato.toLowerCase()}` : ', por tiempo indeterminado'}, rigiéndose por las normas laborales vigentes en la República Oriental del Uruguay.`);
+    if (opts?.aPrueba) {
+      clausula('SEGUNDO (Período de prueba).', `El trabajador es contratado A PRUEBA por el término de noventa (90) días corridos contados a partir del ${fechaIngresoTxt}. Durante dicho período cualquiera de las partes podrá rescindir la relación laboral sin expresión de causa y sin que se genere derecho a indemnización por despido. Vencido el período de prueba sin que ninguna de las partes manifieste su voluntad de rescindir, la relación laboral continuará por tiempo indeterminado, computándose la antigüedad desde la fecha de ingreso indicada.`);
+    } else {
+      clausula('SEGUNDO (Plazo).', `La relación laboral se inicia el ${fechaIngresoTxt}${contrato.tipoContrato ? `, bajo la modalidad de contrato ${contrato.tipoContrato.toLowerCase()}` : ', por tiempo indeterminado'}, rigiéndose por las normas laborales vigentes en la República Oriental del Uruguay.`);
+    }
     clausula('TERCERO (Jornada).', `La jornada de labor será de ${contrato.horasSemanales ?? 44} horas semanales${contrato.regimenHorario ? `, en régimen ${contrato.regimenHorario}` : ''}, con los descansos legales correspondientes.`);
     clausula('CUARTO (Remuneración).', `El trabajador percibirá una remuneración de ${remTexto}, sujeta a los aportes y retenciones legales, pagadera conforme a la normativa vigente. Percibirá asimismo sueldo anual complementario, licencia anual reglamentaria y salario vacacional conforme a la ley.`);
     clausula('QUINTO (Lugar de trabajo).', `Las tareas se desarrollarán en ${contrato.sucursal || empresa.domicilio || 'el establecimiento del empleador'}, sin perjuicio de los traslados transitorios que la organización del trabajo requiera.`);

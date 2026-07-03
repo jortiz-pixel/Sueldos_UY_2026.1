@@ -288,9 +288,21 @@ export interface RectificativaPreview {
   lineas: string[];
 }
 
+export interface DeclaracionResumen {
+  id: string;
+  year: number;
+  month: number;
+  tipo: 'N' | 'R';
+  filename: string;
+  montoTotal: string;
+  createdAt: string;
+}
+
 export const nominaApi = {
   checklist: (companyId: string) =>
     api.get<NominaChecklist>('/nomina/checklist', { params: { companyId } }).then((r) => r.data),
+  declaraciones: (companyId: string) =>
+    api.get<{ ultima: DeclaracionResumen | null; historial: DeclaracionResumen[] }>('/nomina/declaraciones', { params: { companyId } }).then((r) => r.data),
   importar: (file: File, commit: boolean) => {
     const fd = new FormData();
     fd.append('commit', commit ? 'true' : 'false');
@@ -335,8 +347,8 @@ export const contractsApi = {
   list: (employeeId: string) => api.get<Contrato[]>(`/employees/${employeeId}/contracts`).then((r) => r.data),
   create: (employeeId: string, data: object) => api.post<Contrato>(`/employees/${employeeId}/contracts`, data).then((r) => r.data),
   update: (employeeId: string, contractId: string, data: object) => api.put<Contrato>(`/employees/${employeeId}/contracts/${contractId}`, data).then((r) => r.data),
-  documento: (employeeId: string, contractId: string) =>
-    api.get(`/employees/${employeeId}/contracts/${contractId}/documento`, { responseType: 'blob' }).then((r) => r.data as Blob),
+  documento: (employeeId: string, contractId: string, prueba = false) =>
+    api.get(`/employees/${employeeId}/contracts/${contractId}/documento`, { responseType: 'blob', params: prueba ? { prueba: 1 } : {} }).then((r) => r.data as Blob),
   baja: (employeeId: string, contractId: string, fechaEgreso: string, motivo?: string, causalEgresoCod?: number) =>
     api.post<Contrato & { liquidacionFinalId?: string | null; desvinculadaTotal?: boolean; aviso?: string }>(
       `/employees/${employeeId}/contracts/${contractId}/baja`, { fechaEgreso, motivo, causalEgresoCod },
@@ -408,7 +420,16 @@ export const reportsApi = {
     api.get<PagosMesReport>('/reports/pagos-mes', { params }).then((r) => r.data),
   costoPersonal: (params: { companyId?: string; year: number; month: number }) =>
     api.get<CostoPersonalReport>('/reports/costo-personal', { params }).then((r) => r.data),
+  acumuladoAnual: (companyId: string, year: number) =>
+    api.get<AcumuladoAnual>('/reports/acumulado-anual', { params: { companyId, year } }).then((r) => r.data),
 };
+
+export interface AcumuladoAnual extends ResumenPagos {
+  year: number;
+  meses: number;
+  liquidaciones: number;
+  haberes: string;
+}
 
 export interface ResumenPagos {
   liquidos: string;
