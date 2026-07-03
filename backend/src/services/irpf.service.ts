@@ -1,31 +1,20 @@
 /**
  * MOTOR DE CÁLCULO IRPF — CATEGORÍA II (Rentas del Trabajo)
  *
- * Implementa el método de proyección anual (DGI Resolución 662/007 y modificativas).
- *
- * METODOLOGÍA (Proyección Anual):
+ * Método oficial vigente (Título 7, arts. 37-38; DGI Res. 662/007 y modif.):
  * ─────────────────────────────────────────────────────────────
- * 1. Base gravada mensual = salario nominal
- * 2. BPS mensual = base × 15% (jubilatorio)
- * 3. FONASA mensual = base × (3% + 2% si familia a cargo)
- * 4. Renta neta mensual = base - BPS - FONASA
- * 5. Renta neta ANUAL proyectada = renta neta mensual × 12
- * 6. Deducciones anuales por cargas de familia:
- *    - Hijos a cargo: hijosACargo × 13 BPC/año
- *    - Hijos discapacitados: × 26 BPC/año
- *    - Cónyuge a cargo: 6 BPC/año
- * 7. Base IRPF anual = renta neta anual - deducciones familiares
- * 8. Impuesto anual = suma de tramos (escala progresiva)
- * 9. Retención mensual = impuesto anual / 12
+ * 1. Renta computable mensual = ingreso NOMINAL gravado (sin restar aportes).
+ * 2. Renta computable anual = mensual × 12 (proyección).
+ * 3. Impuesto PRIMARIO = escala progresiva sobre la renta computable anual.
+ * 4. DEDUCCIONES anuales = aportes personales (jubilatorio + FONASA) × 12
+ *    + hijos a cargo × 20 BPC + hijos con discapacidad × 40 BPC.
+ * 5. Crédito por deducciones = deducciones × tasa:
+ *      14% si el nominal mensual ≤ 15 BPC (180 BPC anuales) · 8% si lo supera.
+ * 6. IRPF anual = max(0, primario − crédito) · retención mensual = /12.
  *
- * ESCALAS IRPF 2024 (en BPC anuales):
- *   0 - 84 BPC    →  0%
- *   84 - 120 BPC  → 10%
- *   120 - 180 BPC → 15%
- *   180 - 600 BPC → 20%
- *   600 - 900 BPC → 22%
- *   900 - 1380 BPC → 25%
- *   > 1380 BPC    → 30%
+ * ESCALA (BPC anuales = escala mensual oficial × 12):
+ *   0-84: 0% · 84-120: 10% · 120-180: 15% · 180-360: 24% · 360-600: 25%
+ *   · 600-900: 27% · 900-1380: 31% · >1380: 36%
  */
 
 import { applyRate, divRoundHalfUp, maxBigInt, minBigInt } from '../utils/money';
@@ -54,12 +43,16 @@ export interface IrpfResult {
   retencionMensual: bigint;
 
   // Annual projections (centésimos) — for audit/debug
-  rentaNetaMensual: bigint;
-  rentaNetaAnual: bigint;
+  rentaNetaMensual: bigint;      // renta computable mensual (nominal gravado)
+  rentaNetaAnual: bigint;        // renta computable anual
+  deduccionAportesAnual: bigint; // aportes personales proyectados (deducción)
   deduccionHijosAnual: bigint;
   deduccionConyugeAnual: bigint;
-  baseIrpfAnual: bigint;
-  impuestoAnual: bigint;
+  tasaDeduccionBp: number;       // 1400 (14%) u 800 (8%)
+  creditoDeducciones: bigint;    // deducciones × tasa
+  impuestoPrimarioAnual: bigint; // escala sobre la renta computable
+  baseIrpfAnual: bigint;         // (= renta computable anual, para el recibo)
+  impuestoAnual: bigint;         // primario − crédito
 
   // Detailed bracket breakdown (audit)
   tramos: IrpfBracketDetail[];
@@ -72,43 +65,47 @@ export interface IrpfResult {
 export function calcularIrpfMensual(input: IrpfInput): IrpfResult {
   const { params } = input;
 
-  // ── 1. Renta neta mensual (base imponible mensual) ──────────
-  // Base gravada = salario nominal
-  // Deducibles: BPS jubilatorio + FONASA (obrero)
-  const rentaNetaMensual = input.salarioNominal - input.bpsMensual - input.fonasaMensual;
-  const rentaNetaMensualPositiva = rentaNetaMensual < 0n ? 0n : rentaNetaMensual;
+  // ── 1. Renta computable: el ingreso NOMINAL gravado ──────────
+  const rentaComputableMensual = maxBigInt(0n, input.salarioNominal);
+  const rentaComputableAnual = rentaComputableMensual * 12n;
 
-  // ── 2. Proyección anual ──────────────────────────────────────
-  const rentaNetaAnual = rentaNetaMensualPositiva * 12n;
+  // ── 2. Impuesto primario: escala progresiva sobre el nominal ──
+  const { impuestoAnual: impuestoPrimarioAnual, tramos } =
+    aplicarTramos(rentaComputableAnual, params.irpfBrackets, params.bpc);
 
-  // ── 3. Deducciones por cargas de familia (en centésimos) ─────
+  // ── 3. Deducciones anuales ────────────────────────────────────
+  // Aportes personales (jubilatorio + FONASA; el FRL, 0,1%, es despreciable).
+  const deduccionAportesAnual = maxBigInt(0n, (input.bpsMensual + input.fonasaMensual) * 12n);
   const deduccionHijosAnual =
     BigInt(input.hijosACargo) * params.bpc * BigInt(params.irpfHijosBpc)
     + BigInt(input.hijosDiscapacitados) * params.bpc * BigInt(params.irpfHijosDiscapacitadosBpc);
-
   const deduccionConyugeAnual = input.conyugeACargo
     ? params.bpc * BigInt(params.irpfConyugeBpc)
     : 0n;
+  const totalDeducciones = deduccionAportesAnual + deduccionHijosAnual + deduccionConyugeAnual;
 
-  const totalDeducciones = deduccionHijosAnual + deduccionConyugeAnual;
+  // ── 4. Crédito por deducciones (art. 38): 14% u 8% según nominal ──
+  const umbralAnual = BigInt(params.irpfUmbralDeduccionBpc) * params.bpc;
+  const tasaDeduccionBp = rentaComputableAnual <= umbralAnual
+    ? params.irpfTasaDeduccionBajaBp
+    : params.irpfTasaDeduccionAltaBp;
+  const creditoDeducciones = applyRate(totalDeducciones, tasaDeduccionBp);
 
-  // ── 4. Base IRPF anual ───────────────────────────────────────
-  const baseIrpfAnual = maxBigInt(0n, rentaNetaAnual - totalDeducciones);
-
-  // ── 5. Calcular impuesto por tramos ──────────────────────────
-  const { impuestoAnual, tramos } = aplicarTramos(baseIrpfAnual, params.irpfBrackets, params.bpc);
-
-  // ── 6. Retención mensual ─────────────────────────────────────
-  const retencionMensual = divRoundHalfUp(impuestoAnual, 12n);
-  const retencionMensualPositiva = maxBigInt(0n, retencionMensual);
+  // ── 5. IRPF anual y retención mensual ─────────────────────────
+  const impuestoAnual = maxBigInt(0n, impuestoPrimarioAnual - creditoDeducciones);
+  const retencionMensual = maxBigInt(0n, divRoundHalfUp(impuestoAnual, 12n));
 
   return {
-    retencionMensual: retencionMensualPositiva,
-    rentaNetaMensual: rentaNetaMensualPositiva,
-    rentaNetaAnual,
+    retencionMensual,
+    rentaNetaMensual: rentaComputableMensual,
+    rentaNetaAnual: rentaComputableAnual,
+    deduccionAportesAnual,
     deduccionHijosAnual,
     deduccionConyugeAnual,
-    baseIrpfAnual,
+    tasaDeduccionBp,
+    creditoDeducciones,
+    impuestoPrimarioAnual,
+    baseIrpfAnual: rentaComputableAnual,
     impuestoAnual,
     tramos,
   };

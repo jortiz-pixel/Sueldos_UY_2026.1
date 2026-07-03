@@ -126,14 +126,24 @@ async function main() {
       { fromBpc: 0, toBpc: 84, rate: 0, effectiveDate: effectiveDate2024 },
       { fromBpc: 84, toBpc: 120, rate: 1000, effectiveDate: effectiveDate2024 },
       { fromBpc: 120, toBpc: 180, rate: 1500, effectiveDate: effectiveDate2024 },
-      { fromBpc: 180, toBpc: 600, rate: 2400, effectiveDate: effectiveDate2024 },
-      { fromBpc: 600, toBpc: 900, rate: 2500, effectiveDate: effectiveDate2024 },
-      { fromBpc: 900, toBpc: 1380, rate: 2700, effectiveDate: effectiveDate2024 },
-      { fromBpc: 1380, toBpc: 2100, rate: 3100, effectiveDate: effectiveDate2024 },
-      { fromBpc: 2100, toBpc: null, rate: 3600, effectiveDate: effectiveDate2024 },
+      { fromBpc: 180, toBpc: 360, rate: 2400, effectiveDate: effectiveDate2024 },
+      { fromBpc: 360, toBpc: 600, rate: 2500, effectiveDate: effectiveDate2024 },
+      { fromBpc: 600, toBpc: 900, rate: 2700, effectiveDate: effectiveDate2024 },
+      { fromBpc: 900, toBpc: 1380, rate: 3100, effectiveDate: effectiveDate2024 },
+      { fromBpc: 1380, toBpc: null, rate: 3600, effectiveDate: effectiveDate2024 },
     ],
   });
-  console.log(`✅ Escala IRPF 2024 cargada (8 tramos)`);
+  console.log(`✅ Escala IRPF cargada (8 tramos, escala oficial)`);
+
+  const paramsIrpf = [
+    { key: 'IRPF_HIJOS_BPC', value: '20', description: 'Deducción anual por hijo a cargo (BPC)' },
+    { key: 'IRPF_HIJOS_DISCAPACITADOS_BPC', value: '40', description: 'Deducción anual por hijo con discapacidad (BPC)' },
+    { key: 'IRPF_CONYUGE_BPC', value: '0', description: 'IRPF no tiene deducción por cónyuge' },
+    { key: 'IRPF_TASA_DEDUCCION_BAJA_BP', value: '1400', description: 'Tasa deducciones si nominal mensual <= 15 BPC (14%)' },
+    { key: 'IRPF_TASA_DEDUCCION_ALTA_BP', value: '800', description: 'Tasa deducciones si nominal mensual > 15 BPC (8%)' },
+    { key: 'IRPF_UMBRAL_DEDUCCION_BPC', value: '180', description: 'Umbral anual para la tasa de deducciones (15 BPC/mes x 12)' },
+  ];
+  for (const p of paramsIrpf) await prisma.payrollParameter.upsert({ where: { id: `seed_irpf_${p.key}` }, update: { value: p.value, description: p.description }, create: { id: `seed_irpf_${p.key}`, key: p.key, value: p.value, description: p.description, effectiveDate: effectiveDate2024, companyId: null } });
 
   await prisma.laudo.upsert({ where: { id: 'seed_laudo_1' }, update: {}, create: { id: 'seed_laudo_1', companyId: company.id, grupoActividad: 'Grupo 10', subgrupo: 'Subgrupo 3', categoria: 'Empleado', nivel: 'A', descripcion: 'Empleado administrativo nivel A', salarioMinimo: BigInt(3000000), effectiveDate: effectiveDate2024 } });
 

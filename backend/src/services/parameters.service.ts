@@ -30,10 +30,14 @@ export interface PayrollParameters {
   bpsIvsPatronalRate: number;     // 750 bp = 7.5%
   bseFondoGravamen: number;       // Tasa BSE (configurable por empresa)
   irpfBrackets: IrpfBracket[];
-  // Descuentos por cargas de familia (en BPC anuales)
-  irpfHijosBpc: number;           // 13 BPC/año por hijo
-  irpfHijosDiscapacitadosBpc: number; // 26 BPC/año por hijo discapacitado
-  irpfConyugeBpc: number;         // 6 BPC/año por cónyuge
+  // Deducciones por cargas de familia (en BPC anuales)
+  irpfHijosBpc: number;           // 20 BPC/año por hijo a cargo
+  irpfHijosDiscapacitadosBpc: number; // 40 BPC/año por hijo con discapacidad
+  irpfConyugeBpc: number;         // 0 — IRPF no tiene deducción por cónyuge
+  // Valoración de las deducciones (método de crédito, art. 38 Título 7)
+  irpfTasaDeduccionBajaBp: number;  // 1400 bp = 14% (nominal mensual <= umbral)
+  irpfTasaDeduccionAltaBp: number;  // 800 bp = 8%  (nominal mensual > umbral)
+  irpfUmbralDeduccionBpc: number;   // 180 BPC anuales (15 BPC/mes)
 }
 
 const PARAMETER_CACHE = new Map<string, { value: unknown; ts: number }>();
@@ -103,6 +107,9 @@ async function getPayrollParameters(asOfDate: Date = new Date()): Promise<Payrol
     irpfHijosRaw,
     irpfHijosDiscapRaw,
     irpfConyugeRaw,
+    irpfDedBajaRaw,
+    irpfDedAltaRaw,
+    irpfDedUmbralRaw,
     brackets,
   ] = await Promise.all([
     getParam<number>('BPC', asOfDate),
@@ -118,6 +125,9 @@ async function getPayrollParameters(asOfDate: Date = new Date()): Promise<Payrol
     getParam<number>('IRPF_HIJOS_BPC', asOfDate),
     getParam<number>('IRPF_HIJOS_DISCAPACITADOS_BPC', asOfDate),
     getParam<number>('IRPF_CONYUGE_BPC', asOfDate),
+    getParam<number>('IRPF_TASA_DEDUCCION_BAJA_BP', asOfDate),
+    getParam<number>('IRPF_TASA_DEDUCCION_ALTA_BP', asOfDate),
+    getParam<number>('IRPF_UMBRAL_DEDUCCION_BPC', asOfDate),
     getIrpfBrackets(asOfDate),
   ]);
 
@@ -136,23 +146,26 @@ async function getPayrollParameters(asOfDate: Date = new Date()): Promise<Payrol
     frlPatronalRate: frlPatronalRaw ?? 2.5,         // 0.025%
     bpsIvsPatronalRate: bpsIvsRaw ?? 750,           // 7.5%
     bseFondoGravamen: 25,                           // Default 0.25%; overridden per company
-    irpfHijosBpc: irpfHijosRaw ?? 13,              // 13 BPC/año
-    irpfHijosDiscapacitadosBpc: irpfHijosDiscapRaw ?? 26, // 26 BPC/año
-    irpfConyugeBpc: irpfConyugeRaw ?? 6,            // 6 BPC/año
+    irpfHijosBpc: irpfHijosRaw ?? 20,              // 20 BPC/año por hijo
+    irpfHijosDiscapacitadosBpc: irpfHijosDiscapRaw ?? 40, // 40 BPC/año
+    irpfConyugeBpc: irpfConyugeRaw ?? 0,            // sin deducción por cónyuge
+    irpfTasaDeduccionBajaBp: irpfDedBajaRaw ?? 1400,
+    irpfTasaDeduccionAltaBp: irpfDedAltaRaw ?? 800,
+    irpfUmbralDeduccionBpc: irpfDedUmbralRaw ?? 180,
     irpfBrackets: brackets.length > 0 ? brackets : DEFAULT_IRPF_BRACKETS,
   };
 }
 
-/** Escala IRPF Categoría II vigente (Uruguay 2024/2025) — fallback si no hay BD */
+/** Escala IRPF Categoría II (BPC anuales = escala mensual oficial × 12) — fallback si no hay BD */
 const DEFAULT_IRPF_BRACKETS: IrpfBracket[] = [
   { fromBpc: 0,    toBpc: 84,   ratePercent: 0,  rateBp: 0 },
   { fromBpc: 84,   toBpc: 120,  ratePercent: 10, rateBp: 1000 },
   { fromBpc: 120,  toBpc: 180,  ratePercent: 15, rateBp: 1500 },
-  { fromBpc: 180,  toBpc: 600,  ratePercent: 24, rateBp: 2400 },
-  { fromBpc: 600,  toBpc: 900,  ratePercent: 25, rateBp: 2500 },
-  { fromBpc: 900,  toBpc: 1380, ratePercent: 27, rateBp: 2700 },
-  { fromBpc: 1380, toBpc: 2100, ratePercent: 31, rateBp: 3100 },
-  { fromBpc: 2100, toBpc: null, ratePercent: 36, rateBp: 3600 },
+  { fromBpc: 180,  toBpc: 360,  ratePercent: 24, rateBp: 2400 },
+  { fromBpc: 360,  toBpc: 600,  ratePercent: 25, rateBp: 2500 },
+  { fromBpc: 600,  toBpc: 900,  ratePercent: 27, rateBp: 2700 },
+  { fromBpc: 900,  toBpc: 1380, ratePercent: 31, rateBp: 3100 },
+  { fromBpc: 1380, toBpc: null, ratePercent: 36, rateBp: 3600 },
 ];
 
 export const parametersService = {

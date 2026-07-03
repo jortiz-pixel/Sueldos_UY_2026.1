@@ -269,8 +269,12 @@ export async function generarLiquidacionMensual(
       metodo: 'PROYECCION_ANUAL',
       rentaNetaMensual: irpfResult.rentaNetaMensual.toString(),
       rentaNetaAnual: irpfResult.rentaNetaAnual.toString(),
+      deduccionAportesAnual: irpfResult.deduccionAportesAnual.toString(),
       deduccionHijosAnual: irpfResult.deduccionHijosAnual.toString(),
       deduccionConyugeAnual: irpfResult.deduccionConyugeAnual.toString(),
+      tasaDeduccionBp: irpfResult.tasaDeduccionBp,
+      creditoDeducciones: irpfResult.creditoDeducciones.toString(),
+      impuestoPrimarioAnual: irpfResult.impuestoPrimarioAnual.toString(),
       baseIrpfAnual: irpfResult.baseIrpfAnual.toString(),
       impuestoAnual: irpfResult.impuestoAnual.toString(),
       tramos: irpfResult.tramos.map((t) => ({
