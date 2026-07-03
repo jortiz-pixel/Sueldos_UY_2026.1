@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, FileText, BarChart2,
-  Settings, LogOut, Building2, Calculator, Briefcase, UserCog, Upload, Menu, X,
+  Settings, LogOut, Building2, Calculator, Briefcase, UserCog, Upload, Menu, X, Landmark,
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useCompany } from '../../hooks/useCompany';
@@ -18,6 +18,7 @@ const navItems = [
   { to: '/contracts', label: 'Contratos', icon: Briefcase },
   { to: '/concepts', label: 'Conceptos', icon: Calculator },
   { to: '/liquidation', label: 'Liquidaciones', icon: FileText },
+  { to: '/nomina', label: 'Nómina BPS', icon: Landmark },
   { to: '/reports', label: 'Reportes', icon: BarChart2 },
   { to: '/access', label: 'Accesos', icon: UserCog },
   { to: '/parameters', label: 'Parámetros', icon: Settings },

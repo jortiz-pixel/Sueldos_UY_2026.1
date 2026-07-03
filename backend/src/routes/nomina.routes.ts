@@ -10,8 +10,52 @@ import { prisma } from '../utils/prisma';
 import { authenticate } from '../middleware/auth';
 import { assertCompanyAccess } from '../middleware/tenancy';
 import { AppError, NotFoundError } from '../middleware/errorHandler';
+import { generarNominaBps } from '../services/nomina.service';
 
 export const nominaRouter = Router();
+
+function parsePeriodo(req: Request): { companyId: string; year: number; month: number } {
+  const companyId = String(req.query.companyId ?? '');
+  const year = Number(req.query.year);
+  const month = Number(req.query.month);
+  if (!companyId) throw new AppError(400, 'companyId requerido');
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) throw new AppError(400, 'year inválido');
+  if (!Number.isInteger(month) || month < 1 || month > 12) throw new AppError(400, 'month inválido');
+  return { companyId, year, month };
+}
+
+// GET /api/nomina/preview?companyId&year&month
+// Vista previa de la nómina BPS: personas, conceptos, montos, errores y advertencias.
+nominaRouter.get('/preview', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { companyId, year, month } = parsePeriodo(req);
+    await assertCompanyAccess(req, companyId);
+    const nomina = await generarNominaBps(companyId, year, month);
+    res.json({
+      filename: nomina.filename,
+      montoTotal: nomina.montoTotal,
+      personas: nomina.personas,
+      errores: nomina.errores,
+      advertencias: nomina.advertencias,
+      lineas: nomina.errores.length === 0 ? nomina.contenido.trimEnd().split('\n') : [],
+    });
+  } catch (err) { next(err); }
+});
+
+// GET /api/nomina/archivo?companyId&year&month  → descarga el archivo ATYR
+nominaRouter.get('/archivo', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { companyId, year, month } = parsePeriodo(req);
+    await assertCompanyAccess(req, companyId);
+    const nomina = await generarNominaBps(companyId, year, month);
+    if (nomina.errores.length > 0) {
+      throw new AppError(409, `La nómina tiene errores: ${nomina.errores.join(' · ')}`);
+    }
+    res.setHeader('Content-Type', 'text/plain; charset=ascii');
+    res.setHeader('Content-Disposition', `attachment; filename="${nomina.filename}"`);
+    res.send(nomina.contenido);
+  } catch (err) { next(err); }
+});
 
 // GET /api/nomina/checklist?companyId=...
 // Valida empresa, personas y contratos contra los datos que exige la nominada.

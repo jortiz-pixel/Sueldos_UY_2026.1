@@ -206,9 +206,30 @@ export interface NominaChecklist {
   listaParaNomina: boolean;
 }
 
+export interface NominaPreview {
+  filename: string;
+  montoTotal: string;
+  personas: Array<{
+    ci: string;
+    nombre: string;
+    diasTrabajados: number;
+    seguroSalud: number | null;
+    vinculoFuncional: number | null;
+    conceptos: Array<{ codigo: number; monto: string }>;
+    egreso: { causal: number; fecha: string } | null;
+  }>;
+  errores: string[];
+  advertencias: string[];
+  lineas: string[];
+}
+
 export const nominaApi = {
   checklist: (companyId: string) =>
     api.get<NominaChecklist>('/nomina/checklist', { params: { companyId } }).then((r) => r.data),
+  preview: (companyId: string, year: number, month: number) =>
+    api.get<NominaPreview>('/nomina/preview', { params: { companyId, year, month } }).then((r) => r.data),
+  archivo: (companyId: string, year: number, month: number) =>
+    api.get('/nomina/archivo', { params: { companyId, year, month }, responseType: 'blob' }).then((r) => r.data as Blob),
 };
 
 export const conceptsApi = {
