@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { ArrowLeft, AlertCircle } from 'lucide-react';
-import { employeesApi, companiesApi } from '../services/api';
+import { employeesApi, companiesApi, catalogsApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
 import AttachmentsPanel from '../components/AttachmentsPanel';
@@ -39,6 +39,10 @@ interface EmployeeForm {
   salaryType: SalaryType;
   salarioNominalPesos: number;
   jornalPesos?: number;
+  // Historia Laboral BPS (primer contrato)
+  vinculoFuncional?: string;
+  seguroSalud?: string;
+  horasSemanales?: number;
 }
 
 const emptyForm: EmployeeForm = {
@@ -48,6 +52,7 @@ const emptyForm: EmployeeForm = {
   irpfMetodo: 'PROYECCION', fonasaFamilia: false, observaciones: '',
   companyId: '', fechaIngreso: '', cargo: '', categoria: '', nivel: '',
   salaryType: 'MENSUAL', salarioNominalPesos: 0, jornalPesos: 0,
+  vinculoFuncional: '12', seguroSalud: '', horasSemanales: 44,
 };
 
 export default function EmployeeFormPage() {
@@ -59,6 +64,8 @@ export default function EmployeeFormPage() {
   const { activeCompanyId } = useCompany();
 
   const { data: companies } = useQuery({ queryKey: ['companies'], queryFn: () => companiesApi.list() });
+  const { data: vinculos } = useQuery({ queryKey: ['cat-vinculos'], queryFn: () => catalogsApi.vinculosFuncionales(), staleTime: Infinity });
+  const { data: segurosSalud } = useQuery({ queryKey: ['cat-seguros-salud'], queryFn: () => catalogsApi.segurosSalud(), staleTime: Infinity });
 
   const { data: employee } = useQuery({
     queryKey: ['employee', id],
@@ -126,6 +133,9 @@ export default function EmployeeFormPage() {
           salarioNominal: String(Math.round(Number(data.salarioNominalPesos) * 100)),
           jornal: data.salaryType === 'JORNALERO' && data.jornalPesos
             ? String(Math.round(Number(data.jornalPesos) * 100)) : undefined,
+          vinculoFuncional: data.vinculoFuncional ? Number(data.vinculoFuncional) : undefined,
+          seguroSalud: data.seguroSalud ? Number(data.seguroSalud) : undefined,
+          horasSemanales: data.horasSemanales ? Number(data.horasSemanales) : undefined,
         },
       });
     },
@@ -324,6 +334,26 @@ export default function EmployeeFormPage() {
                 <select {...register('salaryType')} className="form-input">
                   <option value="MENSUAL">Mensual</option>
                   <option value="JORNALERO">Jornalero</option>
+                </select>
+              </div>
+              <div>
+                <label className="form-label">Vínculo funcional (BPS Tabla 3)</label>
+                <select {...register('vinculoFuncional')} className="form-input">
+                  {vinculos?.map((v) => <option key={v.codigo} value={v.codigo}>{v.codigo} — {v.nombre}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="form-label">Seguro de salud (BPS Tabla 8)</label>
+                <select {...register('seguroSalud')} className="form-input">
+                  <option value="">— Según hijos/cónyuge a cargo —</option>
+                  {segurosSalud?.map((v) => <option key={v.codigo} value={v.codigo}>{v.codigo} — {v.nombre}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="form-label">Horas semanales</label>
+                <select {...register('horasSemanales', { valueAsNumber: true })} className="form-input">
+                  {[5, 10, 15, 20, 24, 25, 30, 36, 40, 44, 48].map((h) => <option key={h} value={h}>{h}</option>)}
+                  <option value={99}>99 — No aplica</option>
                 </select>
               </div>
               <div>
