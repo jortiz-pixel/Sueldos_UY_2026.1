@@ -156,6 +156,10 @@ model Company {
   subgrupo            String?
   naturalezaJuridica  String?
   convenioColectivo   String?
+  // Representante legal (comparece y firma contratos de trabajo)
+  representanteLegal  String?
+  representanteCi     String?
+  representanteCargo  String?
   inicioActividadMtss DateTime?
   fechaInscripcionBps DateTime?
 

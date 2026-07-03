@@ -24,6 +24,8 @@ interface EmployeeForm {
   email?: string;
   telefono?: string;
   domicilio?: string;
+  localidad?: string;
+  departamento?: string;
   conyugeACargo: boolean;
   hijosACargo: number;
   hijosDiscapacitados: number;
@@ -47,7 +49,7 @@ interface EmployeeForm {
 
 const emptyForm: EmployeeForm = {
   ci: '', nombre: '', nombre2: '', apellido: '', apellido2: '', fechaNacimiento: '', sexo: '', nacionalidad: 1, estadoCivil: 'SOLTERO',
-  email: '', telefono: '', domicilio: '',
+  email: '', telefono: '', domicilio: '', localidad: '', departamento: '',
   conyugeACargo: false, hijosACargo: 0, hijosDiscapacitados: 0,
   irpfMetodo: 'PROYECCION', fonasaFamilia: false, observaciones: '',
   companyId: '', fechaIngreso: '', cargo: '', categoria: '', nivel: '',
@@ -93,6 +95,7 @@ export default function EmployeeFormPage() {
         sexo: employee.sexo ?? '', nacionalidad: employee.nacionalidad ?? 1,
         estadoCivil: employee.estadoCivil,
         email: employee.email ?? '', telefono: employee.telefono ?? '', domicilio: employee.domicilio ?? '',
+        localidad: employee.localidad ?? '', departamento: employee.departamento ?? '',
         conyugeACargo: employee.conyugeACargo, hijosACargo: employee.hijosACargo,
         hijosDiscapacitados: employee.hijosDiscapacitados,
         irpfMetodo: employee.irpfMetodo, fonasaFamilia: employee.fonasaFamilia,
@@ -113,6 +116,7 @@ export default function EmployeeFormPage() {
         nacionalidad: data.nacionalidad ? Number(data.nacionalidad) : undefined,
         estadoCivil: data.estadoCivil,
         email: data.email || undefined, telefono: data.telefono || undefined, domicilio: data.domicilio || undefined,
+        localidad: data.localidad || undefined, departamento: data.departamento || undefined,
         conyugeACargo: data.conyugeACargo, hijosACargo: Number(data.hijosACargo),
         hijosDiscapacitados: Number(data.hijosDiscapacitados),
         irpfMetodo: data.irpfMetodo, fonasaFamilia: data.fonasaFamilia,
@@ -254,7 +258,15 @@ export default function EmployeeFormPage() {
             </div>
             <div className="col-span-2">
               <label className="form-label">Domicilio</label>
-              <input {...register('domicilio')} className="form-input" />
+              <input {...register('domicilio')} className="form-input" placeholder="Calle y número (constituye domicilio a efectos del contrato)" />
+            </div>
+            <div>
+              <label className="form-label">Localidad</label>
+              <input {...register('localidad')} className="form-input" />
+            </div>
+            <div>
+              <label className="form-label">Departamento</label>
+              <input {...register('departamento')} className="form-input" placeholder="Montevideo" />
             </div>
             </div>
             {isEdit && id && (

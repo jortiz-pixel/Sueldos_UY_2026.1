@@ -348,6 +348,10 @@ interface EmpresaContrato {
   domicilio: string | null;
   localidad?: string | null;
   departamento?: string | null;
+  numeroBps?: string | null;
+  representanteLegal?: string | null;
+  representanteCi?: string | null;
+  representanteCargo?: string | null;
 }
 
 interface PersonaContrato {
@@ -357,8 +361,11 @@ interface PersonaContrato {
   apellido2?: string | null;
   ci: string;
   domicilio?: string | null;
+  localidad?: string | null;
+  departamento?: string | null;
   fechaNacimiento?: Date | null;
   nacionalidad?: number | null;
+  estadoCivil?: string | null;
 }
 
 interface ContratoDoc {
@@ -404,6 +411,14 @@ export function generateContratoPDF(
     const fIng = new Date(contrato.fechaIngreso);
     const fechaIngresoTxt = `${fIng.getDate()} de ${MESES_L[fIng.getMonth() + 1]} de ${fIng.getFullYear()}`;
 
+    const NACIONALIDAD: Record<number, string> = { 1: 'oriental', 2: 'ciudadano/a legal uruguayo/a', 3: 'extranjero/a' };
+    const ESTADO_CIVIL: Record<string, string> = {
+      SOLTERO: 'soltero/a', CASADO: 'casado/a', CONCUBINATO: 'en unión concubinaria',
+      DIVORCIADO: 'divorciado/a', VIUDO: 'viudo/a',
+    };
+    const fNac = persona.fechaNacimiento ? new Date(persona.fechaNacimiento) : null;
+    const fechaNacTxt = fNac ? `${fNac.getDate()} de ${MESES_L[fNac.getMonth() + 1]} de ${fNac.getFullYear()}` : null;
+
     const esJornalero = (contrato.salaryType || 'MENSUAL') === 'JORNALERO';
     const remBruta = esJornalero && contrato.jornal ? contrato.jornal : contrato.salarioNominal;
     const remPesos = Math.round(Number(remBruta) / 100);
@@ -419,14 +434,25 @@ export function generateContratoPDF(
       .moveTo(doc.page.width / 2 - 60, doc.y).lineTo(doc.page.width / 2 + 60, doc.y).stroke();
     doc.moveDown(1.2);
 
-    // Comparecientes
+    // Comparecientes (con representación legal y datos civiles completos)
+    const rep = empresa.representanteLegal
+      ? `, representada en este acto por ${empresa.representanteLegal}${empresa.representanteCi ? `, titular de la cédula de identidad Nº ${empresa.representanteCi}` : ''}, en su calidad de ${empresa.representanteCargo || 'representante legal'}, con facultades suficientes para este otorgamiento`
+      : '';
+    const datosCiviles = [
+      NACIONALIDAD[persona.nacionalidad ?? 1] ?? 'oriental',
+      persona.estadoCivil ? (ESTADO_CIVIL[persona.estadoCivil] ?? persona.estadoCivil.toLowerCase()) : null,
+      fechaNacTxt ? `nacido/a el ${fechaNacTxt}` : null,
+    ].filter(Boolean).join(', ');
+    const domicilioPersona = [persona.domicilio, persona.localidad, persona.departamento].filter(Boolean).join(', ');
+
     doc.font('Helvetica').fontSize(10.5).fillColor('#111').lineGap(3);
     doc.text(
-      `En ${lugar}, a los ${fechaHoy}, entre ${empresa.razonSocial}, RUT ${empresa.rut}, ` +
-      `con domicilio en ${empresa.domicilio ?? '—'} (en adelante "el empleador"), por una parte; y ` +
-      `${nombreCompleto}, titular de la cédula de identidad Nº ${persona.ci}` +
-      `${persona.domicilio ? `, con domicilio en ${persona.domicilio}` : ''} (en adelante "el trabajador"), ` +
-      `por la otra, se conviene la celebración del presente contrato de trabajo, sujeto a las siguientes cláusulas:`,
+      `En ${lugar}, a los ${fechaHoy}, POR UNA PARTE: ${empresa.razonSocial}, RUT ${empresa.rut}` +
+      `${empresa.numeroBps ? `, Nº de empresa BPS ${empresa.numeroBps}` : ''}, ` +
+      `con domicilio en ${empresa.domicilio ?? '—'}${rep} (en adelante "el empleador"); ` +
+      `Y POR OTRA PARTE: ${nombreCompleto}, ${datosCiviles}, titular de la cédula de identidad Nº ${persona.ci}` +
+      `${domicilioPersona ? `, con domicilio en ${domicilioPersona}` : ''} (en adelante "el trabajador"), ` +
+      `quienes convienen la celebración del presente contrato de trabajo, que se regirá por las siguientes cláusulas:`,
       { align: 'justify' },
     );
     doc.moveDown(0.8);
@@ -437,17 +463,20 @@ export function generateContratoPDF(
       doc.moveDown(0.6);
     };
 
-    clausula('PRIMERO (Objeto).', `El empleador contrata los servicios personales del trabajador para desempeñarse como ${contrato.cargo || 'dependiente'}${contrato.sector ? `, en el sector ${contrato.sector}` : ''}, comprometiéndose el trabajador a cumplir las tareas propias del cargo con diligencia y responsabilidad.`);
+    clausula('PRIMERO (Objeto).', `El empleador contrata los servicios personales del trabajador para desempeñarse como ${contrato.cargo || 'dependiente'}${contrato.sector ? `, en el sector ${contrato.sector}` : ''}, obligándose el trabajador a cumplir las tareas propias del cargo, así como las accesorias o complementarias razonablemente vinculadas a aquél, con diligencia, lealtad y responsabilidad.`);
     if (opts?.aPrueba) {
-      clausula('SEGUNDO (Período de prueba).', `El trabajador es contratado A PRUEBA por el término de noventa (90) días corridos contados a partir del ${fechaIngresoTxt}. Durante dicho período cualquiera de las partes podrá rescindir la relación laboral sin expresión de causa y sin que se genere derecho a indemnización por despido. Vencido el período de prueba sin que ninguna de las partes manifieste su voluntad de rescindir, la relación laboral continuará por tiempo indeterminado, computándose la antigüedad desde la fecha de ingreso indicada.`);
+      clausula('SEGUNDO (Período de prueba).', `El trabajador es contratado A PRUEBA por el término de noventa (90) días corridos contados a partir del ${fechaIngresoTxt}, fecha de inicio efectivo de la relación laboral. Durante dicho período cualquiera de las partes podrá rescindir unilateralmente la relación laboral sin expresión de causa y sin que se genere derecho a indemnización por despido, sin perjuicio del cobro por el trabajador de los haberes devengados (salario por los días trabajados, licencia, salario vacacional y aguinaldo proporcionales). Vencido el período de prueba sin que ninguna de las partes manifieste su voluntad de rescindir, la relación laboral continuará por tiempo indeterminado, computándose la antigüedad desde la fecha de ingreso indicada.`);
     } else {
       clausula('SEGUNDO (Plazo).', `La relación laboral se inicia el ${fechaIngresoTxt}${contrato.tipoContrato ? `, bajo la modalidad de contrato ${contrato.tipoContrato.toLowerCase()}` : ', por tiempo indeterminado'}, rigiéndose por las normas laborales vigentes en la República Oriental del Uruguay.`);
     }
-    clausula('TERCERO (Jornada).', `La jornada de labor será de ${contrato.horasSemanales ?? 44} horas semanales${contrato.regimenHorario ? `, en régimen ${contrato.regimenHorario}` : ''}, con los descansos legales correspondientes.`);
-    clausula('CUARTO (Remuneración).', `El trabajador percibirá una remuneración de ${remTexto}, sujeta a los aportes y retenciones legales, pagadera conforme a la normativa vigente. Percibirá asimismo sueldo anual complementario, licencia anual reglamentaria y salario vacacional conforme a la ley.`);
-    clausula('QUINTO (Lugar de trabajo).', `Las tareas se desarrollarán en ${contrato.sucursal || empresa.domicilio || 'el establecimiento del empleador'}, sin perjuicio de los traslados transitorios que la organización del trabajo requiera.`);
-    clausula('SEXTO (Seguridad social).', `El empleador declarará al trabajador ante el Banco de Previsión Social y demás organismos correspondientes, efectuando los aportes de seguridad social conforme a la normativa vigente.`);
-    clausula('SÉPTIMO (Aceptación).', `Ambas partes aceptan las cláusulas precedentes, firmando dos ejemplares del mismo tenor en el lugar y fecha indicados.`);
+    clausula('TERCERO (Jornada y horario).', `La jornada de labor será de ${contrato.horasSemanales ?? 44} horas semanales${contrato.regimenHorario ? `, cumplida en el siguiente régimen: ${contrato.regimenHorario}` : ', distribuidas conforme al régimen legal de la actividad'}, con los descansos intermedio y semanal establecidos por la normativa vigente. El trabajo en horas extraordinarias se regirá por la Ley 15.996.`);
+    clausula('CUARTO (Remuneración).', `El trabajador percibirá una remuneración de ${remTexto}, sujeta a los aportes y retenciones legales, pagadera dentro de los plazos legales (Decreto-Ley 14.159 y normas concordantes) mediante los medios de pago previstos en la Ley 19.210. La remuneración no será inferior al salario mínimo del laudo aplicable a la categoría del trabajador según el Consejo de Salarios del grupo de actividad del empleador. Percibirá asimismo sueldo anual complementario (Ley 12.840), licencia anual reglamentaria (Ley 12.590) y salario vacacional (Ley 16.101).`);
+    clausula('QUINTO (Lugar de trabajo).', `Las tareas se desarrollarán en ${contrato.sucursal || empresa.domicilio || 'el establecimiento del empleador'}, sin perjuicio de los traslados transitorios que la organización del trabajo razonablemente requiera, sin desmedro de la remuneración ni de la categoría del trabajador.`);
+    clausula('SEXTO (Obligaciones del trabajador).', `El trabajador se obliga a cumplir las tareas asignadas en forma personal y diligente, observar los reglamentos internos que se le comuniquen, cuidar los bienes y herramientas de trabajo que se le confíen y guardar reserva sobre la información del empleador y de sus clientes a la que acceda en ocasión del trabajo, obligación que subsistirá luego de extinguida la relación laboral.`);
+    clausula('SÉPTIMO (Seguridad social y registro).', `El empleador declara que inscribirá al trabajador ante el Banco de Previsión Social (declaración nominada de alta), lo registrará en la planilla de trabajo unificada (MTSS) y lo amparará en el seguro sobre accidentes de trabajo y enfermedades profesionales del Banco de Seguros del Estado (Ley 16.074), efectuando los aportes de seguridad social que correspondan.`);
+    clausula('OCTAVO (Domicilios y notificaciones).', `Las partes constituyen domicilio a todos los efectos judiciales y extrajudiciales derivados de este contrato en los indicados en la comparecencia, donde se tendrán por válidas las notificaciones que allí se practiquen, obligándose a comunicar por escrito cualquier modificación.`);
+    clausula('NOVENO (Jurisdicción).', `Para todo litigio derivado del presente contrato las partes se someten a la jurisdicción de los tribunales de trabajo competentes${empresa.departamento ? ` del departamento de ${empresa.departamento}` : ''}, conforme a las Leyes 18.572 y 18.847 (proceso laboral).`);
+    clausula('DÉCIMO (Aceptación).', `Previa lectura y ratificación de su contenido, las partes aceptan las cláusulas precedentes y firman dos (2) ejemplares del mismo tenor, quedando uno en poder de cada parte, en el lugar y fecha indicados en la comparecencia.`);
 
     // Firmas
     doc.moveDown(2.5);
@@ -457,11 +486,14 @@ export function generateContratoPDF(
     doc.moveTo(64, y).lineTo(64 + w, y).stroke();
     doc.moveTo(doc.page.width - 64 - w, y).lineTo(doc.page.width - 64, y).stroke();
     doc.font('Helvetica').fontSize(9).fillColor('#111');
-    doc.text(`Por ${empresa.razonSocial}`, 64, y + 5, { width: w, align: 'center' });
+    doc.text(empresa.representanteLegal ? empresa.representanteLegal : `Por ${empresa.razonSocial}`, 64, y + 5, { width: w, align: 'center' });
     doc.text(nombreCompleto, doc.page.width - 64 - w, y + 5, { width: w, align: 'center' });
     doc.fontSize(8).fillColor('#666');
-    doc.text('Empleador', 64, y + 18, { width: w, align: 'center' });
-    doc.text(`C.I. ${persona.ci}`, doc.page.width - 64 - w, y + 18, { width: w, align: 'center' });
+    doc.text(
+      `${empresa.representanteCargo || 'Empleador'}${empresa.representanteCi ? ` · C.I. ${empresa.representanteCi}` : ''} — ${empresa.razonSocial}`,
+      64, y + 18, { width: w, align: 'center' },
+    );
+    doc.text(`Trabajador · C.I. ${persona.ci}`, doc.page.width - 64 - w, y + 18, { width: w, align: 'center' });
 
     // Pie de marca sutil
     doc.font('Helvetica').fontSize(6.5).fillColor('#8493AD');

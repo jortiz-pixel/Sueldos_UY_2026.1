@@ -26,6 +26,9 @@ interface CompanyForm {
   subgrupo?: string;
   naturalezaJuridica?: string;
   convenioColectivo?: string;
+  representanteLegal?: string;
+  representanteCi?: string;
+  representanteCargo?: string;
   inicioActividadMtss?: string;
   fechaInscripcionBps?: string;
   // Exoneraciones (basis points)
@@ -48,6 +51,7 @@ const emptyForm: CompanyForm = {
   bseRate: 25,
   numeroBps: '', numeroBse: '', tipoAporte: '', tipoContribuyente: '',
   grupoActividadNum: '', subgrupo: '', naturalezaJuridica: '', convenioColectivo: '',
+  representanteLegal: '', representanteCi: '', representanteCargo: '',
   inicioActividadMtss: '', fechaInscripcionBps: '',
   exoApoJub: 0, exoFonasa: 0, exoFrl: 0, exoCcm: 0,
   diaVencimientoBps: 20, diasLicenciaAnio: 20, primerDiaExtraDesdeAnio: 5, maxDiasExtras: 35, diasTrabajadosMes: 30,
@@ -102,6 +106,9 @@ export default function CompaniesPage() {
       subgrupo: c.subgrupo ?? '',
       naturalezaJuridica: c.naturalezaJuridica ?? '',
       convenioColectivo: c.convenioColectivo ?? '',
+      representanteLegal: c.representanteLegal ?? '',
+      representanteCi: c.representanteCi ?? '',
+      representanteCargo: c.representanteCargo ?? '',
       inicioActividadMtss: c.inicioActividadMtss ? c.inicioActividadMtss.slice(0, 10) : '',
       fechaInscripcionBps: c.fechaInscripcionBps ? c.fechaInscripcionBps.slice(0, 10) : '',
       exoApoJub: c.exoApoJub ?? 0,
@@ -353,6 +360,31 @@ export default function CompaniesPage() {
                   <div className="col-span-2">
                     <label className="form-label">Actividad Principal</label>
                     <input {...register('actividadPrincipal')} className="form-input" />
+                  </div>
+                  <div className="col-span-2 pt-2 border-t border-hairline">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-ink-subtle mb-3">Representante legal (firma los contratos de trabajo)</p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="form-label">Nombre completo</label>
+                        <input {...register('representanteLegal')} className="form-input" placeholder="Nombre y apellido" />
+                      </div>
+                      <div>
+                        <label className="form-label">Cédula de identidad</label>
+                        <input {...register('representanteCi')} className="form-input" />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="form-label">Calidad en que comparece</label>
+                        <select {...register('representanteCargo')} className="form-input">
+                          <option value="">— Seleccionar —</option>
+                          <option value="Director">Director/a</option>
+                          <option value="Administrador">Administrador/a</option>
+                          <option value="Titular">Titular</option>
+                          <option value="Representante legal">Representante legal</option>
+                          <option value="Apoderado">Apoderado/a</option>
+                          <option value="Socio administrador">Socio/a administrador/a</option>
+                        </select>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </section>

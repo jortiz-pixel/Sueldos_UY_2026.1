@@ -35,6 +35,9 @@ const companySchema = z.object({
   subgrupo: z.string().optional(),
   naturalezaJuridica: z.string().optional(),
   convenioColectivo: z.string().optional(),
+  representanteLegal: z.string().optional(),
+  representanteCi: z.string().optional(),
+  representanteCargo: z.string().optional(),
   inicioActividadMtss: optionalDate,
   fechaInscripcionBps: optionalDate,
 

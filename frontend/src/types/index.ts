@@ -46,6 +46,9 @@ export interface Company {
   subgrupo?: string;
   naturalezaJuridica?: string;
   convenioColectivo?: string;
+  representanteLegal?: string;
+  representanteCi?: string;
+  representanteCargo?: string;
   inicioActividadMtss?: string;
   fechaInscripcionBps?: string;
   exoApoJub?: number;
@@ -78,6 +81,8 @@ export interface Employee {
   tipoDocumento?: string;
   estadoCivil: EstadoCivil;
   domicilio?: string;
+  localidad?: string;
+  departamento?: string;
   email?: string;
   telefono?: string;
   fechaIngreso: string;
