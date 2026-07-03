@@ -146,6 +146,7 @@ model Company {
   exoFrl     Int @default(0)
   exoCcm     Int @default(0)
 
+  diaVencimientoBps       Int @default(20)
   diasLicenciaAnio        Int @default(20)
   primerDiaExtraDesdeAnio Int @default(5)
   maxDiasExtras           Int @default(35)

@@ -6,13 +6,19 @@ export type CalendarEventType =
   | 'VENC_CARNE_SALUD'
   | 'VENC_LIBRETA'
   | 'ALTA'
-  | 'BAJA';
+  | 'BAJA'
+  | 'LICENCIA'
+  | 'REINTEGRO'
+  | 'VENC_NOMINA_BPS';
 
 export interface CalendarEvent {
   tipo: CalendarEventType;
   fecha: string; // YYYY-MM-DD (componentes locales)
   titulo: string;
   personaId?: string;
+  /** Para LICENCIA: fecha de fin (YYYY-MM-DD) para pintar el rango. */
+  hasta?: string;
+  leaveId?: string;
 }
 
 function isoDate(d: Date): string {
@@ -95,6 +101,61 @@ export async function getCalendarEvents(companyId: string, from: Date, to: Date)
       titulo: `Vence ${label}${persona ? ' de ' + persona : ''}`,
       personaId: a.ownerType === 'PERSONA' ? a.ownerId : undefined,
     });
+  }
+
+  // Licencias (LeaveRequest) que solapan el rango + día de reintegro.
+  const licencias = await prisma.leaveRequest.findMany({
+    where: {
+      employee: { contratos: { some: { companyId } } },
+      status: { in: ['PENDIENTE', 'APROBADA'] },
+      fechaInicio: { lte: to },
+      fechaFin: { gte: new Date(from.getTime() - 40 * 86400000) }, // margen para reintegros
+    },
+    include: { employee: { select: { id: true, nombre: true, apellido: true } } },
+  });
+  for (const l of licencias) {
+    const quien = `${l.employee.nombre} ${l.employee.apellido}`;
+    const inicio = new Date(l.fechaInicio);
+    const fin = new Date(l.fechaFin);
+    if (inicio <= to && fin >= from) {
+      events.push({
+        tipo: 'LICENCIA',
+        fecha: isoDate(inicio < from ? from : inicio),
+        hasta: isoDate(fin > to ? to : fin),
+        titulo: `Licencia de ${quien}${l.status === 'PENDIENTE' ? ' (pendiente)' : ''}`,
+        personaId: l.employee.id,
+        leaveId: l.id,
+      });
+    }
+    const reintegro = new Date(fin);
+    reintegro.setDate(reintegro.getDate() + 1);
+    if (reintegro >= from && reintegro <= to) {
+      events.push({ tipo: 'REINTEGRO', fecha: isoDate(reintegro), titulo: `Reintegro de ${quien}`, personaId: l.employee.id, leaveId: l.id });
+    }
+  }
+
+  // Vencimiento de presentación/pago de nómina BPS: día configurable de cada
+  // mes (companies.diaVencimientoBps), corresponde a la nómina del mes anterior.
+  const company = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: { diaVencimientoBps: true, nombreFantasia: true, razonSocial: true },
+  });
+  if (company) {
+    const dia = company.diaVencimientoBps || 20;
+    for (let y = from.getFullYear(); y <= to.getFullYear(); y++) {
+      for (let m = 0; m < 12; m++) {
+        const cand = new Date(y, m, Math.min(dia, new Date(y, m + 1, 0).getDate()));
+        if (cand >= from && cand <= to) {
+          const mesCargo = new Date(y, m - 1, 1);
+          const MES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'setiembre', 'octubre', 'noviembre', 'diciembre'];
+          events.push({
+            tipo: 'VENC_NOMINA_BPS',
+            fecha: isoDate(cand),
+            titulo: `Vence nómina BPS de ${MES[mesCargo.getMonth()]}`,
+          });
+        }
+      }
+    }
   }
 
   return events.sort((x, y) => x.fecha.localeCompare(y.fecha));

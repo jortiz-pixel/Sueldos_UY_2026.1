@@ -52,6 +52,7 @@ export interface Company {
   exoFonasa?: number;
   exoFrl?: number;
   exoCcm?: number;
+  diaVencimientoBps?: number;
   diasLicenciaAnio?: number;
   primerDiaExtraDesdeAnio?: number;
   maxDiasExtras?: number;

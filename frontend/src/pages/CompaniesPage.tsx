@@ -33,7 +33,8 @@ interface CompanyForm {
   exoFonasa: number;
   exoFrl: number;
   exoCcm: number;
-  // Configuración de licencia
+  // Configuración de licencia / calendario
+  diaVencimientoBps: number;
   diasLicenciaAnio: number;
   primerDiaExtraDesdeAnio: number;
   maxDiasExtras: number;
@@ -49,7 +50,7 @@ const emptyForm: CompanyForm = {
   grupoActividadNum: '', subgrupo: '', naturalezaJuridica: '', convenioColectivo: '',
   inicioActividadMtss: '', fechaInscripcionBps: '',
   exoApoJub: 0, exoFonasa: 0, exoFrl: 0, exoCcm: 0,
-  diasLicenciaAnio: 20, primerDiaExtraDesdeAnio: 5, maxDiasExtras: 35, diasTrabajadosMes: 30,
+  diaVencimientoBps: 20, diasLicenciaAnio: 20, primerDiaExtraDesdeAnio: 5, maxDiasExtras: 35, diasTrabajadosMes: 30,
   observaciones: '',
 };
 
@@ -107,6 +108,7 @@ export default function CompaniesPage() {
       exoFonasa: c.exoFonasa ?? 0,
       exoFrl: c.exoFrl ?? 0,
       exoCcm: c.exoCcm ?? 0,
+      diaVencimientoBps: c.diaVencimientoBps ?? 20,
       diasLicenciaAnio: c.diasLicenciaAnio ?? 20,
       primerDiaExtraDesdeAnio: c.primerDiaExtraDesdeAnio ?? 5,
       maxDiasExtras: c.maxDiasExtras ?? 35,
@@ -128,6 +130,7 @@ export default function CompaniesPage() {
         exoFonasa: Number(data.exoFonasa),
         exoFrl: Number(data.exoFrl),
         exoCcm: Number(data.exoCcm),
+        diaVencimientoBps: Number(data.diaVencimientoBps),
         diasLicenciaAnio: Number(data.diasLicenciaAnio),
         primerDiaExtraDesdeAnio: Number(data.primerDiaExtraDesdeAnio),
         maxDiasExtras: Number(data.maxDiasExtras),
@@ -458,6 +461,11 @@ export default function CompaniesPage() {
                   <div>
                     <label className="form-label">Días trabajados/mes</label>
                     <input {...register('diasTrabajadosMes', { valueAsNumber: true })} type="number" className="form-input" />
+                  </div>
+                  <div>
+                    <label className="form-label">Día vencimiento nómina BPS</label>
+                    <input {...register('diaVencimientoBps', { valueAsNumber: true, min: 1, max: 28 })} type="number" className="form-input" />
+                    <p className="text-xs text-gray-400 mt-1">Día del mes en que vence la nómina del mes anterior (cronograma ATyR)</p>
                   </div>
                 </div>
               </section>

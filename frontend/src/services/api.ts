@@ -130,18 +130,25 @@ export const attachmentApi = {
   remove: (id: string) => api.delete(`/attachments/${id}`).then((r) => r.data),
 };
 
-export type CalendarEventType = 'CUMPLEANOS' | 'VENC_CARNE_SALUD' | 'VENC_LIBRETA' | 'ALTA' | 'BAJA';
+export type CalendarEventType = 'CUMPLEANOS' | 'VENC_CARNE_SALUD' | 'VENC_LIBRETA' | 'ALTA' | 'BAJA' | 'LICENCIA' | 'REINTEGRO' | 'VENC_NOMINA_BPS';
 
 export interface CalendarEvent {
   tipo: CalendarEventType;
   fecha: string;
   titulo: string;
   personaId?: string;
+  hasta?: string;
+  leaveId?: string;
 }
 
 export const calendarApi = {
   upcoming: (companyId: string, days = 45) =>
     api.get<CalendarEvent[]>('/calendar', { params: { companyId, days } }).then((r) => r.data),
+  month: (companyId: string, year: number, month: number) =>
+    api.get<CalendarEvent[]>('/calendar/month', { params: { companyId, year, month } }).then((r) => r.data),
+  createLeave: (data: { employeeId: string; fechaInicio: string; fechaFin: string; motivo?: string }) =>
+    api.post('/calendar/leaves', data).then((r) => r.data),
+  deleteLeave: (id: string) => api.delete(`/calendar/leaves/${id}`).then((r) => r.data),
 };
 
 export interface ImportRow {
