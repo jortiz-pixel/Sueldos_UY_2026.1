@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Download, BarChart2, FileText, Shield } from 'lucide-react';
+import { Download, BarChart2, FileText, Shield, Wallet, Users2, TrendingUp, TrendingDown } from 'lucide-react';
 import { reportsApi } from '../services/api';
 import { useCompany } from '../hooks/useCompany';
 import { formatPesos, MESES, NominaItem } from '../types';
@@ -10,7 +10,19 @@ export default function ReportsPage() {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
-  const [activeReport, setActiveReport] = useState<'nomina' | 'bps' | 'irpf'>('nomina');
+  const [activeReport, setActiveReport] = useState<'pagos' | 'costo' | 'nomina' | 'bps' | 'irpf'>('pagos');
+
+  const { data: pagos, isLoading: pagosLoading } = useQuery({
+    queryKey: ['pagos-mes', companyId, year, month],
+    queryFn: () => reportsApi.pagosMes({ companyId, year, month }),
+    enabled: !!companyId && activeReport === 'pagos',
+  });
+
+  const { data: costo, isLoading: costoLoading } = useQuery({
+    queryKey: ['costo-personal', companyId, year, month],
+    queryFn: () => reportsApi.costoPersonal({ companyId, year, month }),
+    enabled: !!companyId && activeReport === 'costo',
+  });
 
   const { data: nomina, isLoading: nominaLoading } = useQuery({
     queryKey: ['nomina-report', companyId, year, month],
@@ -71,13 +83,15 @@ export default function ReportsPage() {
       {/* Report tabs */}
       <div className="flex gap-1 bg-gray-100 p-1 rounded-lg w-fit">
         {[
+          { key: 'pagos', label: 'Pagos del mes', icon: Wallet },
+          { key: 'costo', label: 'Costo de personal', icon: Users2 },
           { key: 'nomina', label: 'Nómina Mensual', icon: FileText },
           { key: 'bps', label: 'BPS (C1)', icon: Shield },
           { key: 'irpf', label: 'IRPF Anual', icon: BarChart2 },
         ].map(({ key, label, icon: Icon }) => (
           <button
             key={key}
-            onClick={() => setActiveReport(key as 'nomina' | 'bps' | 'irpf')}
+            onClick={() => setActiveReport(key as typeof activeReport)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
               activeReport === key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
             }`}
@@ -87,6 +101,16 @@ export default function ReportsPage() {
           </button>
         ))}
       </div>
+
+      {/* Pagos del mes */}
+      {activeReport === 'pagos' && (
+        <PagosDelMes data={pagos} loading={pagosLoading} year={year} month={month} />
+      )}
+
+      {/* Costo de personal */}
+      {activeReport === 'costo' && (
+        <CostoPersonal data={costo} loading={costoLoading} year={year} month={month} />
+      )}
 
       {/* Nomina report */}
       {activeReport === 'nomina' && (
@@ -249,6 +273,155 @@ export default function ReportsPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Reporte: Pagos del mes ─────────────────────────────────────────
+function Delta({ actual, anterior }: { actual: string; anterior: string }) {
+  const a = Number(actual); const b = Number(anterior);
+  if (!b) return null;
+  const pct = ((a - b) / b) * 100;
+  if (Math.abs(pct) < 0.05) return <span className="text-xs text-ink-subtle">= mes ant.</span>;
+  const up = pct > 0;
+  return (
+    <span className={`inline-flex items-center gap-0.5 text-xs ${up ? 'text-warn' : 'text-ok'}`}>
+      {up ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+      {pct > 0 ? '+' : ''}{pct.toFixed(1)}% vs mes ant.
+    </span>
+  );
+}
+
+function PagosDelMes({ data, loading, year, month }: {
+  data: import('../services/api').PagosMesReport | undefined;
+  loading: boolean; year: number; month: number;
+}) {
+  if (loading) return <div className="card p-10 text-center text-ink-subtle">Calculando…</div>;
+  if (!data || !data.liquidacionesConfirmadas) {
+    return <div className="card p-10 text-center text-ink-subtle">Sin liquidaciones confirmadas en {MESES[month]} {year}. Los pagos se calculan sobre liquidaciones confirmadas.</div>;
+  }
+  const { actual, anterior } = data;
+  const destinos = [
+    { destino: 'Empleados (líquidos a cobrar)', actual: actual.liquidos, anterior: anterior.liquidos, detalle: `${actual.empleados} persona(s)` },
+    { destino: 'BPS — aportes obreros retenidos', actual: actual.bps.obrero.total, anterior: anterior.bps.obrero.total, detalle: `Jubilatorio ${formatPesos(actual.bps.obrero.jubilatorio)} · FONASA ${formatPesos(actual.bps.obrero.fonasa)} · FRL ${formatPesos(actual.bps.obrero.frl)}` },
+    { destino: 'BPS — aportes patronales', actual: actual.bps.patronal.total, anterior: anterior.bps.patronal.total, detalle: `Jubilatorio ${formatPesos(actual.bps.patronal.jubilatorio)} · FONASA ${formatPesos(actual.bps.patronal.fonasa)} · FRL ${formatPesos(actual.bps.patronal.frl)}` },
+    { destino: 'DGI — IRPF retenido', actual: actual.irpf, anterior: anterior.irpf, detalle: '' },
+    { destino: 'BSE — seguro de accidentes', actual: actual.bse, anterior: anterior.bse, detalle: '' },
+  ];
+  return (
+    <div className="space-y-4">
+      {/* Total destacado */}
+      <div className="card p-5 flex flex-wrap items-end justify-between gap-3 border-l-4 border-l-brand-600">
+        <div>
+          <p className="text-xs uppercase tracking-wider text-ink-subtle font-semibold">Total a desembolsar — {MESES[month]} {year}</p>
+          <p className="text-3xl font-bold text-ink figure mt-1">{formatPesos(actual.totalDesembolso)}</p>
+        </div>
+        <div className="text-right">
+          <Delta actual={actual.totalDesembolso} anterior={anterior.totalDesembolso} />
+          <p className="text-xs text-ink-subtle mt-1">{MESES[anterior.month]} {anterior.year}: {formatPesos(anterior.totalDesembolso)}</p>
+        </div>
+      </div>
+
+      <div className="card overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="table-header">
+                <th className="px-4 py-3 text-left">Destino</th>
+                <th className="px-4 py-3 text-right">{MESES[month]} {year}</th>
+                <th className="px-4 py-3 text-right">{MESES[anterior.month]} {anterior.year}</th>
+                <th className="px-4 py-3 text-right">Variación</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-hairline/60">
+              {destinos.map((d) => (
+                <tr key={d.destino} className="hover:bg-canvas/60">
+                  <td className="table-cell">
+                    <p className="text-sm font-medium text-ink">{d.destino}</p>
+                    {d.detalle && <p className="text-[11px] text-ink-subtle">{d.detalle}</p>}
+                  </td>
+                  <td className="table-cell text-right figure text-sm font-semibold">{formatPesos(d.actual)}</td>
+                  <td className="table-cell text-right figure text-xs text-ink-subtle">{formatPesos(d.anterior)}</td>
+                  <td className="table-cell text-right"><Delta actual={d.actual} anterior={d.anterior} /></td>
+                </tr>
+              ))}
+              <tr className="bg-brand-50/60">
+                <td className="table-cell font-bold text-ink">Total desembolso del mes</td>
+                <td className="table-cell text-right figure font-bold text-brand-700">{formatPesos(actual.totalDesembolso)}</td>
+                <td className="table-cell text-right figure text-xs text-ink-subtle">{formatPesos(anterior.totalDesembolso)}</td>
+                <td className="table-cell text-right"><Delta actual={actual.totalDesembolso} anterior={anterior.totalDesembolso} /></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        {Number(actual.otrasRetenciones) > 0 && (
+          <p className="px-4 py-2.5 text-xs text-ink-subtle border-t border-hairline">
+            Además se retuvieron {formatPesos(actual.otrasRetenciones)} por otros conceptos (adelantos, retenciones judiciales, etc.) que no son pagos a organismos.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Reporte: Costo de personal ─────────────────────────────────────
+function CostoPersonal({ data, loading, year, month }: {
+  data: import('../services/api').CostoPersonalReport | undefined;
+  loading: boolean; year: number; month: number;
+}) {
+  if (loading) return <div className="card p-10 text-center text-ink-subtle">Calculando…</div>;
+  if (!data?.period || !data.filas.length) {
+    return <div className="card p-10 text-center text-ink-subtle">Sin liquidaciones confirmadas en {MESES[month]} {year}.</div>;
+  }
+  return (
+    <div className="card overflow-hidden">
+      <div className="px-4 py-3 border-b border-hairline">
+        <h2 className="text-sm font-semibold text-ink">Costo de personal — {MESES[month]} {year}</h2>
+        <p className="text-xs text-ink-subtle mt-0.5">
+          Haberes + aportes patronales + provisiones (aguinaldo 8,33% del gravado, patronal s/aguinaldo 0,76%, salario vacacional 4,45%)
+        </p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="table-header">
+              <th className="px-4 py-3 text-left">Empleado</th>
+              <th className="px-4 py-3 text-right">Haberes</th>
+              <th className="px-4 py-3 text-right">Líquido</th>
+              <th className="px-4 py-3 text-right">Ap. patronales</th>
+              <th className="px-4 py-3 text-right">Prov. aguinaldo</th>
+              <th className="px-4 py-3 text-right">Prov. sal. vacacional</th>
+              <th className="px-4 py-3 text-right">Costo total</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-hairline/60">
+            {data.filas.map((f) => (
+              <tr key={f.empleado?.id ?? f.haberes} className="hover:bg-canvas/60">
+                <td className="table-cell">
+                  <p className="text-sm font-medium text-ink">{f.empleado?.apellido}, {f.empleado?.nombre}</p>
+                  <p className="text-[11px] text-ink-subtle">{f.empleado?.cargo || f.empleado?.ci}</p>
+                </td>
+                <td className="table-cell text-right figure text-xs">{formatPesos(f.haberes)}</td>
+                <td className="table-cell text-right figure text-xs">{formatPesos(f.liquido)}</td>
+                <td className="table-cell text-right figure text-xs">{formatPesos(f.patronales)}</td>
+                <td className="table-cell text-right figure text-xs">{formatPesos((BigInt(f.provisiones.aguinaldo) + BigInt(f.provisiones.patronalAguinaldo)).toString())}</td>
+                <td className="table-cell text-right figure text-xs">{formatPesos(f.provisiones.salarioVacacional)}</td>
+                <td className="table-cell text-right figure text-sm font-bold text-brand-700">{formatPesos(f.costoTotal)}</td>
+              </tr>
+            ))}
+            {data.totales && (
+              <tr className="bg-brand-50/60 font-bold">
+                <td className="table-cell text-ink">Total ({data.filas.length} personas)</td>
+                <td className="table-cell text-right figure text-xs">{formatPesos(data.totales.haberes)}</td>
+                <td className="table-cell text-right figure text-xs">{formatPesos(data.totales.liquido)}</td>
+                <td className="table-cell text-right figure text-xs">{formatPesos(data.totales.patronales)}</td>
+                <td className="table-cell text-right figure text-xs" colSpan={2}>{formatPesos(data.totales.provisiones)}</td>
+                <td className="table-cell text-right figure text-sm text-brand-700">{formatPesos(data.totales.costoTotal)}</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

@@ -355,6 +355,44 @@ export const reportsApi = {
     api.get('/reports/irpf-summary', { params }).then((r) => r.data),
   nominaExcelUrl: (companyId: string, year: number, month: number) =>
     `${BASE_URL}/api/reports/nomina-excel?companyId=${companyId}&year=${year}&month=${month}`,
+  pagosMes: (params: { companyId?: string; year: number; month: number }) =>
+    api.get<PagosMesReport>('/reports/pagos-mes', { params }).then((r) => r.data),
+  costoPersonal: (params: { companyId?: string; year: number; month: number }) =>
+    api.get<CostoPersonalReport>('/reports/costo-personal', { params }).then((r) => r.data),
 };
+
+export interface ResumenPagos {
+  liquidos: string;
+  bps: {
+    obrero: { jubilatorio: string; fonasa: string; frl: string; total: string };
+    patronal: { jubilatorio: string; fonasa: string; frl: string; total: string };
+    total: string;
+  };
+  irpf: string;
+  bse: string;
+  otrasRetenciones: string;
+  totalDesembolso: string;
+  empleados: number;
+}
+
+export interface PagosMesReport {
+  period: { year: number; month: number; status: string } | null;
+  actual: ResumenPagos;
+  anterior: ResumenPagos & { year: number; month: number };
+  liquidacionesConfirmadas: number;
+}
+
+export interface CostoPersonalReport {
+  period: { year: number; month: number; status: string } | null;
+  filas: Array<{
+    empleado: { id: string; ci: string; nombre: string; apellido: string; cargo: string | null } | null;
+    haberes: string;
+    liquido: string;
+    patronales: string;
+    provisiones: { aguinaldo: string; patronalAguinaldo: string; salarioVacacional: string };
+    costoTotal: string;
+  }>;
+  totales: { haberes: string; liquido: string; patronales: string; provisiones: string; costoTotal: string } | null;
+}
 
 export default api;

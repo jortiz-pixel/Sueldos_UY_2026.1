@@ -215,3 +215,163 @@ reportsRouter.get('/nomina-excel', authenticate, async (req: Request, res: Respo
     res.send(buffer);
   } catch (err) { next(err); }
 });
+
+// ───────────────────────────────────────────────────────────────────
+// Helpers de agregación por período (liquidaciones CONFIRMADAS de
+// TODOS los tipos: mensual + aguinaldo + licencia + final).
+// ───────────────────────────────────────────────────────────────────
+async function liquidacionesConfirmadas(companyId: string, year: number, month: number) {
+  const period = await prisma.payrollPeriod.findUnique({
+    where: { companyId_year_month: { companyId, year, month } },
+  });
+  if (!period) return { period: null, liqs: [] as Awaited<ReturnType<typeof prisma.liquidation.findMany>> };
+  const liqs = await prisma.liquidation.findMany({
+    where: { periodId: period.id, status: LiquidationStatus.CONFIRMADO },
+    include: { items: true },
+  });
+  return { period, liqs };
+}
+
+type LiqConItems = { items: { itemType: ItemType; concepto: string; amount: bigint }[]; liquidoPercibir: bigint; totalHaberes: bigint };
+
+function resumenPagos(liqs: LiqConItems[]) {
+  const suma = (pred: (i: { itemType: ItemType; concepto: string }) => boolean) =>
+    liqs.reduce((s, l) => s + l.items.filter(pred).reduce((x, i) => x + i.amount, 0n), 0n);
+
+  const liquidos = liqs.reduce((s, l) => s + l.liquidoPercibir, 0n);
+  const obreroJubilatorio = suma((i) => i.itemType === ItemType.DESCUENTO_OBRERO && i.concepto === 'BPS_JUBILATORIO');
+  const obreroFonasa = suma((i) => i.itemType === ItemType.DESCUENTO_OBRERO && i.concepto === 'FONASA');
+  const obreroFrl = suma((i) => i.itemType === ItemType.DESCUENTO_OBRERO && i.concepto === 'FRL');
+  const irpf = suma((i) => i.itemType === ItemType.DESCUENTO_OBRERO && i.concepto === 'IRPF');
+  const otrasRetenciones = suma((i) => i.itemType === ItemType.DESCUENTO_OBRERO
+    && !['BPS_JUBILATORIO', 'FONASA', 'FRL', 'IRPF'].includes(i.concepto));
+
+  const patronalJubilatorio = suma((i) => i.itemType === ItemType.APORTE_PATRONAL && i.concepto === 'BPS_IVS_PATRONAL');
+  const patronalFonasa = suma((i) => i.itemType === ItemType.APORTE_PATRONAL && i.concepto === 'FONASA_PATRONAL');
+  const patronalFrl = suma((i) => i.itemType === ItemType.APORTE_PATRONAL && i.concepto === 'FRL_PATRONAL');
+  const bse = suma((i) => i.itemType === ItemType.APORTE_PATRONAL && i.concepto === 'BSE');
+
+  const bpsObrero = obreroJubilatorio + obreroFonasa + obreroFrl;
+  const bpsPatronal = patronalJubilatorio + patronalFonasa + patronalFrl;
+  const totalBps = bpsObrero + bpsPatronal;
+  const totalDesembolso = liquidos + totalBps + irpf + bse;
+
+  const str = (v: bigint) => v.toString();
+  return {
+    liquidos: str(liquidos),
+    bps: {
+      obrero: { jubilatorio: str(obreroJubilatorio), fonasa: str(obreroFonasa), frl: str(obreroFrl), total: str(bpsObrero) },
+      patronal: { jubilatorio: str(patronalJubilatorio), fonasa: str(patronalFonasa), frl: str(patronalFrl), total: str(bpsPatronal) },
+      total: str(totalBps),
+    },
+    irpf: str(irpf),
+    bse: str(bse),
+    otrasRetenciones: str(otrasRetenciones),
+    totalDesembolso: str(totalDesembolso),
+    empleados: new Set((liqs as Array<LiqConItems & { employeeId?: string }>).map((l) => l.employeeId)).size,
+  };
+}
+
+// GET /api/reports/pagos-mes?companyId=&year=&month=
+// "¿Cuánto pago este mes y a quién?": líquidos + BPS + DGI + BSE, con
+// comparativo contra el mes anterior.
+reportsRouter.get('/pagos-mes', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const companyId = (req.query.companyId as string) || req.user!.companyId;
+    if (!companyId) throw new AppError(400, 'companyId requerido');
+    await assertCompanyAccess(req, companyId);
+    const year = parseInt(req.query.year as string);
+    const month = parseInt(req.query.month as string);
+    if (isNaN(year) || isNaN(month)) throw new AppError(400, 'year y month requeridos');
+
+    const { period, liqs } = await liquidacionesConfirmadas(companyId, year, month);
+    const prevYear = month === 1 ? year - 1 : year;
+    const prevMonth = month === 1 ? 12 : month - 1;
+    const { liqs: liqsPrev } = await liquidacionesConfirmadas(companyId, prevYear, prevMonth);
+
+    res.json({
+      period: period ? { year, month, status: period.status } : null,
+      actual: resumenPagos(liqs as unknown as LiqConItems[]),
+      anterior: { year: prevYear, month: prevMonth, ...resumenPagos(liqsPrev as unknown as LiqConItems[]) },
+      liquidacionesConfirmadas: liqs.length,
+    });
+  } catch (err) { next(err); }
+});
+
+// GET /api/reports/costo-personal?companyId=&year=&month=
+// Costo total de cada empleado: haberes + aportes patronales + provisiones
+// (aguinaldo 8,33% del gravado, patronal s/aguinaldo, salario vacacional).
+reportsRouter.get('/costo-personal', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const companyId = (req.query.companyId as string) || req.user!.companyId;
+    if (!companyId) throw new AppError(400, 'companyId requerido');
+    await assertCompanyAccess(req, companyId);
+    const year = parseInt(req.query.year as string);
+    const month = parseInt(req.query.month as string);
+    if (isNaN(year) || isNaN(month)) throw new AppError(400, 'year y month requeridos');
+
+    const { period, liqs } = await liquidacionesConfirmadas(companyId, year, month);
+    if (!period) return res.json({ period: null, filas: [], totales: null });
+
+    const employeeIds = [...new Set(liqs.map((l) => l.employeeId))];
+    const employees = await prisma.employee.findMany({
+      where: { id: { in: employeeIds } },
+      select: { id: true, ci: true, nombre: true, apellido: true, cargo: true },
+    });
+    const empMap = new Map(employees.map((e) => [e.id, e]));
+
+    const filas = employeeIds.map((empId) => {
+      const liqsEmp = liqs.filter((l) => l.employeeId === empId);
+      const items = liqsEmp.flatMap((l) => l.items);
+      const haberes = liqsEmp.reduce((s, l) => s + l.totalHaberes, 0n);
+      const liquido = liqsEmp.reduce((s, l) => s + l.liquidoPercibir, 0n);
+      const patronales = items
+        .filter((i) => i.itemType === ItemType.APORTE_PATRONAL)
+        .reduce((s, i) => s + i.amount, 0n);
+
+      // Base gravada CESS del mes (la de los aportes jubilatorios).
+      const gravado = items
+        .filter((i) => i.itemType === ItemType.DESCUENTO_OBRERO && i.concepto === 'BPS_JUBILATORIO')
+        .reduce((s, i) => s + (i.baseCalculo ?? 0n), 0n);
+
+      // Provisiones mensuales (criterio GNS "Costo de empleado"):
+      //  - Aguinaldo: 8,33% del gravado (1/12).
+      //  - Aporte patronal s/aguinaldo: jubilatorio 7,5% + FRL 0,1% (el aguinaldo
+      //    no genera FONASA patronal).
+      //  - Salario vacacional: 4,45% (jornal líquido de licencia, 20 días/año).
+      const provAguinaldo = gravado / 12n;
+      const provPatronalAguinaldo = (provAguinaldo * 760n) / 10000n;
+      const provSalarioVacacional = (gravado * 445n) / 10000n;
+
+      const costoTotal = haberes + patronales + provAguinaldo + provPatronalAguinaldo + provSalarioVacacional;
+      const e = empMap.get(empId);
+      return {
+        empleado: e ? { id: e.id, ci: e.ci, nombre: e.nombre, apellido: e.apellido, cargo: e.cargo } : null,
+        haberes: haberes.toString(),
+        liquido: liquido.toString(),
+        patronales: patronales.toString(),
+        provisiones: {
+          aguinaldo: provAguinaldo.toString(),
+          patronalAguinaldo: provPatronalAguinaldo.toString(),
+          salarioVacacional: provSalarioVacacional.toString(),
+        },
+        costoTotal: costoTotal.toString(),
+      };
+    }).sort((a, b) => (a.empleado?.apellido ?? '').localeCompare(b.empleado?.apellido ?? ''));
+
+    const sum = (fn: (f: typeof filas[number]) => string) =>
+      filas.reduce((s, f) => s + BigInt(fn(f)), 0n).toString();
+
+    res.json({
+      period: { year, month, status: period.status },
+      filas,
+      totales: {
+        haberes: sum((f) => f.haberes),
+        liquido: sum((f) => f.liquido),
+        patronales: sum((f) => f.patronales),
+        provisiones: sum((f) => (BigInt(f.provisiones.aguinaldo) + BigInt(f.provisiones.patronalAguinaldo) + BigInt(f.provisiones.salarioVacacional)).toString()),
+        costoTotal: sum((f) => f.costoTotal),
+      },
+    });
+  } catch (err) { next(err); }
+});
