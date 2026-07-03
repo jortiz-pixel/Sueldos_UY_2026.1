@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Calendar, User, DollarSign, FileText, Briefcase, Plus, X, AlertCircle, UserMinus } from 'lucide-react';
+import { ArrowLeft, Calendar, User, DollarSign, FileText, Briefcase, Plus, X, AlertCircle, UserMinus, Pencil } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { employeesApi, contractsApi, companiesApi, catalogsApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
@@ -49,6 +49,7 @@ export default function EmployeeDetailPage() {
   const { activeCompanyId } = useCompany();
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
+  const [editingContract, setEditingContract] = useState<Contrato | null>(null);
   const [formError, setFormError] = useState('');
 
   const { data: employee, isLoading } = useQuery({
@@ -110,12 +111,16 @@ export default function EmployeeDetailPage() {
         horasSemanales: data.horasSemanales ? Number(data.horasSemanales) : undefined,
         observacion: data.observacion || undefined,
       };
-      return contractsApi.create(id!, payload);
+      return editingContract
+        ? contractsApi.update(id!, editingContract.id, payload)
+        : contractsApi.create(id!, payload);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['employee-contracts', id] });
       queryClient.invalidateQueries({ queryKey: ['employee', id] });
+      queryClient.invalidateQueries({ queryKey: ['nomina-checklist'] });
       setModalOpen(false);
+      setEditingContract(null);
     },
     onError: (err: unknown) => {
       const message = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
@@ -145,6 +150,34 @@ export default function EmployeeDetailPage() {
     },
   });
 
+  const openEditContract = (c: Contrato) => {
+    setEditingContract(c);
+    setFormError('');
+    reset({
+      companyId: c.companyId ?? '',
+      vigenciaDesde: c.vigenciaDesde ? c.vigenciaDesde.slice(0, 10) : '',
+      fechaIngreso: c.fechaIngreso ? c.fechaIngreso.slice(0, 10) : '',
+      tipoContrato: c.tipoContrato ?? '',
+      cargo: c.cargo ?? '',
+      sector: c.sector ?? '',
+      categoria: c.categoria ?? '',
+      nivel: c.nivel ?? '',
+      salaryType: c.salaryType,
+      salarioNominalPesos: Number(c.salarioNominal) / 100,
+      jornalPesos: c.jornal ? Number(c.jornal) / 100 : undefined,
+      horasDia: c.horasDia ?? undefined,
+      regimenHorario: c.regimenHorario ?? '',
+      sucursal: c.sucursal ?? '',
+      vinculoFuncional: c.vinculoFuncional != null ? String(c.vinculoFuncional) : '12',
+      seguroSalud: c.seguroSalud != null ? String(c.seguroSalud) : '',
+      computosEspeciales: c.computosEspeciales != null ? String(c.computosEspeciales) : '99',
+      exoneracionAporte: c.exoneracionAporte != null ? String(c.exoneracionAporte) : '9',
+      horasSemanales: c.horasSemanales ?? 44,
+      observacion: c.observacion ?? '',
+    });
+    setModalOpen(true);
+  };
+
   const handleBaja = (c: Contrato) => {
     if (!confirm('Dar de baja cierra el contrato y genera la liquidación final (egreso) a la fecha indicada. ¿Continuar?')) return;
     const fecha = prompt('Fecha de egreso / baja (AAAA-MM-DD):', new Date().toISOString().slice(0, 10));
@@ -163,6 +196,7 @@ export default function EmployeeDetailPage() {
   };
 
   const openNew = () => {
+    setEditingContract(null);
     setFormError('');
     const hoy = new Date().toISOString().slice(0, 10);
     reset({
@@ -329,6 +363,15 @@ export default function EmployeeDetailPage() {
                       : <span className="badge-gray badge">Histórico</span>}
                   </td>
                   <td className="table-cell text-right">
+                    {isOperator && (
+                      <button
+                        onClick={() => openEditContract(c)}
+                        className="inline-flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 hover:bg-brand-50 px-2 py-1 rounded-lg mr-1"
+                        title="Editar contrato (datos laborales e Historia Laboral BPS)"
+                      >
+                        <Pencil size={13} /> Editar
+                      </button>
+                    )}
                     {isOperator && !c.vigenciaHasta && c.activo && (
                       <button
                         onClick={() => handleBaja(c)}
@@ -399,7 +442,7 @@ export default function EmployeeDetailPage() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white z-10">
-              <h2 className="text-lg font-bold text-gray-900">Nuevo Contrato</h2>
+              <h2 className="text-lg font-bold text-gray-900">{editingContract ? `Editar contrato Nº ${editingContract.numero}` : 'Nuevo Contrato'}</h2>
               <button onClick={() => setModalOpen(false)} className="p-1 text-gray-400 hover:text-gray-700"><X size={20} /></button>
             </div>
             <form onSubmit={handleSubmit((d) => { setFormError(''); createMutation.mutate(d); })} className="p-6 space-y-4">
@@ -513,7 +556,7 @@ export default function EmployeeDetailPage() {
               <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
                 <button type="button" onClick={() => setModalOpen(false)} className="btn-secondary">Cancelar</button>
                 <button type="submit" disabled={createMutation.isPending} className="btn-primary">
-                  {createMutation.isPending ? 'Guardando...' : 'Crear contrato'}
+                  {createMutation.isPending ? 'Guardando...' : editingContract ? 'Guardar cambios' : 'Crear contrato'}
                 </button>
               </div>
             </form>
