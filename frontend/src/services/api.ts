@@ -335,6 +335,8 @@ export const contractsApi = {
   list: (employeeId: string) => api.get<Contrato[]>(`/employees/${employeeId}/contracts`).then((r) => r.data),
   create: (employeeId: string, data: object) => api.post<Contrato>(`/employees/${employeeId}/contracts`, data).then((r) => r.data),
   update: (employeeId: string, contractId: string, data: object) => api.put<Contrato>(`/employees/${employeeId}/contracts/${contractId}`, data).then((r) => r.data),
+  documento: (employeeId: string, contractId: string) =>
+    api.get(`/employees/${employeeId}/contracts/${contractId}/documento`, { responseType: 'blob' }).then((r) => r.data as Blob),
   baja: (employeeId: string, contractId: string, fechaEgreso: string, motivo?: string, causalEgresoCod?: number) =>
     api.post<Contrato & { liquidacionFinalId?: string | null; desvinculadaTotal?: boolean; aviso?: string }>(
       `/employees/${employeeId}/contracts/${contractId}/baja`, { fechaEgreso, motivo, causalEgresoCod },

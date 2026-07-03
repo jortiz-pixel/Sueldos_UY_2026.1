@@ -1,9 +1,11 @@
-import { useQuery } from '@tanstack/react-query';
-import { Users, FileText, DollarSign, TrendingUp, AlertCircle, CalendarDays, Cake, AlertTriangle, UserPlus, UserMinus } from 'lucide-react';
-import { employeesApi, liquidationApi, reportsApi, calendarApi, CalendarEventType } from '../services/api';
+import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Users, FileText, DollarSign, TrendingUp, AlertCircle, CalendarDays, Cake, AlertTriangle, UserPlus, UserMinus, X, Landmark, Plane } from 'lucide-react';
+import { employeesApi, liquidationApi, reportsApi, calendarApi, CalendarEventType, contractsApi, catalogsApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
+import { useForm } from 'react-hook-form';
 import { useCompany } from '../hooks/useCompany';
-import { formatPesos, MESES } from '../types';
+import { formatPesos, MESES, Employee } from '../types';
 import { Link } from 'react-router-dom';
 
 const EVENT_META: Record<CalendarEventType, { color: string; icon: typeof Cake }> = {
@@ -12,6 +14,9 @@ const EVENT_META: Record<CalendarEventType, { color: string; icon: typeof Cake }
   VENC_LIBRETA: { color: 'text-amber-600 bg-amber-50', icon: AlertTriangle },
   ALTA: { color: 'text-green-600 bg-green-50', icon: UserPlus },
   BAJA: { color: 'text-red-600 bg-red-50', icon: UserMinus },
+  LICENCIA: { color: 'text-brand-700 bg-brand-50', icon: Plane },
+  REINTEGRO: { color: 'text-brand-600 bg-brand-50', icon: UserPlus },
+  VENC_NOMINA_BPS: { color: 'text-red-600 bg-red-50', icon: Landmark },
 };
 
 function relativo(fecha: string): string {
@@ -24,8 +29,10 @@ function relativo(fecha: string): string {
 }
 
 export default function DashboardPage() {
-  const { user } = useAuth();
+  const { user, isOperator } = useAuth();
   const { activeCompanyId: companyId } = useCompany();
+  const queryClient = useQueryClient();
+  const [bajaOpen, setBajaOpen] = useState(false);
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
@@ -91,12 +98,24 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-ink font-brand">Hola, {user?.nombre} 👋</h1>
-        <p className="text-ink-subtle text-sm mt-1">
-          Resumen de <span className="font-medium text-ink-muted">{MESES[month]} {year}</span>
-        </p>
+      {/* Header + acciones rápidas */}
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-ink font-brand">Hola, {user?.nombre} 👋</h1>
+          <p className="text-ink-subtle text-sm mt-1">
+            Resumen de <span className="font-medium text-ink-muted">{MESES[month]} {year}</span>
+          </p>
+        </div>
+        {isOperator && (
+          <div className="flex items-center gap-2">
+            <Link to="/employees/new" className="btn-primary btn-sm">
+              <UserPlus size={15} /> Alta de personal
+            </Link>
+            <button onClick={() => setBajaOpen(true)} className="btn-secondary btn-sm">
+              <UserMinus size={15} /> Baja de personal
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Alert si no hay período activo */}
@@ -234,6 +253,122 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
+      </div>
+      {/* Modal de baja de personal */}
+      {bajaOpen && <BajaModal companyId={companyId} onClose={() => { setBajaOpen(false); queryClient.invalidateQueries({ queryKey: ['employees'] }); }} />}
+    </div>
+  );
+}
+
+// ── Baja de personal desde el panel: elegí la persona, fecha y causal BPS;
+//    cierra el contrato vigente y genera la liquidación final (egreso). ──
+interface BajaForm {
+  employeeId: string;
+  fechaEgreso: string;
+  causalEgresoCod: string;
+  motivo?: string;
+}
+
+function BajaModal({ companyId, onClose }: { companyId: string; onClose: () => void }) {
+  const [error, setError] = useState('');
+  const [enviando, setEnviando] = useState(false);
+
+  const { data: personas } = useQuery({
+    queryKey: ['employees-picker', companyId],
+    queryFn: () => employeesApi.list({ companyId, page: 1, limit: 200 }),
+    enabled: !!companyId,
+  });
+  const { data: causales } = useQuery({
+    queryKey: ['cat-causales'],
+    queryFn: () => catalogsApi.causalesEgreso(),
+    staleTime: Infinity,
+  });
+
+  const { register, handleSubmit, formState: { errors } } = useForm<BajaForm>({
+    defaultValues: { employeeId: '', fechaEgreso: new Date().toISOString().slice(0, 10), causalEgresoCod: '1', motivo: '' },
+  });
+
+  const onSubmit = async (data: BajaForm) => {
+    setError('');
+    setEnviando(true);
+    try {
+      // Buscar el contrato vigente de la persona en esta empresa.
+      const contratos = await contractsApi.list(data.employeeId);
+      const vigente = contratos.find((c) =>
+        c.activo && !c.fechaFin && !c.vigenciaHasta && (!c.companyId || c.companyId === companyId));
+      if (!vigente) {
+        setError('La persona no tiene un contrato vigente en esta empresa.');
+        setEnviando(false);
+        return;
+      }
+      if (!confirm('La baja cierra el contrato y genera la liquidación final (egreso). ¿Confirmar?')) {
+        setEnviando(false);
+        return;
+      }
+      const r = await contractsApi.baja(data.employeeId, vigente.id, data.fechaEgreso, data.motivo || undefined, Number(data.causalEgresoCod));
+      alert(r.aviso
+        ? r.aviso
+        : 'Baja registrada. Se generó la liquidación final (egreso) en BORRADOR — revisala en Liquidaciones.'
+          + (r.desvinculadaTotal ? '\nLa persona quedó inactiva.' : ''));
+      onClose();
+    } catch (e) {
+      const m = (e as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      setError(m || 'No se pudo registrar la baja.');
+    } finally {
+      setEnviando(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-hairline">
+          <h2 className="text-lg font-bold text-ink">Baja de personal</h2>
+          <button onClick={onClose} className="p-1 text-ink-subtle hover:text-ink"><X size={20} /></button>
+        </div>
+        <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
+          {error && (
+            <div className="flex items-center gap-2 p-3 bg-bad-bg border border-bad/30 rounded-lg text-sm text-bad">
+              <AlertCircle size={16} className="flex-shrink-0" /> {error}
+            </div>
+          )}
+          <div>
+            <label className="form-label">Persona *</label>
+            <select {...register('employeeId', { required: 'Requerido' })} className="form-input">
+              <option value="">— Seleccionar —</option>
+              {personas?.data.map((p: Employee) => (
+                <option key={p.id} value={p.id}>{p.apellido}, {p.nombre} · CI {p.ci}</option>
+              ))}
+            </select>
+            {errors.employeeId && <p className="form-error">{errors.employeeId.message}</p>}
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="form-label">Fecha de egreso *</label>
+              <input {...register('fechaEgreso', { required: 'Requerido' })} type="date" className="form-input" />
+            </div>
+            <div>
+              <label className="form-label">Causal (BPS Tabla 9)</label>
+              <select {...register('causalEgresoCod')} className="form-input">
+                {causales?.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} — {c.nombre}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="form-label">Motivo (opcional)</label>
+            <input {...register('motivo')} className="form-input" />
+          </div>
+          <p className="text-xs text-ink-subtle">
+            Se cierra el contrato vigente en la empresa activa y se genera automáticamente la liquidación final
+            (sueldo de los días trabajados, aguinaldo y licencia proporcionales, salario vacacional e IPD si corresponde).
+          </p>
+          <div className="flex justify-end gap-2 pt-2 border-t border-hairline">
+            <button type="button" onClick={onClose} className="btn-tertiary">Cancelar</button>
+            <button type="submit" disabled={enviando} className="btn-danger">
+              {enviando ? 'Procesando…' : 'Registrar baja'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { UserRole, SalaryType, EstadoCivil, Contrato } from '@prisma/client';
 import { prisma } from '../utils/prisma';
+import { generateContratoPDF, contratoFilename } from '../services/pdf.service';
 import { authenticate, requireRole } from '../middleware/auth';
 import { assertCompanyAccess, accessibleCompanyIds } from '../middleware/tenancy';
 import { AppError, NotFoundError } from '../middleware/errorHandler';
@@ -492,6 +493,28 @@ employeesRouter.delete('/:id/contracts/:contractId', authenticate, requireRole(U
     await assertPersonaAccess(req, employee.id, employee.companyId);
     await prisma.contrato.update({ where: { id: req.params.contractId }, data: { activo: false } });
     res.json({ message: 'Contrato desactivado' });
+  } catch (err) { next(err); }
+});
+
+// GET /:id/contracts/:contractId/documento → contrato de trabajo en PDF (para firmar)
+employeesRouter.get('/:id/contracts/:contractId/documento', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const employee = await prisma.employee.findUnique({ where: { id: req.params.id } });
+    if (!employee) throw new NotFoundError('Empleado');
+    await assertPersonaAccess(req, employee.id, employee.companyId);
+
+    const contrato = await prisma.contrato.findUnique({
+      where: { id: req.params.contractId },
+      include: { company: true },
+    });
+    if (!contrato || contrato.employeeId !== req.params.id) throw new NotFoundError('Contrato');
+    const company = contrato.company;
+    if (!company) throw new AppError(409, 'El contrato no tiene empresa asociada');
+
+    const pdf = await generateContratoPDF(employee, contrato, company);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${contratoFilename(employee, company)}.pdf"`);
+    res.send(pdf);
   } catch (err) { next(err); }
 });
 

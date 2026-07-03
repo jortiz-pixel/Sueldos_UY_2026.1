@@ -337,3 +337,133 @@ export function generateReciboPDF(
     doc.end();
   });
 }
+
+// ═════════════════════════════════════════════════════════════════
+// CONTRATO DE TRABAJO (documento imprimible para firmar)
+// ═════════════════════════════════════════════════════════════════
+
+interface EmpresaContrato {
+  razonSocial: string;
+  rut: string;
+  domicilio: string | null;
+  localidad?: string | null;
+  departamento?: string | null;
+}
+
+interface PersonaContrato {
+  nombre: string;
+  nombre2?: string | null;
+  apellido: string;
+  apellido2?: string | null;
+  ci: string;
+  domicilio?: string | null;
+  fechaNacimiento?: Date | null;
+  nacionalidad?: number | null;
+}
+
+interface ContratoDoc {
+  numero?: number | null;
+  fechaIngreso: Date;
+  tipoContrato?: string | null;
+  cargo?: string | null;
+  sector?: string | null;
+  salaryType: string;
+  salarioNominal: bigint;
+  jornal?: bigint | null;
+  horasSemanales?: number | null;
+  regimenHorario?: string | null;
+  sucursal?: string | null;
+}
+
+export function contratoFilename(emp: PersonaContrato, co: EmpresaContrato): string {
+  const base = `Contrato - ${emp.nombre} ${emp.apellido} - ${co.razonSocial}`;
+  return base.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+export function generateContratoPDF(
+  persona: PersonaContrato,
+  contrato: ContratoDoc,
+  empresa: EmpresaContrato,
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: 'A4', margins: { top: 64, bottom: 64, left: 64, right: 64 } });
+    doc.info.Title = contratoFilename(persona, empresa);
+    const chunks: Buffer[] = [];
+    doc.on('data', (c) => chunks.push(c));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+
+    const NAVY = '#0B1B3A';
+    const PRIMARY = '#1E5BFF';
+    const nombreCompleto = [persona.nombre, persona.nombre2, persona.apellido, persona.apellido2].filter(Boolean).join(' ');
+    const lugar = [empresa.localidad, empresa.departamento].filter(Boolean).join(', ') || 'Montevideo';
+    const hoy = new Date();
+    const MESES_L = ['', 'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'setiembre', 'octubre', 'noviembre', 'diciembre'];
+    const fechaHoy = `${hoy.getDate()} de ${MESES_L[hoy.getMonth() + 1]} de ${hoy.getFullYear()}`;
+    const fIng = new Date(contrato.fechaIngreso);
+    const fechaIngresoTxt = `${fIng.getDate()} de ${MESES_L[fIng.getMonth() + 1]} de ${fIng.getFullYear()}`;
+
+    const esJornalero = (contrato.salaryType || 'MENSUAL') === 'JORNALERO';
+    const remBruta = esJornalero && contrato.jornal ? contrato.jornal : contrato.salarioNominal;
+    const remPesos = Math.round(Number(remBruta) / 100);
+    const remTexto = esJornalero
+      ? `$ ${fmt(remBruta)} (pesos uruguayos ${numeroALetras(remPesos)}) por jornal`
+      : `$ ${fmt(remBruta)} (pesos uruguayos ${numeroALetras(remPesos)}) nominales mensuales`;
+
+    // Título
+    doc.font('Helvetica-Bold').fontSize(16).fillColor(NAVY).text('CONTRATO DE TRABAJO', { align: 'center' });
+    doc.moveDown(0.3);
+    doc.lineWidth(1.2).strokeColor(PRIMARY)
+      .moveTo(doc.page.width / 2 - 60, doc.y).lineTo(doc.page.width / 2 + 60, doc.y).stroke();
+    doc.moveDown(1.2);
+
+    // Comparecientes
+    doc.font('Helvetica').fontSize(10.5).fillColor('#111').lineGap(3);
+    doc.text(
+      `En ${lugar}, a los ${fechaHoy}, entre ${empresa.razonSocial}, RUT ${empresa.rut}, ` +
+      `con domicilio en ${empresa.domicilio ?? '—'} (en adelante "el empleador"), por una parte; y ` +
+      `${nombreCompleto}, titular de la cédula de identidad Nº ${persona.ci}` +
+      `${persona.domicilio ? `, con domicilio en ${persona.domicilio}` : ''} (en adelante "el trabajador"), ` +
+      `por la otra, se conviene la celebración del presente contrato de trabajo, sujeto a las siguientes cláusulas:`,
+      { align: 'justify' },
+    );
+    doc.moveDown(0.8);
+
+    const clausula = (titulo: string, cuerpo: string) => {
+      doc.font('Helvetica-Bold').fontSize(10.5).fillColor(NAVY).text(titulo, { continued: true });
+      doc.font('Helvetica').fillColor('#111').text(` ${cuerpo}`, { align: 'justify' });
+      doc.moveDown(0.6);
+    };
+
+    clausula('PRIMERO (Objeto).', `El empleador contrata los servicios personales del trabajador para desempeñarse como ${contrato.cargo || 'dependiente'}${contrato.sector ? `, en el sector ${contrato.sector}` : ''}, comprometiéndose el trabajador a cumplir las tareas propias del cargo con diligencia y responsabilidad.`);
+    clausula('SEGUNDO (Plazo).', `La relación laboral se inicia el ${fechaIngresoTxt}${contrato.tipoContrato ? `, bajo la modalidad de contrato ${contrato.tipoContrato.toLowerCase()}` : ', por tiempo indeterminado'}, rigiéndose por las normas laborales vigentes en la República Oriental del Uruguay.`);
+    clausula('TERCERO (Jornada).', `La jornada de labor será de ${contrato.horasSemanales ?? 44} horas semanales${contrato.regimenHorario ? `, en régimen ${contrato.regimenHorario}` : ''}, con los descansos legales correspondientes.`);
+    clausula('CUARTO (Remuneración).', `El trabajador percibirá una remuneración de ${remTexto}, sujeta a los aportes y retenciones legales, pagadera conforme a la normativa vigente. Percibirá asimismo sueldo anual complementario, licencia anual reglamentaria y salario vacacional conforme a la ley.`);
+    clausula('QUINTO (Lugar de trabajo).', `Las tareas se desarrollarán en ${contrato.sucursal || empresa.domicilio || 'el establecimiento del empleador'}, sin perjuicio de los traslados transitorios que la organización del trabajo requiera.`);
+    clausula('SEXTO (Seguridad social).', `El empleador declarará al trabajador ante el Banco de Previsión Social y demás organismos correspondientes, efectuando los aportes de seguridad social conforme a la normativa vigente.`);
+    clausula('SÉPTIMO (Aceptación).', `Ambas partes aceptan las cláusulas precedentes, firmando dos ejemplares del mismo tenor en el lugar y fecha indicados.`);
+
+    // Firmas
+    doc.moveDown(2.5);
+    const y = doc.y;
+    const w = (doc.page.width - 128) / 2 - 20;
+    doc.lineWidth(0.7).strokeColor('#111');
+    doc.moveTo(64, y).lineTo(64 + w, y).stroke();
+    doc.moveTo(doc.page.width - 64 - w, y).lineTo(doc.page.width - 64, y).stroke();
+    doc.font('Helvetica').fontSize(9).fillColor('#111');
+    doc.text(`Por ${empresa.razonSocial}`, 64, y + 5, { width: w, align: 'center' });
+    doc.text(nombreCompleto, doc.page.width - 64 - w, y + 5, { width: w, align: 'center' });
+    doc.fontSize(8).fillColor('#666');
+    doc.text('Empleador', 64, y + 18, { width: w, align: 'center' });
+    doc.text(`C.I. ${persona.ci}`, doc.page.width - 64 - w, y + 18, { width: w, align: 'center' });
+
+    // Pie de marca sutil
+    doc.font('Helvetica').fontSize(6.5).fillColor('#8493AD');
+    const pieY = doc.page.height - 48;
+    doc.text('Generado con ', 64, pieY, { continued: true });
+    doc.font('Helvetica-Bold').fillColor(NAVY).text('Asys', { continued: true });
+    doc.fillColor(PRIMARY).text('Tax.', { continued: false });
+
+    doc.end();
+  });
+}
