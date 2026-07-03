@@ -134,6 +134,22 @@ liquidationRouter.get('/period/:id/roster', authenticate, async (req: Request, r
   } catch (err) { next(err); }
 });
 
+// POST /api/liquidation/periods/:id/cerrar — cierra el mes (solo sin borradores).
+liquidationRouter.post('/periods/:id/cerrar', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const period = await prisma.payrollPeriod.findUnique({ where: { id: req.params.id } });
+    if (!period) throw new AppError(404, 'Período no encontrado');
+    await assertCompanyAccess(req, period.companyId);
+    const borradores = await prisma.liquidation.count({ where: { periodId: period.id, status: LiquidationStatus.BORRADOR } });
+    if (borradores > 0) throw new AppError(409, `No se puede cerrar: hay ${borradores} liquidación(es) en borrador.`);
+    const updated = await prisma.payrollPeriod.update({
+      where: { id: period.id },
+      data: { status: PeriodStatus.CERRADO, closedAt: new Date() },
+    });
+    res.json({ id: updated.id, status: updated.status });
+  } catch (err) { next(err); }
+});
+
 // POST /api/liquidation/generate
 liquidationRouter.post('/generate', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -194,16 +210,19 @@ liquidationRouter.post('/generate-batch', authenticate, requireRole(UserRole.ADM
     });
     const { companyId, periodId, year, month } = schema.parse(req.body);
     await assertCompanyAccess(req, companyId);
-    const asOf = new Date(year, month - 1, 1);
+    // Contratos que SOLAPAN el mes (incluye altas/bajas a mitad de mes),
+    // mismo criterio que el roster y la nómina BPS.
+    const monthStart = new Date(year, month - 1, 1);
+    const monthEnd = new Date(year, month, 0);
 
     const contratos = await prisma.contrato.findMany({
       where: {
         companyId,
         activo: true,
-        vigenciaDesde: { lte: asOf },
+        vigenciaDesde: { lte: monthEnd },
         AND: [
-          { OR: [{ vigenciaHasta: null }, { vigenciaHasta: { gte: asOf } }] },
-          { OR: [{ fechaFin: null }, { fechaFin: { gte: asOf } }] },
+          { OR: [{ vigenciaHasta: null }, { vigenciaHasta: { gte: monthStart } }] },
+          { OR: [{ fechaFin: null }, { fechaFin: { gte: monthStart } }] },
         ],
       },
       select: { employeeId: true },

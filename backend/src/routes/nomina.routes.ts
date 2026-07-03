@@ -223,3 +223,94 @@ nominaRouter.post('/import', authenticate, requireRole(UserRole.ADMIN), upload.s
     res.json({ dryRun: !commit, ...plan });
   } catch (err) { next(err); }
 });
+
+// GET /api/nomina/centro-mes?companyId&year&month
+// Estado de cada paso del ciclo mensual (para la pantalla "Centro del mes").
+nominaRouter.get('/centro-mes', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { companyId, year, month } = parsePeriodo(req);
+    await assertCompanyAccess(req, companyId);
+
+    const monthStart = new Date(year, month - 1, 1);
+    const monthEnd = new Date(year, month, 0);
+
+    // Paso 1: período
+    const period = await prisma.payrollPeriod.findFirst({ where: { companyId, year, month } });
+
+    // Paso 2: datos BPS (empresa + personas del roster)
+    const company = await prisma.company.findUnique({ where: { id: companyId } });
+    const faltantesEmpresa: string[] = [];
+    if (company) {
+      if (!company.numeroBps) faltantesEmpresa.push('Nº BPS');
+      if (company.tipoAporte == null) faltantesEmpresa.push('tipo de aporte');
+      if (company.tipoContribuyente == null) faltantesEmpresa.push('tipo de contribuyente');
+      if (!company.domicilio) faltantesEmpresa.push('domicilio');
+    }
+    const contratos = await prisma.contrato.findMany({
+      where: {
+        companyId, activo: true,
+        vigenciaDesde: { lte: monthEnd },
+        AND: [
+          { OR: [{ vigenciaHasta: null }, { vigenciaHasta: { gte: monthStart } }] },
+          { OR: [{ fechaFin: null }, { fechaFin: { gte: monthStart } }] },
+        ],
+      },
+      include: { employee: { select: { id: true, fechaNacimiento: true, sexo: true, ci: true } } },
+      orderBy: { vigenciaDesde: 'desc' },
+    });
+    const porPersona = new Map<string, typeof contratos[number]>();
+    for (const c of contratos) if (!porPersona.has(c.employeeId)) porPersona.set(c.employeeId, c);
+    let personasIncompletas = 0;
+    for (const c of porPersona.values()) {
+      const e = c.employee;
+      if (!e.ci || !e.fechaNacimiento || !e.sexo
+        || c.vinculoFuncional == null || c.seguroSalud == null || c.horasSemanales == null) {
+        personasIncompletas++;
+      }
+    }
+
+    // Pasos 3-5: liquidaciones del período
+    const liqs = period
+      ? await prisma.liquidation.findMany({
+          where: { periodId: period.id },
+          select: { id: true, employeeId: true, status: true, liquidoPercibir: true, confirmedAt: true, updatedAt: true },
+        })
+      : [];
+    const generadas = new Set(liqs.map((l) => l.employeeId)).size;
+    const borradores = liqs.filter((l) => l.status === 'BORRADOR').length;
+    const confirmadas = liqs.filter((l) => l.status === 'CONFIRMADO');
+    const liquidos = confirmadas.reduce((s, l) => s + l.liquidoPercibir, 0n);
+
+    // Paso 6: declaración BPS + cambios posteriores
+    const declaraciones = await prisma.nominaDeclaracion.findMany({
+      where: { companyId, year, month },
+      orderBy: { createdAt: 'desc' },
+    });
+    const ultimaN = declaraciones.find((d) => d.tipo === 'N');
+    const ultimaDecl = declaraciones[0];
+    const cambiosPosteriores = !!ultimaDecl && liqs.some((l) => l.updatedAt > ultimaDecl.createdAt);
+
+    res.json({
+      period: period ? { id: period.id, status: period.status } : null,
+      datos: {
+        faltantesEmpresa,
+        personasIncompletas,
+        totalPersonas: porPersona.size,
+        ok: faltantesEmpresa.length === 0 && personasIncompletas === 0,
+      },
+      liquidaciones: {
+        roster: porPersona.size,
+        generadas,
+        borradores,
+        confirmadas: confirmadas.length,
+      },
+      declaracion: {
+        declarada: ultimaN ? ultimaN.createdAt : null,
+        filename: ultimaN?.filename ?? null,
+        rectificativas: declaraciones.filter((d) => d.tipo === 'R').length,
+        cambiosPosteriores,
+      },
+      pagos: { liquidos: liquidos.toString() },
+    });
+  } catch (err) { next(err); }
+});

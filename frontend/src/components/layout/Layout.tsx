@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, FileText, BarChart2,
-  Settings, LogOut, Building2, Calculator, Briefcase, UserCog, Upload, Menu, X, Landmark, CalendarDays,
+  Settings, LogOut, Building2, Calculator, Briefcase, UserCog, Upload, Menu, X, Landmark, CalendarDays, ListChecks,
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useCompany } from '../../hooks/useCompany';
@@ -12,6 +12,7 @@ import AsysTaxLogo from '../AsysTaxLogo';
 
 const navItems = [
   { to: '/', label: 'Panel', icon: LayoutDashboard, end: true },
+  { to: '/mes', label: 'Centro del mes', icon: ListChecks },
   { to: '/companies', label: 'Empresas', icon: Building2 },
   { to: '/employees', label: 'Personas', icon: Users },
   { to: '/import', label: 'Importar', icon: Upload },

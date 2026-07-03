@@ -288,6 +288,14 @@ export interface RectificativaPreview {
   lineas: string[];
 }
 
+export interface CentroMes {
+  period: { id: string; status: 'BORRADOR' | 'CONFIRMADO' | 'CERRADO' } | null;
+  datos: { faltantesEmpresa: string[]; personasIncompletas: number; totalPersonas: number; ok: boolean };
+  liquidaciones: { roster: number; generadas: number; borradores: number; confirmadas: number };
+  declaracion: { declarada: string | null; filename: string | null; rectificativas: number; cambiosPosteriores: boolean };
+  pagos: { liquidos: string };
+}
+
 export interface DeclaracionResumen {
   id: string;
   year: number;
@@ -301,6 +309,8 @@ export interface DeclaracionResumen {
 export const nominaApi = {
   checklist: (companyId: string) =>
     api.get<NominaChecklist>('/nomina/checklist', { params: { companyId } }).then((r) => r.data),
+  centroMes: (companyId: string, year: number, month: number) =>
+    api.get<CentroMes>('/nomina/centro-mes', { params: { companyId, year, month } }).then((r) => r.data),
   declaraciones: (companyId: string) =>
     api.get<{ ultima: DeclaracionResumen | null; historial: DeclaracionResumen[] }>('/nomina/declaraciones', { params: { companyId } }).then((r) => r.data),
   importar: (file: File, commit: boolean) => {
@@ -366,6 +376,7 @@ export const liquidationApi = {
     api.post<PayrollPeriod>('/liquidation/periods', data).then((r) => r.data),
   deletePeriod: (periodId: string) => api.delete(`/liquidation/periods/${periodId}`).then((r) => r.data),
   confirmBatch: (periodId: string) => api.post('/liquidation/confirm-batch', { periodId }).then((r) => r.data as { confirmed: number; failed: number }),
+  cerrarPeriodo: (periodId: string) => api.post(`/liquidation/periods/${periodId}/cerrar`).then((r) => r.data),
   periodRoster: (periodId: string) =>
     api.get(`/liquidation/period/${periodId}/roster`).then((r) => r.data as Array<{ id: string; ci: string; employeeNumber?: number | null; nombre: string; apellido: string; active: boolean; cargo?: string | null; salarioNominal: string; fechaIngreso: string }>),
   generate: (data: object) => api.post('/liquidation/generate', data).then((r) => r.data),
