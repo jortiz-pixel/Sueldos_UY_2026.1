@@ -146,10 +146,30 @@ export const calendarApi = {
     api.get<CalendarEvent[]>('/calendar', { params: { companyId, days } }).then((r) => r.data),
   month: (companyId: string, year: number, month: number) =>
     api.get<CalendarEvent[]>('/calendar/month', { params: { companyId, year, month } }).then((r) => r.data),
-  createLeave: (data: { employeeId: string; fechaInicio: string; fechaFin: string; motivo?: string }) =>
+  createLeave: (data: { employeeId: string; fechaInicio: string; fechaFin: string; motivo?: string; anticipar?: boolean }) =>
     api.post('/calendar/leaves', data).then((r) => r.data),
   deleteLeave: (id: string) => api.delete(`/calendar/leaves/${id}`).then((r) => r.data),
+  leavesSaldos: (companyId: string, year: number) =>
+    api.get<LeavesSaldos>('/calendar/leaves/saldos', { params: { companyId, year } }).then((r) => r.data),
 };
+
+export interface LeavesSaldos {
+  year: number;
+  saldos: Array<{
+    employee: { id: string; ci: string; nombre: string; apellido: string };
+    corresponden: number;
+    tomados: number;
+    disponibles: number;
+    licencias: Array<{
+      id: string;
+      fechaInicio: string;
+      fechaFin: string;
+      dias: number;
+      status: string;
+      motivo: string | null;
+    }>;
+  }>;
+}
 
 export interface ImportRow {
   fila: number;

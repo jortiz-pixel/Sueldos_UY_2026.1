@@ -42,6 +42,12 @@ export default function CalendarioPage() {
     enabled: !!companyId,
   });
 
+  const { data: saldosData } = useQuery({
+    queryKey: ['leaves-saldos', companyId, year],
+    queryFn: () => calendarApi.leavesSaldos(companyId, year),
+    enabled: !!companyId,
+  });
+
   const { data: personas } = useQuery({
     queryKey: ['employees-picker', companyId],
     queryFn: () => employeesApi.list({ companyId, page: 1, limit: 200 }),
@@ -51,20 +57,33 @@ export default function CalendarioPage() {
   const { register, handleSubmit, reset, formState: { errors } } = useForm<LeaveForm>();
 
   const createLeave = useMutation({
-    mutationFn: (data: LeaveForm) => calendarApi.createLeave(data),
+    mutationFn: (data: LeaveForm & { anticipar?: boolean }) => calendarApi.createLeave(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['calendar-month'] });
+      queryClient.invalidateQueries({ queryKey: ['leaves-saldos'] });
       setModalOpen(false);
     },
-    onError: (err: unknown) => {
-      const m = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+    onError: (err: unknown, variables) => {
+      const m = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || '';
+      if (m.startsWith('SALDO_INSUFICIENTE:')) {
+        const detalle = m.replace('SALDO_INSUFICIENTE: ', '');
+        if (confirm(`${detalle}\n\n¿Registrarla igual como ANTICIPO de licencia?`)) {
+          createLeave.mutate({ ...variables, anticipar: true });
+          return;
+        }
+        setFormError('');
+        return;
+      }
       setFormError(m || 'No se pudo registrar la licencia.');
     },
   });
 
   const deleteLeave = useMutation({
     mutationFn: (id: string) => calendarApi.deleteLeave(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['calendar-month'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['calendar-month'] });
+      queryClient.invalidateQueries({ queryKey: ['leaves-saldos'] });
+    },
   });
 
   const mover = (delta: number) => {
@@ -203,6 +222,51 @@ export default function CalendarioPage() {
                 )}
               </li>
             ))}
+          </ul>
+        )}
+      </div>
+
+      {/* Saldos de licencia del año */}
+      <div className="card">
+        <div className="px-5 py-3 border-b border-hairline flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-ink">Saldos de licencia {year}</h2>
+          <p className="text-[11px] text-ink-subtle">Generados al 31/12/{year - 1} · Ley 12.590 (20/25/30 días, proporcional el 1er año)</p>
+        </div>
+        {!saldosData?.saldos.length ? (
+          <p className="p-6 text-center text-sm text-ink-subtle">Sin personal activo en esta empresa.</p>
+        ) : (
+          <ul className="divide-y divide-hairline/60">
+            {saldosData.saldos.map((s) => {
+              const pct = s.corresponden > 0 ? Math.min(100, Math.round((s.tomados / s.corresponden) * 100)) : 0;
+              const excedido = s.disponibles < 0;
+              return (
+                <li key={s.employee.id} className="px-5 py-3 flex items-center gap-4 flex-wrap">
+                  <div className="w-48 min-w-0 shrink-0">
+                    <p className="text-sm font-medium text-ink truncate">{s.employee.apellido}, {s.employee.nombre}</p>
+                    {s.licencias.length > 0 && (
+                      <p className="text-[11px] text-ink-subtle truncate">
+                        {s.licencias.map((l) => `${new Date(l.fechaInicio).toLocaleDateString('es-UY', { day: '2-digit', month: '2-digit' })}–${new Date(l.fechaFin).toLocaleDateString('es-UY', { day: '2-digit', month: '2-digit' })} (${l.dias}d)`).join(' · ')}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-[140px]">
+                    <div className="h-2.5 bg-canvas rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${excedido ? 'bg-bad' : pct >= 100 ? 'bg-warn' : 'bg-brand-500'}`}
+                        style={{ width: `${s.corresponden > 0 ? Math.min(100, pct) : 0}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0 w-44">
+                    <span className="figure text-sm font-semibold text-ink">{s.tomados}</span>
+                    <span className="text-xs text-ink-subtle"> / {s.corresponden} días</span>
+                    <span className={`block text-[11px] ${excedido ? 'text-bad font-semibold' : 'text-ink-subtle'}`}>
+                      {excedido ? `${-s.disponibles} día(s) anticipado(s)` : `${s.disponibles} disponible(s)`}
+                    </span>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
