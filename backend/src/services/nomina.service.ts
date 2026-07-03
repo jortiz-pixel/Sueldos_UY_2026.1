@@ -261,3 +261,306 @@ export async function generarNominaBps(companyId: string, year: number, month: n
 
   return { filename, contenido, montoTotal: monto(totalNomina), personas: personasOut, errores, advertencias };
 }
+
+// ═════════════════════════════════════════════════════════════════
+// IMPORTACIÓN desde un archivo de nómina ATYR (migración desde GNS u
+// otro software): crea/actualiza la empresa, las personas y sus contratos.
+// ═════════════════════════════════════════════════════════════════
+
+function parseFechaDdmmaaaa(s: string): Date | null {
+  if (!/^\d{8}$/.test(s)) return null;
+  const d = Number(s.slice(0, 2)), m = Number(s.slice(2, 4)), a = Number(s.slice(4));
+  const fecha = new Date(a, m - 1, d);
+  return isNaN(fecha.getTime()) ? null : fecha;
+}
+
+export interface NominaImportPlan {
+  mesCargo: { month: number; year: number } | null;
+  empresa: {
+    accion: 'crear' | 'actualizar' | 'existente';
+    razonSocial: string;
+    rut: string;
+    numeroBps: string;
+    tipoAporte: number | null;
+    tipoContribuyente: number | null;
+  } | null;
+  personas: Array<{
+    accion: 'crear' | 'existente';
+    ci: string;
+    nombre: string;
+    contrato: 'crear' | 'existente' | null;
+    detalles: string;
+  }>;
+  advertencias: string[];
+  errores: string[];
+}
+
+interface PersonaParseada {
+  doc: string;
+  apellido1: string; apellido2: string; nombre1: string; nombre2: string;
+  fechaNacimiento: Date | null;
+  sexo: 'M' | 'F';
+  nacionalidad: number;
+  // registro 6
+  acumulacion: number;
+  fechaIngreso: Date | null;
+  tipoRemuneracion: number;
+  horasSemanales: number | null;
+  vinculoFuncional: number | null;
+  exoneracion: number | null;
+  computos: number | null;
+  diasTrabajados: number;
+  seguroSalud: number | null;
+  causalEgreso: number | null;
+  fechaEgreso: Date | null;
+  // registro 7 (concepto 1)
+  montoImponible: bigint;
+}
+
+function parseNominaAtyr(contenido: string) {
+  const lineas = contenido.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  const errores: string[] = [];
+  let empresa: { nroEmpresa: string; rut: string; tipoAporte: number | null; razonSocial: string; domicilio: string; telefono: string } | null = null;
+  let cabezal: { month: number; year: number; tipoContribuyente: number | null } | null = null;
+  const personas = new Map<string, PersonaParseada>();
+
+  for (const linea of lineas) {
+    const f = linea.split('|');
+    const tipo = f[0];
+    if (tipo === '1') {
+      empresa = {
+        nroEmpresa: f[4] ?? '', rut: f[5] ?? '',
+        tipoAporte: f[6] ? Number(f[6]) : null,
+        razonSocial: f[7] ?? '', domicilio: f[8] ?? '', telefono: f[9] ?? '',
+      };
+      if ((f[1] ?? 'N') !== 'N') errores.push(`El archivo es de tipo "${f[1]}" — solo se importan nóminas (N).`);
+    } else if (tipo === '4') {
+      const mes = f[1] ?? '';
+      cabezal = {
+        month: Number(mes.slice(0, 2)), year: Number(mes.slice(2)),
+        tipoContribuyente: f[2] ? Number(f[2]) : null,
+      };
+    } else if (tipo === '5') {
+      const doc = f[3] ?? '';
+      if (!doc) { errores.push('Registro 5 sin documento.'); continue; }
+      personas.set(doc, {
+        doc,
+        apellido1: f[4] ?? '', apellido2: f[5] ?? '', nombre1: f[6] ?? '', nombre2: f[7] ?? '',
+        fechaNacimiento: parseFechaDdmmaaaa(f[8] ?? ''),
+        sexo: (f[9] ?? '1') === '2' ? 'F' : 'M',
+        nacionalidad: f[10] ? Number(f[10]) : 1,
+        acumulacion: 1, fechaIngreso: null, tipoRemuneracion: 1,
+        horasSemanales: null, vinculoFuncional: null, exoneracion: null, computos: null,
+        diasTrabajados: 0, seguroSalud: null, causalEgreso: null, fechaEgreso: null,
+        montoImponible: 0n,
+      });
+    } else if (tipo === '6') {
+      const p = personas.get(f[4] ?? '');
+      if (!p) { errores.push(`Registro 6 para documento ${f[4]} sin registro 5 previo.`); continue; }
+      p.acumulacion = f[5] ? Number(f[5]) : 1;
+      p.fechaIngreso = parseFechaDdmmaaaa(f[6] ?? '');
+      p.tipoRemuneracion = f[7] ? Number(f[7]) : 1;
+      p.horasSemanales = f[8] ? Number(f[8]) : null;
+      p.vinculoFuncional = f[9] ? Number(f[9]) : null;
+      p.exoneracion = f[10] ? Number(f[10]) : null;
+      p.computos = f[11] ? Number(f[11]) : null;
+      p.diasTrabajados = f[15] ? Number(f[15]) : 0;
+      p.seguroSalud = f[17] ? Number(f[17]) : null;
+      p.causalEgreso = f[18] ? Number(f[18]) : null;
+      p.fechaEgreso = parseFechaDdmmaaaa(f[19] ?? '');
+    } else if (tipo === '7') {
+      const p = personas.get(f[4] ?? '');
+      if (!p) { errores.push(`Registro 7 para documento ${f[4]} sin registro 5 previo.`); continue; }
+      const concepto = Number(f[6] ?? 0);
+      const montoStr = f[7] ?? '0';
+      if (concepto === 1) {
+        p.montoImponible += BigInt(Math.round(Number(montoStr) * 100));
+      }
+    }
+    // tipos 2, 3, 12: no se importan
+  }
+
+  if (!empresa) errores.push('El archivo no tiene registro de empresa (tipo 1).');
+  if (personas.size === 0) errores.push('El archivo no tiene personas (registros 5).');
+  return { empresa, cabezal, personas: [...personas.values()], errores };
+}
+
+export async function importarNominaAtyr(contenido: string, commit: boolean): Promise<NominaImportPlan> {
+  const { empresa, cabezal, personas, errores } = parseNominaAtyr(contenido);
+  const advertencias: string[] = [];
+  const plan: NominaImportPlan = {
+    mesCargo: cabezal ? { month: cabezal.month, year: cabezal.year } : null,
+    empresa: null,
+    personas: [],
+    advertencias,
+    errores,
+  };
+  if (errores.length > 0 || !empresa) return plan;
+
+  // ── Empresa: buscar por RUT; crear o completar datos faltantes ──
+  let company = await prisma.company.findUnique({ where: { rut: empresa.rut } });
+  const accionEmpresa: 'crear' | 'actualizar' | 'existente' = !company
+    ? 'crear'
+    : (!company.numeroBps || company.tipoAporte == null || company.tipoContribuyente == null) ? 'actualizar' : 'existente';
+
+  if (commit) {
+    if (!company) {
+      company = await prisma.company.create({
+        data: {
+          rut: empresa.rut,
+          razonSocial: empresa.razonSocial,
+          domicilio: empresa.domicilio || undefined,
+          telefono: empresa.telefono || undefined,
+          numeroBps: empresa.nroEmpresa || undefined,
+          tipoAporte: empresa.tipoAporte ?? undefined,
+          tipoContribuyente: cabezal?.tipoContribuyente ?? undefined,
+          bseRate: 25,
+        },
+      });
+    } else if (accionEmpresa === 'actualizar') {
+      company = await prisma.company.update({
+        where: { id: company.id },
+        data: {
+          numeroBps: company.numeroBps ?? (empresa.nroEmpresa || undefined),
+          tipoAporte: company.tipoAporte ?? (empresa.tipoAporte ?? undefined),
+          tipoContribuyente: company.tipoContribuyente ?? (cabezal?.tipoContribuyente ?? undefined),
+          domicilio: company.domicilio ?? (empresa.domicilio || undefined),
+          telefono: company.telefono ?? (empresa.telefono || undefined),
+        },
+      });
+    }
+  }
+  plan.empresa = {
+    accion: accionEmpresa,
+    razonSocial: company?.razonSocial ?? empresa.razonSocial,
+    rut: empresa.rut,
+    numeroBps: empresa.nroEmpresa,
+    tipoAporte: empresa.tipoAporte,
+    tipoContribuyente: cabezal?.tipoContribuyente ?? null,
+  };
+
+  // ── Personas y contratos ───────────────────────────────────────
+  const monthStart = cabezal ? new Date(cabezal.year, cabezal.month - 1, 1) : null;
+  const monthEnd = cabezal ? new Date(cabezal.year, cabezal.month, 0) : null;
+
+  for (const p of personas) {
+    const nombreCompleto = `${p.apellido1}${p.apellido2 ? ' ' + p.apellido2 : ''}, ${p.nombre1}`;
+    const detalles: string[] = [];
+
+    // Salario nominal estimado desde el imponible del mes (base ficto 30).
+    let salarioNominal = p.montoImponible;
+    if (p.diasTrabajados > 0 && p.diasTrabajados < 30 && p.tipoRemuneracion === 1) {
+      salarioNominal = (p.montoImponible * 30n) / BigInt(p.diasTrabajados);
+      detalles.push(`nominal estimado desde ${p.diasTrabajados} días`);
+    }
+    if (p.montoImponible === 0n) {
+      advertencias.push(`${nombreCompleto}: monto imponible 0 en la nómina — revisá el sueldo del contrato.`);
+    }
+
+    let employee = company
+      ? await prisma.employee.findFirst({ where: { companyId: company.id, ci: p.doc } })
+      : null;
+    const crearPersona = !employee;
+
+    if (commit && company) {
+      if (!employee) {
+        const maxEN = await prisma.employee.aggregate({ where: { companyId: company.id }, _max: { employeeNumber: true } });
+        employee = await prisma.employee.create({
+          data: {
+            companyId: company.id,
+            employeeNumber: (maxEN._max.employeeNumber ?? 0) + 1,
+            ci: p.doc,
+            nombre: p.nombre1 || '—',
+            nombre2: p.nombre2 || undefined,
+            apellido: p.apellido1 || '—',
+            apellido2: p.apellido2 || undefined,
+            fechaNacimiento: p.fechaNacimiento ?? undefined,
+            sexo: p.sexo,
+            nacionalidad: p.nacionalidad,
+            fechaIngreso: p.fechaIngreso ?? new Date(),
+            salarioNominal,
+            salaryType: p.tipoRemuneracion === 2 ? 'JORNALERO' : 'MENSUAL',
+          },
+        });
+      } else {
+        // Completar datos BPS faltantes de la ficha (sin pisar los existentes).
+        await prisma.employee.update({
+          where: { id: employee.id },
+          data: {
+            nombre2: employee.nombre2 ?? (p.nombre2 || undefined),
+            apellido2: employee.apellido2 ?? (p.apellido2 || undefined),
+            fechaNacimiento: employee.fechaNacimiento ?? (p.fechaNacimiento ?? undefined),
+            sexo: employee.sexo ?? p.sexo,
+          },
+        });
+      }
+    }
+
+    // Contrato que solape el mes de cargo (o cualquier contrato vigente si no hay cabezal).
+    let contratoExistente = null;
+    if (employee && monthStart && monthEnd) {
+      contratoExistente = await prisma.contrato.findFirst({
+        where: {
+          employeeId: employee.id,
+          companyId: company!.id,
+          activo: true,
+          vigenciaDesde: { lte: monthEnd },
+          AND: [
+            { OR: [{ vigenciaHasta: null }, { vigenciaHasta: { gte: monthStart } }] },
+            { OR: [{ fechaFin: null }, { fechaFin: { gte: monthStart } }] },
+          ],
+        },
+      });
+    }
+
+    if (commit && company && employee && !contratoExistente) {
+      const count = await prisma.contrato.count({ where: { employeeId: employee.id } });
+      await prisma.contrato.create({
+        data: {
+          employeeId: employee.id,
+          companyId: company.id,
+          numero: count + 1,
+          vigenciaDesde: p.fechaIngreso ?? monthStart ?? new Date(),
+          fechaIngreso: p.fechaIngreso ?? monthStart ?? new Date(),
+          fechaFin: p.fechaEgreso ?? undefined,
+          vigenciaHasta: p.fechaEgreso ?? undefined,
+          causalEgresoCod: p.causalEgreso ?? undefined,
+          salaryType: p.tipoRemuneracion === 2 ? 'JORNALERO' : 'MENSUAL',
+          salarioNominal,
+          acumulacionLaboral: p.acumulacion,
+          horasSemanales: p.horasSemanales ?? undefined,
+          vinculoFuncional: p.vinculoFuncional ?? undefined,
+          exoneracionAporte: p.exoneracion ?? undefined,
+          computosEspeciales: p.computos ?? undefined,
+          seguroSalud: p.seguroSalud ?? undefined,
+        },
+      });
+    } else if (commit && contratoExistente) {
+      // Completar códigos BPS faltantes del contrato existente.
+      await prisma.contrato.update({
+        where: { id: contratoExistente.id },
+        data: {
+          vinculoFuncional: contratoExistente.vinculoFuncional ?? (p.vinculoFuncional ?? undefined),
+          seguroSalud: contratoExistente.seguroSalud ?? (p.seguroSalud ?? undefined),
+          horasSemanales: contratoExistente.horasSemanales ?? (p.horasSemanales ?? undefined),
+          computosEspeciales: contratoExistente.computosEspeciales ?? (p.computos ?? undefined),
+          exoneracionAporte: contratoExistente.exoneracionAporte ?? (p.exoneracion ?? undefined),
+          acumulacionLaboral: contratoExistente.acumulacionLaboral ?? p.acumulacion,
+        },
+      });
+    }
+
+    if (p.vinculoFuncional != null && p.vinculoFuncional !== 12) detalles.push(`vínculo ${p.vinculoFuncional}`);
+    if (p.fechaEgreso) detalles.push(`egreso ${p.fechaEgreso.toLocaleDateString('es-UY')}`);
+
+    plan.personas.push({
+      accion: crearPersona ? 'crear' : 'existente',
+      ci: p.doc,
+      nombre: nombreCompleto,
+      contrato: contratoExistente ? 'existente' : 'crear',
+      detalles: detalles.join(' · '),
+    });
+  }
+
+  return plan;
+}

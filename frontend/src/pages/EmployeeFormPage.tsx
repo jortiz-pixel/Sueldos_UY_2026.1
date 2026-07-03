@@ -140,7 +140,12 @@ export default function EmployeeFormPage() {
       });
     },
     onSuccess: (emp) => {
+      // Invalidar también la ficha individual: con staleTime global de 5 min,
+      // si solo se invalida la lista, la ficha muestra datos viejos y parece
+      // que la edición no se guardó.
       queryClient.invalidateQueries({ queryKey: ['employees'] });
+      queryClient.invalidateQueries({ queryKey: ['employee'] });
+      queryClient.invalidateQueries({ queryKey: ['nomina-checklist'] });
       navigate(`/employees/${(emp as { id: string }).id}`);
     },
   });

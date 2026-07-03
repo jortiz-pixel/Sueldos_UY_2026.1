@@ -6,11 +6,15 @@
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
+import multer from 'multer';
+import { UserRole } from '@prisma/client';
 import { prisma } from '../utils/prisma';
-import { authenticate } from '../middleware/auth';
+import { authenticate, requireRole } from '../middleware/auth';
 import { assertCompanyAccess } from '../middleware/tenancy';
 import { AppError, NotFoundError } from '../middleware/errorHandler';
-import { generarNominaBps } from '../services/nomina.service';
+import { generarNominaBps, importarNominaAtyr } from '../services/nomina.service';
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 export const nominaRouter = Router();
 
@@ -121,5 +125,21 @@ nominaRouter.get('/checklist', authenticate, async (req: Request, res: Response,
       totalIncompletas: incompletas.length,
       listaParaNomina: faltantesEmpresa.length === 0 && incompletas.length === 0,
     });
+  } catch (err) { next(err); }
+});
+
+// POST /api/nomina/import  (multipart: file, commit)
+//   Importa empresa + personas + contratos desde un archivo de nómina ATYR
+//   (migración desde GNS u otro software). commit != 'true' → solo previsualiza.
+nominaRouter.post('/import', authenticate, requireRole(UserRole.ADMIN), upload.single('file'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.file) throw new AppError(400, 'Archivo requerido (campo "file")');
+    const commit = String(req.body.commit ?? '') === 'true';
+    const contenido = req.file.buffer.toString('utf8');
+    if (!contenido.trim().startsWith('1|')) {
+      throw new AppError(400, 'El archivo no parece una nómina ATYR (debe empezar con el registro de empresa "1|N|...").');
+    }
+    const plan = await importarNominaAtyr(contenido, commit);
+    res.json({ dryRun: !commit, ...plan });
   } catch (err) { next(err); }
 });

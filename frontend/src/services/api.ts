@@ -223,9 +223,37 @@ export interface NominaPreview {
   lineas: string[];
 }
 
+export interface NominaImportPlan {
+  dryRun: boolean;
+  mesCargo: { month: number; year: number } | null;
+  empresa: {
+    accion: 'crear' | 'actualizar' | 'existente';
+    razonSocial: string;
+    rut: string;
+    numeroBps: string;
+    tipoAporte: number | null;
+    tipoContribuyente: number | null;
+  } | null;
+  personas: Array<{
+    accion: 'crear' | 'existente';
+    ci: string;
+    nombre: string;
+    contrato: 'crear' | 'existente' | null;
+    detalles: string;
+  }>;
+  advertencias: string[];
+  errores: string[];
+}
+
 export const nominaApi = {
   checklist: (companyId: string) =>
     api.get<NominaChecklist>('/nomina/checklist', { params: { companyId } }).then((r) => r.data),
+  importar: (file: File, commit: boolean) => {
+    const fd = new FormData();
+    fd.append('commit', commit ? 'true' : 'false');
+    fd.append('file', file);
+    return api.post<NominaImportPlan>('/nomina/import', fd).then((r) => r.data);
+  },
   preview: (companyId: string, year: number, month: number) =>
     api.get<NominaPreview>('/nomina/preview', { params: { companyId, year, month } }).then((r) => r.data),
   archivo: (companyId: string, year: number, month: number) =>

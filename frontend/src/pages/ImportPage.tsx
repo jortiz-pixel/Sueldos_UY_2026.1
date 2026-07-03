@@ -1,7 +1,7 @@
 import { useState, ChangeEvent } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, ArrowRight, Download } from 'lucide-react';
-import { importApi, ImportResult } from '../services/api';
+import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, ArrowRight, Download, Landmark } from 'lucide-react';
+import { importApi, ImportResult, nominaApi, NominaImportPlan } from '../services/api';
 import { useCompany } from '../hooks/useCompany';
 
 async function descargarPlantilla() {
@@ -184,6 +184,143 @@ export default function ImportPage() {
           {committed && (
             <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
               <CheckCircle size={16} /> Importación completada: se crearon {result.resumen.creadas ?? 0} personas.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Importar desde nómina BPS (migración desde GNS u otro software) ── */}
+      <ImportarDesdeNomina />
+    </div>
+  );
+}
+
+// Importa empresa + personas + contratos desde un archivo de nómina ATYR (.txt).
+function ImportarDesdeNomina() {
+  const [file, setFile] = useState<File | null>(null);
+  const [plan, setPlan] = useState<NominaImportPlan | null>(null);
+  const [error, setError] = useState('');
+
+  const previewMutation = useMutation({
+    mutationFn: (f: File) => nominaApi.importar(f, false),
+    onSuccess: (r) => { setPlan(r); setError(''); },
+    onError: (e: unknown) => setError(msg(e)),
+  });
+  const commitMutation = useMutation({
+    mutationFn: (f: File) => nominaApi.importar(f, true),
+    onSuccess: (r) => { setPlan(r); setError(''); },
+    onError: (e: unknown) => setError(msg(e)),
+  });
+
+  const onFile = (e: ChangeEvent<HTMLInputElement>) => {
+    setFile(e.target.files?.[0] ?? null);
+    setPlan(null); setError('');
+  };
+
+  const ACCION: Record<string, string> = { crear: 'Se crea', actualizar: 'Se completan datos', existente: 'Ya existe' };
+
+  return (
+    <div className="card p-5 space-y-4 border-t-4 border-t-brand-600">
+      <div>
+        <h2 className="text-lg font-bold text-ink flex items-center gap-2">
+          <Landmark size={18} className="text-brand-600" /> Importar desde nómina BPS
+        </h2>
+        <p className="text-sm text-ink-subtle mt-1">
+          Subí un archivo de nómina ATYR (el .txt que genera GNS u otro software) y se crean la empresa,
+          las personas y sus contratos con todos los códigos BPS (vínculo funcional, seguro de salud, horas semanales).
+          Ideal para migrar un cliente en un paso.
+        </p>
+      </div>
+
+      <div className="flex items-center gap-3 flex-wrap">
+        <label className="btn-secondary cursor-pointer">
+          <FileSpreadsheet size={16} /> Elegir archivo de nómina
+          <input type="file" accept=".txt,.bps" className="hidden" onChange={onFile} />
+        </label>
+        <span className="text-sm text-ink-muted">{file ? file.name : 'Ningún archivo seleccionado'}</span>
+        <button
+          onClick={() => file && previewMutation.mutate(file)}
+          disabled={!file || previewMutation.isPending}
+          className="btn-primary"
+        >
+          <Upload size={16} /> {previewMutation.isPending ? 'Analizando…' : 'Previsualizar'}
+        </button>
+      </div>
+
+      {error && (
+        <div className="flex items-center gap-2 p-3 bg-bad-bg border border-bad/30 rounded-lg text-sm text-bad">
+          <AlertCircle size={16} /> {error}
+        </div>
+      )}
+
+      {plan && (
+        <div className="space-y-4">
+          {plan.errores.length > 0 && (
+            <div className="p-3 bg-bad-bg border border-bad/30 rounded-lg text-sm text-bad">
+              <ul className="list-disc pl-4">{plan.errores.map((e, i) => <li key={i}>{e}</li>)}</ul>
+            </div>
+          )}
+          {plan.advertencias.length > 0 && (
+            <div className="p-3 bg-warn-bg border border-warn/40 rounded-lg text-sm text-ink-muted">
+              <ul className="list-disc pl-4">{plan.advertencias.map((a, i) => <li key={i}>{a}</li>)}</ul>
+            </div>
+          )}
+
+          {plan.empresa && (
+            <div className="p-3 bg-canvas/70 rounded-lg text-sm">
+              <p className="font-semibold text-ink">
+                {plan.empresa.razonSocial} <span className="font-normal text-ink-subtle">· RUT {plan.empresa.rut} · BPS {plan.empresa.numeroBps}</span>
+              </p>
+              <p className="text-ink-muted">
+                {ACCION[plan.empresa.accion]}{plan.mesCargo ? ` · nómina de ${String(plan.mesCargo.month).padStart(2, '0')}/${plan.mesCargo.year}` : ''}
+              </p>
+            </div>
+          )}
+
+          {plan.personas.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="table-header">
+                    <th className="px-3 py-2 text-left">CI</th>
+                    <th className="px-3 py-2 text-left">Persona</th>
+                    <th className="px-3 py-2 text-left">Ficha</th>
+                    <th className="px-3 py-2 text-left">Contrato</th>
+                    <th className="px-3 py-2 text-left">Detalles</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-hairline/60">
+                  {plan.personas.map((p) => (
+                    <tr key={p.ci}>
+                      <td className="px-3 py-2 font-mono text-xs">{p.ci}</td>
+                      <td className="px-3 py-2 text-sm">{p.nombre}</td>
+                      <td className="px-3 py-2 text-xs">
+                        <span className={p.accion === 'crear' ? 'badge-green' : 'badge-gray'}>{ACCION[p.accion]}</span>
+                      </td>
+                      <td className="px-3 py-2 text-xs">
+                        <span className={p.contrato === 'crear' ? 'badge-green' : 'badge-gray'}>{p.contrato === 'crear' ? 'Se crea' : 'Ya existe'}</span>
+                      </td>
+                      <td className="px-3 py-2 text-xs text-ink-subtle">{p.detalles || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {plan.dryRun ? (
+            plan.errores.length === 0 && (
+              <button
+                onClick={() => file && commitMutation.mutate(file)}
+                disabled={commitMutation.isPending}
+                className="btn-primary"
+              >
+                <ArrowRight size={16} /> {commitMutation.isPending ? 'Importando…' : 'Confirmar importación'}
+              </button>
+            )
+          ) : (
+            <div className="flex items-center gap-2 p-3 bg-ok-bg border border-ok/30 rounded-lg text-sm text-ink">
+              <CheckCircle size={16} className="text-ok" /> Importación realizada. Revisá la empresa en el selector superior y su checklist en Personas.
             </div>
           )}
         </div>
