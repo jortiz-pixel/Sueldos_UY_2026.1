@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { AlertCircle, AlertTriangle, Download, FileText, Landmark } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Download, FileText, Landmark, FileDiff } from 'lucide-react';
 import { liquidationApi, nominaApi } from '../services/api';
 import { useCompany } from '../hooks/useCompany';
 import { MESES } from '../types';
@@ -10,6 +10,7 @@ import { MESES } from '../types';
 export default function NominaPage() {
   const { activeCompanyId: companyId } = useCompany();
   const [periodKey, setPeriodKey] = useState(''); // "year-month"
+  const [modo, setModo] = useState<'nomina' | 'rectificativa'>('nomina');
   const [descargando, setDescargando] = useState(false);
 
   const { data: periods } = useQuery({
@@ -25,18 +26,27 @@ export default function NominaPage() {
   const { data: preview, isLoading, error } = useQuery({
     queryKey: ['nomina-preview', companyId, year, month],
     queryFn: () => nominaApi.preview(companyId, year, month),
-    enabled: !!companyId && !!periodKey,
+    enabled: !!companyId && !!periodKey && modo === 'nomina',
+  });
+
+  const { data: rect, isLoading: rectLoading, error: rectError } = useQuery({
+    queryKey: ['rect-preview', companyId, year, month],
+    queryFn: () => nominaApi.rectPreview(companyId, year, month),
+    enabled: !!companyId && !!periodKey && modo === 'rectificativa',
   });
 
   const descargar = async () => {
-    if (!preview) return;
+    const filename = modo === 'nomina' ? preview?.filename : rect?.filename;
+    if (!filename) return;
     setDescargando(true);
     try {
-      const blob = await nominaApi.archivo(companyId, year, month);
+      const blob = modo === 'nomina'
+        ? await nominaApi.archivo(companyId, year, month)
+        : await nominaApi.rectArchivo(companyId, year, month);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = preview.filename;
+      a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -47,7 +57,9 @@ export default function NominaPage() {
     }
   };
 
-  const bloqueada = !preview || preview.errores.length > 0;
+  const bloqueada = modo === 'nomina'
+    ? (!preview || preview.errores.length > 0)
+    : (!rect || rect.errores.length > 0 || rect.diferencias.length === 0);
 
   return (
     <div className="space-y-5">
@@ -78,11 +90,126 @@ export default function NominaPage() {
         </div>
       </div>
 
+      {/* Tipo de declaración */}
+      <div className="flex gap-1 bg-canvas p-1 rounded-lg w-fit">
+        {([
+          { key: 'nomina', label: 'Nómina (N)', icon: Landmark },
+          { key: 'rectificativa', label: 'Rectificativa (R)', icon: FileDiff },
+        ] as const).map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setModo(key)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              modo === key ? 'bg-white text-ink shadow-sm' : 'text-ink-subtle hover:text-ink-muted'
+            }`}
+          >
+            <Icon size={14} />
+            {label}
+          </button>
+        ))}
+      </div>
+
       {!periodKey ? (
         <div className="card p-10 text-center text-ink-subtle">
           <Landmark size={32} className="mx-auto mb-3 text-ink-subtle/50" />
-          Elegí un período para previsualizar la nómina.
+          Elegí un período para previsualizar.
         </div>
+      ) : modo === 'rectificativa' ? (
+        rectLoading ? (
+          <div className="card p-10 text-center text-ink-subtle">Comparando contra lo declarado…</div>
+        ) : rectError ? (
+          <div className="card p-4 flex items-center gap-2 text-sm text-bad">
+            <AlertCircle size={16} />
+            {(rectError as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Error al calcular la rectificativa.'}
+          </div>
+        ) : rect && (
+          <>
+            {rect.errores.length > 0 && (
+              <div className="card p-4 border-bad/30 bg-bad-bg/40">
+                <div className="flex items-start gap-3">
+                  <AlertCircle size={18} className="text-bad shrink-0 mt-0.5" />
+                  <ul className="text-sm text-ink-muted list-disc pl-4 space-y-0.5">
+                    {rect.errores.map((e, i) => <li key={i}>{e}</li>)}
+                  </ul>
+                </div>
+              </div>
+            )}
+            {rect.declaradaAt && (
+              <div className="card p-3 text-sm text-ink-muted flex items-center gap-2 flex-wrap">
+                <FileText size={15} className="text-brand-600" />
+                Nómina declarada el {new Date(rect.declaradaAt).toLocaleString('es-UY')}
+                {rect.rectificativasPrevias > 0 && ` · ${rect.rectificativasPrevias} rectificativa(s) ya emitida(s)`}
+                {rect.diferencias.length > 0 && (
+                  <span className="ml-auto">
+                    <span className="text-ink-subtle">Monto de la rectificativa: </span>
+                    <span className="figure font-semibold text-ink">$ {Number(rect.montoTotal).toLocaleString('es-UY', { minimumFractionDigits: 2 })}</span>
+                  </span>
+                )}
+              </div>
+            )}
+            {rect.advertencias.length > 0 && (
+              <div className="card p-4 border-warn/40 bg-warn-bg/40">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle size={18} className="text-warn shrink-0 mt-0.5" />
+                  <ul className="text-sm text-ink-muted list-disc pl-4 space-y-0.5">
+                    {rect.advertencias.map((a, i) => <li key={i}>{a}</li>)}
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            {rect.diferencias.length > 0 && (
+              <div className="card overflow-hidden">
+                <div className="px-5 py-3 border-b border-hairline">
+                  <h2 className="text-sm font-semibold text-ink">Diferencias contra lo declarado</h2>
+                  <p className="text-xs text-ink-subtle mt-0.5">Cada diferencia se declara con el concepto prefijado: 1X suma · 2X resta</p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="table-header">
+                        <th className="px-4 py-3 text-left">Persona</th>
+                        <th className="px-4 py-3 text-right">Concepto</th>
+                        <th className="px-4 py-3 text-right">Declarado</th>
+                        <th className="px-4 py-3 text-right">Actual</th>
+                        <th className="px-4 py-3 text-right">Diferencia</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-hairline/60">
+                      {rect.diferencias.flatMap((d) =>
+                        d.conceptos.map((c, i) => (
+                          <tr key={`${d.doc}-${c.codigo}`} className="hover:bg-canvas/60">
+                            <td className="table-cell text-sm">
+                              {i === 0 ? (
+                                <>
+                                  {d.nombre}
+                                  {d.omitida && <span className="badge-yellow ml-2 text-[10px]">Omitida en la N</span>}
+                                </>
+                              ) : ''}
+                            </td>
+                            <td className="table-cell text-right"><span className="badge-blue">{c.codigo}</span></td>
+                            <td className="table-cell text-right figure text-xs text-ink-subtle">$ {Number(c.declarado).toLocaleString('es-UY', { minimumFractionDigits: 2 })}</td>
+                            <td className="table-cell text-right figure text-xs">$ {Number(c.actual).toLocaleString('es-UY', { minimumFractionDigits: 2 })}</td>
+                            <td className={`table-cell text-right figure text-sm font-semibold ${Number(c.delta) >= 0 ? 'text-ok' : 'text-bad'}`}>
+                              {Number(c.delta) >= 0 ? '+' : ''}{Number(c.delta).toLocaleString('es-UY', { minimumFractionDigits: 2 })}
+                            </td>
+                          </tr>
+                        )),
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {rect.lineas.length > 0 && (
+              <details className="card p-4">
+                <summary className="text-sm font-medium text-ink-muted cursor-pointer">Ver contenido del archivo ({rect.lineas.length} líneas)</summary>
+                <pre className="mt-3 p-3 bg-navy text-white/90 rounded-lg text-[11px] leading-relaxed overflow-x-auto">{rect.lineas.join('\n')}</pre>
+              </details>
+            )}
+          </>
+        )
       ) : isLoading ? (
         <div className="card p-10 text-center text-ink-subtle">Generando vista previa…</div>
       ) : error ? (

@@ -564,3 +564,200 @@ export async function importarNominaAtyr(contenido: string, commit: boolean): Pr
 
   return plan;
 }
+
+// ═════════════════════════════════════════════════════════════════
+// RECTIFICATIVAS (formato ATYR v3.0)
+//
+// Al descargar una nómina (N) se guarda una "foto" de lo declarado por
+// persona y concepto. La rectificativa (R) es la diferencia entre el estado
+// actual de las liquidaciones y lo ya declarado (N + rectificativas previas):
+//  - concepto prefijado con 1 = suma (ej. 11), con 2 = resta (ej. 21)
+//  - personas omitidas en la N: registro 6 + concepto plano (como una nómina)
+//  - en R, los registros 6/7 llevan el mes de cargo; el registro 4 va sin mes
+// ═════════════════════════════════════════════════════════════════
+
+interface ResumenDeclarado {
+  // doc → { r5: línea registro 5, r6: línea registro 6 (formato N), conceptos: { codigo: centésimos (string, con signo en R) } }
+  [doc: string]: { r5: string; r6?: string; conceptos: Record<string, string> };
+}
+
+function resumenDesdeContenido(contenido: string): ResumenDeclarado {
+  const resumen: ResumenDeclarado = {};
+  for (const linea of contenido.trimEnd().split('\n')) {
+    const f = linea.split('|');
+    if (f[0] === '5') {
+      resumen[f[3]] = { r5: linea, conceptos: {} };
+    } else if (f[0] === '6' && resumen[f[4]]) {
+      resumen[f[4]].r6 = linea;
+    } else if (f[0] === '7' && resumen[f[4]]) {
+      const codigo = f[6];
+      const cents = BigInt(Math.round(Number(f[7]) * 100));
+      const prev = BigInt(resumen[f[4]].conceptos[codigo] ?? '0');
+      resumen[f[4]].conceptos[codigo] = (prev + cents).toString();
+    }
+  }
+  return resumen;
+}
+
+export async function registrarDeclaracion(
+  companyId: string, year: number, month: number,
+  tipo: 'N' | 'R', filename: string, resumen: ResumenDeclarado,
+  montoTotal: bigint, userId?: string,
+) {
+  await prisma.nominaDeclaracion.create({
+    data: {
+      companyId, year, month, tipo, filename,
+      montoTotal,
+      resumen: resumen as object,
+      createdBy: userId,
+    },
+  });
+}
+
+// Estado declarado = última N + rectificativas posteriores (deltas con signo).
+async function estadoDeclarado(companyId: string, year: number, month: number) {
+  const declaraciones = await prisma.nominaDeclaracion.findMany({
+    where: { companyId, year, month },
+    orderBy: { createdAt: 'asc' },
+  });
+  const ultimaN = [...declaraciones].reverse().find((d) => d.tipo === 'N');
+  if (!ultimaN) return null;
+
+  const estado: ResumenDeclarado = JSON.parse(JSON.stringify(ultimaN.resumen));
+  for (const d of declaraciones) {
+    if (d.tipo !== 'R' || d.createdAt <= ultimaN.createdAt) continue;
+    const r = d.resumen as unknown as ResumenDeclarado;
+    for (const doc of Object.keys(r)) {
+      if (!estado[doc]) estado[doc] = { r5: r[doc].r5, r6: r[doc].r6, conceptos: {} };
+      for (const [codigo, delta] of Object.entries(r[doc].conceptos)) {
+        const prev = BigInt(estado[doc].conceptos[codigo] ?? '0');
+        estado[doc].conceptos[codigo] = (prev + BigInt(delta)).toString();
+      }
+    }
+  }
+  return { estado, declaradaAt: ultimaN.createdAt, rectificativas: declaraciones.filter((d) => d.tipo === 'R' && d.createdAt > ultimaN.createdAt).length };
+}
+
+export interface RectificativaGenerada {
+  filename: string;
+  contenido: string;
+  montoTotal: string;
+  declaradaAt: Date | null;
+  rectificativasPrevias: number;
+  diferencias: Array<{
+    doc: string;
+    nombre: string;
+    omitida: boolean;
+    conceptos: Array<{ codigo: string; declarado: string; actual: string; delta: string }>;
+  }>;
+  resumenDeltas: ResumenDeclarado;
+  errores: string[];
+  advertencias: string[];
+}
+
+export async function generarRectificativaBps(companyId: string, year: number, month: number): Promise<RectificativaGenerada> {
+  const vacio: RectificativaGenerada = {
+    filename: '', contenido: '', montoTotal: '0.00', declaradaAt: null,
+    rectificativasPrevias: 0, diferencias: [], resumenDeltas: {}, errores: [], advertencias: [],
+  };
+
+  // Estado actual: la nómina que saldría HOY (mismas validaciones que la N).
+  const actual = await generarNominaBps(companyId, year, month);
+  if (actual.errores.length > 0) return { ...vacio, errores: actual.errores, advertencias: actual.advertencias };
+
+  const declarado = await estadoDeclarado(companyId, year, month);
+  if (!declarado) {
+    return {
+      ...vacio,
+      errores: [`No hay una nómina declarada de ${String(month).padStart(2, '0')}/${year}. Descargá primero el archivo de nómina (N): la rectificativa se calcula contra lo declarado.`],
+    };
+  }
+
+  const resumenActual = resumenDesdeContenido(actual.contenido);
+  const lineasActual = actual.contenido.trimEnd().split('\n');
+  const mesCargo = `${String(month).padStart(2, '0')}${year}`;
+  const nombrePorDoc = new Map(actual.personas.map((p) => [p.ci.replace(/\D/g, ''), p.nombre]));
+
+  const lineas: string[] = [];
+  const diferencias: RectificativaGenerada['diferencias'] = [];
+  const resumenDeltas: ResumenDeclarado = {};
+  let total = 0n;
+
+  const docs = new Set([...Object.keys(resumenActual), ...Object.keys(declarado.estado)]);
+  for (const doc of docs) {
+    const act = resumenActual[doc];
+    const dec = declarado.estado[doc];
+    const omitida = !dec; // persona no declarada en la N original
+    const codigos = new Set([
+      ...Object.keys(act?.conceptos ?? {}),
+      ...Object.keys(dec?.conceptos ?? {}),
+    ]);
+
+    const difs: RectificativaGenerada['diferencias'][number]['conceptos'] = [];
+    const lineas7: string[] = [];
+    const deltasDoc: Record<string, string> = {};
+
+    for (const codigo of [...codigos].sort((a, b) => Number(a) - Number(b))) {
+      const aAct = BigInt(act?.conceptos[codigo] ?? '0');
+      const aDec = BigInt(dec?.conceptos[codigo] ?? '0');
+      const delta = aAct - aDec;
+      if (delta === 0n) continue;
+
+      difs.push({ codigo, declarado: monto(aDec), actual: monto(aAct), delta: monto(delta) });
+      deltasDoc[codigo] = delta.toString();
+
+      // Persona omitida: conceptos planos (regla de nómina). Si no: 1X suma / 2X resta.
+      const conceptoR = omitida ? codigo : (delta > 0n ? `1${codigo}` : `2${codigo}`);
+      const importe = delta < 0n ? -delta : delta;
+      total += importe;
+
+      // Registro 7 en R: mes cargo en el campo 2.
+      const base = (act?.r5 ?? dec!.r5).split('|'); // pais/tipoDoc del registro 5
+      lineas7.push(['7', mesCargo, base[1], base[2], doc, '1', conceptoR, monto(importe), '', ''].join('|'));
+    }
+
+    if (!lineas7.length) continue;
+
+    // Registro 5 (de la nómina actual, o de lo declarado si la persona ya no está).
+    lineas.push(act?.r5 ?? dec!.r5);
+
+    // Registro 6 solo para personas omitidas (con mes de cargo, regla de R).
+    if (omitida) {
+      const r6N = act?.r6 ?? lineasActual.find((l) => l.startsWith('6|') && l.split('|')[4] === doc);
+      if (r6N) {
+        const f = r6N.split('|');
+        f[1] = mesCargo;
+        lineas.push(f.join('|'));
+      }
+    }
+
+    lineas.push(...lineas7);
+    diferencias.push({ doc, nombre: nombrePorDoc.get(doc) ?? doc, omitida, conceptos: difs });
+    resumenDeltas[doc] = { r5: act?.r5 ?? dec!.r5, r6: act?.r6, conceptos: deltasDoc };
+  }
+
+  const advertencias = [...actual.advertencias];
+  if (!diferencias.length) {
+    advertencias.push('No hay diferencias entre lo declarado y el estado actual: no corresponde rectificativa.');
+  }
+
+  // Registro 1 (tipo R) y 4 (sin mes de cargo) a partir de la nómina actual.
+  const f1 = lineasActual[0].split('|'); f1[1] = 'R';
+  const f4 = lineasActual[1].split('|'); f4[1] = ''; f4[3] = monto(total);
+  const linea12 = lineasActual[lineasActual.length - 1];
+
+  const contenido = [f1.join('|'), f4.join('|'), ...lineas, linea12].join('\n') + '\n';
+  const filename = actual.filename.replace(/^N_/, 'R_');
+
+  return {
+    filename,
+    contenido,
+    montoTotal: monto(total),
+    declaradaAt: declarado.declaradaAt,
+    rectificativasPrevias: declarado.rectificativas,
+    diferencias,
+    resumenDeltas,
+    errores: [],
+    advertencias,
+  };
+}

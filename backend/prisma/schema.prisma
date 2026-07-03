@@ -103,6 +103,24 @@ model ConceptoBps {
   @@map("conceptos_bps")
 }
 
+// Declaraciones de nómina emitidas (N/R): foto de lo declarado a BPS,
+// base para calcular rectificativas como diferencia contra el estado actual.
+model NominaDeclaracion {
+  id         String   @id @default(cuid())
+  companyId  String
+  year       Int
+  month      Int
+  tipo       String   // 'N' | 'R'
+  filename   String
+  montoTotal BigInt   @default(0)
+  resumen    Json
+  createdBy  String?
+  createdAt  DateTime @default(now())
+
+  @@index([companyId, year, month])
+  @@map("nomina_declaraciones")
+}
+
 // Datos del estudio contable (registro 12 de la declaración nominada BPS).
 model GestoriaConfig {
   id        String  @id @default("default")

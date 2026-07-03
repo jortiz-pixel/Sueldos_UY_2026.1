@@ -12,7 +12,7 @@ import { prisma } from '../utils/prisma';
 import { authenticate, requireRole } from '../middleware/auth';
 import { assertCompanyAccess } from '../middleware/tenancy';
 import { AppError, NotFoundError } from '../middleware/errorHandler';
-import { generarNominaBps, importarNominaAtyr } from '../services/nomina.service';
+import { generarNominaBps, importarNominaAtyr, generarRectificativaBps, registrarDeclaracion } from '../services/nomina.service';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
@@ -55,9 +55,68 @@ nominaRouter.get('/archivo', authenticate, async (req: Request, res: Response, n
     if (nomina.errores.length > 0) {
       throw new AppError(409, `La nómina tiene errores: ${nomina.errores.join(' · ')}`);
     }
+
+    // Registrar la "foto" de lo declarado (base de futuras rectificativas).
+    const resumen: Record<string, { r5: string; r6?: string; conceptos: Record<string, string> }> = {};
+    for (const linea of nomina.contenido.trimEnd().split('\n')) {
+      const f = linea.split('|');
+      if (f[0] === '5') resumen[f[3]] = { r5: linea, conceptos: {} };
+      else if (f[0] === '6' && resumen[f[4]]) resumen[f[4]].r6 = linea;
+      else if (f[0] === '7' && resumen[f[4]]) {
+        const prev = BigInt(resumen[f[4]].conceptos[f[6]] ?? '0');
+        resumen[f[4]].conceptos[f[6]] = (prev + BigInt(Math.round(Number(f[7]) * 100))).toString();
+      }
+    }
+    await registrarDeclaracion(
+      companyId, year, month, 'N', nomina.filename, resumen,
+      BigInt(Math.round(Number(nomina.montoTotal) * 100)), req.user!.userId,
+    );
+
     res.setHeader('Content-Type', 'text/plain; charset=ascii');
     res.setHeader('Content-Disposition', `attachment; filename="${nomina.filename}"`);
     res.send(nomina.contenido);
+  } catch (err) { next(err); }
+});
+
+// GET /api/nomina/rectificativa/preview?companyId&year&month
+// Diferencias entre lo declarado (última N + rectificativas) y el estado actual.
+nominaRouter.get('/rectificativa/preview', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { companyId, year, month } = parsePeriodo(req);
+    await assertCompanyAccess(req, companyId);
+    const rect = await generarRectificativaBps(companyId, year, month);
+    res.json({
+      filename: rect.filename,
+      montoTotal: rect.montoTotal,
+      declaradaAt: rect.declaradaAt,
+      rectificativasPrevias: rect.rectificativasPrevias,
+      diferencias: rect.diferencias,
+      errores: rect.errores,
+      advertencias: rect.advertencias,
+      lineas: rect.errores.length === 0 && rect.diferencias.length > 0 ? rect.contenido.trimEnd().split('\n') : [],
+    });
+  } catch (err) { next(err); }
+});
+
+// GET /api/nomina/rectificativa/archivo?companyId&year&month → descarga la R
+nominaRouter.get('/rectificativa/archivo', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { companyId, year, month } = parsePeriodo(req);
+    await assertCompanyAccess(req, companyId);
+    const rect = await generarRectificativaBps(companyId, year, month);
+    if (rect.errores.length > 0) throw new AppError(409, rect.errores.join(' · '));
+    if (rect.diferencias.length === 0) throw new AppError(409, 'No hay diferencias con lo declarado: no corresponde rectificativa.');
+
+    // Registrar la rectificativa emitida (deltas con signo) para acumularla
+    // como parte de lo declarado en futuras rectificativas.
+    await registrarDeclaracion(
+      companyId, year, month, 'R', rect.filename, rect.resumenDeltas,
+      BigInt(Math.round(Number(rect.montoTotal) * 100)), req.user!.userId,
+    );
+
+    res.setHeader('Content-Type', 'text/plain; charset=ascii');
+    res.setHeader('Content-Disposition', `attachment; filename="${rect.filename}"`);
+    res.send(rect.contenido);
   } catch (err) { next(err); }
 });
 

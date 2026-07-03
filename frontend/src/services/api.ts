@@ -272,6 +272,22 @@ export interface NominaImportPlan {
   errores: string[];
 }
 
+export interface RectificativaPreview {
+  filename: string;
+  montoTotal: string;
+  declaradaAt: string | null;
+  rectificativasPrevias: number;
+  diferencias: Array<{
+    doc: string;
+    nombre: string;
+    omitida: boolean;
+    conceptos: Array<{ codigo: string; declarado: string; actual: string; delta: string }>;
+  }>;
+  errores: string[];
+  advertencias: string[];
+  lineas: string[];
+}
+
 export const nominaApi = {
   checklist: (companyId: string) =>
     api.get<NominaChecklist>('/nomina/checklist', { params: { companyId } }).then((r) => r.data),
@@ -285,6 +301,10 @@ export const nominaApi = {
     api.get<NominaPreview>('/nomina/preview', { params: { companyId, year, month } }).then((r) => r.data),
   archivo: (companyId: string, year: number, month: number) =>
     api.get('/nomina/archivo', { params: { companyId, year, month }, responseType: 'blob' }).then((r) => r.data as Blob),
+  rectPreview: (companyId: string, year: number, month: number) =>
+    api.get<RectificativaPreview>('/nomina/rectificativa/preview', { params: { companyId, year, month } }).then((r) => r.data),
+  rectArchivo: (companyId: string, year: number, month: number) =>
+    api.get('/nomina/rectificativa/archivo', { params: { companyId, year, month }, responseType: 'blob' }).then((r) => r.data as Blob),
 };
 
 export const conceptsApi = {
