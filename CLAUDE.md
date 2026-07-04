@@ -82,6 +82,11 @@ nómina, BPS, IRPF) · Accesos · Parámetros.
   limit global 100/15min + `/api/auth` 20 intentos fallidos/15min,
   `x-powered-by` deshabilitado, errores 500 sin detalle en producción.
 - Storage de adjuntos con protección de path traversal (`storage.service.ts`).
+- Control de acceso a nivel de objeto (anti-IDOR): TODO endpoint que opera por
+  `:id` debe validar la empresa del recurso antes de leer/mutar. Helpers:
+  `assertLiquidationAccess` (liquidaciones), `assertPersonaAccess` (personas),
+  `assertCompanyAccess` (empresa directa), `assertConceptoScope` (conceptos).
+  Nunca confiar en que un ID es del propio tenant.
 
 ## Pendientes conocidos (roadmap acordado)
 

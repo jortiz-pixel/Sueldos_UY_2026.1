@@ -15,6 +15,20 @@ import { generateReciboPDF, reciboFilename } from '../services/pdf.service';
 
 export const liquidationRouter = Router();
 
+// Control de acceso a nivel de objeto (evita IDOR entre empresas): una
+// liquidación solo es accesible si el usuario tiene membresía activa sobre la
+// empresa del período (o es superadmin de plataforma). Se llama en TODOS los
+// endpoints que operan sobre una liquidación por :id.
+async function assertLiquidationAccess(req: Request, liquidationId: string): Promise<void> {
+  const liq = await prisma.liquidation.findUnique({
+    where: { id: liquidationId },
+    select: { period: { select: { companyId: true } }, employee: { select: { companyId: true } } },
+  });
+  if (!liq) throw new NotFoundError('Liquidación');
+  await assertCompanyAccess(req, liq.period?.companyId ?? liq.employee?.companyId ?? null);
+}
+
+
 // GET /api/liquidation/periods
 liquidationRouter.get('/periods', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -178,6 +192,7 @@ liquidationRouter.post('/generate', authenticate, requireRole(UserRole.ADMIN, Us
 
     const period = await prisma.payrollPeriod.findUnique({ where: { id: input.periodId } });
     if (!period) throw new NotFoundError('Período');
+    await assertCompanyAccess(req, period.companyId);
     if (period.status === PeriodStatus.CERRADO) {
       throw new AppError(409, 'El período está cerrado y no se puede modificar');
     }
@@ -330,6 +345,7 @@ liquidationRouter.get('/:id/preview', authenticate, async (req: Request, res: Re
       },
     });
     if (!liquidation) throw new NotFoundError('Liquidación');
+    await assertLiquidationAccess(req, req.params.id);
 
     res.json({
       ...liquidation,
@@ -351,6 +367,7 @@ liquidationRouter.post('/:id/confirm', authenticate, requireRole(UserRole.ADMIN,
   try {
     const liquidation = await prisma.liquidation.findUnique({ where: { id: req.params.id } });
     if (!liquidation) throw new NotFoundError('Liquidación');
+    await assertLiquidationAccess(req, req.params.id);
     if (liquidation.status !== LiquidationStatus.BORRADOR) {
       throw new AppError(409, 'Solo se pueden confirmar liquidaciones en estado BORRADOR');
     }
@@ -370,6 +387,7 @@ liquidationRouter.post('/:id/unconfirm', authenticate, requireRole(UserRole.ADMI
       include: { period: true },
     });
     if (!liquidation) throw new NotFoundError('Liquidación');
+    await assertLiquidationAccess(req, req.params.id);
     if (liquidation.status !== LiquidationStatus.CONFIRMADO) {
       throw new AppError(409, 'Solo se pueden desconfirmar liquidaciones CONFIRMADAS');
     }
@@ -389,6 +407,7 @@ liquidationRouter.post('/:id/cancel', authenticate, requireRole(UserRole.ADMIN),
   try {
     const liquidation = await prisma.liquidation.findUnique({ where: { id: req.params.id } });
     if (!liquidation) throw new NotFoundError('Liquidación');
+    await assertLiquidationAccess(req, req.params.id);
     if (liquidation.status === LiquidationStatus.ANULADO) {
       throw new AppError(409, 'La liquidación ya está anulada');
     }
@@ -411,6 +430,7 @@ liquidationRouter.get('/:id/recibo', authenticate, async (req: Request, res: Res
       },
     });
     if (!liquidation) throw new NotFoundError('Liquidación');
+    await assertLiquidationAccess(req, req.params.id);
 
     const employee = await prisma.employee.findUnique({
       where: { id: liquidation.employeeId },
@@ -550,6 +570,7 @@ liquidationRouter.post('/:id/item', authenticate, requireRole(UserRole.ADMIN, Us
 
     const liquidation = await prisma.liquidation.findUnique({ where: { id: req.params.id } });
     if (!liquidation) throw new NotFoundError('Liquidación');
+    await assertLiquidationAccess(req, req.params.id);
     if (liquidation.status !== LiquidationStatus.BORRADOR) {
       throw new AppError(409, 'Solo se pueden agregar conceptos a liquidaciones en BORRADOR. Desconfirmá primero.');
     }
@@ -577,6 +598,7 @@ liquidationRouter.delete('/:id/item/:itemId', authenticate, requireRole(UserRole
   try {
     const liquidation = await prisma.liquidation.findUnique({ where: { id: req.params.id } });
     if (!liquidation) throw new NotFoundError('Liquidación');
+    await assertLiquidationAccess(req, req.params.id);
     if (liquidation.status !== LiquidationStatus.BORRADOR) {
       throw new AppError(409, 'Solo se pueden quitar conceptos en BORRADOR. Desconfirmá primero.');
     }
@@ -602,6 +624,7 @@ liquidationRouter.patch('/:id/item/:itemId', authenticate, requireRole(UserRole.
 
     const liquidation = await prisma.liquidation.findUnique({ where: { id: req.params.id } });
     if (!liquidation) throw new NotFoundError('Liquidación');
+    await assertLiquidationAccess(req, req.params.id);
     if (liquidation.status !== LiquidationStatus.BORRADOR) {
       throw new AppError(409, 'Solo se pueden editar conceptos en BORRADOR. Desconfirmá primero.');
     }
@@ -626,6 +649,7 @@ liquidationRouter.post('/:id/recalcular', authenticate, requireRole(UserRole.ADM
   try {
     const liquidation = await prisma.liquidation.findUnique({ where: { id: req.params.id } });
     if (!liquidation) throw new NotFoundError('Liquidación');
+    await assertLiquidationAccess(req, req.params.id);
     if (liquidation.status !== LiquidationStatus.BORRADOR) {
       throw new AppError(409, 'Solo se puede recalcular en BORRADOR. Desconfirmá primero.');
     }
@@ -648,6 +672,7 @@ liquidationRouter.post('/:id/adjustment', authenticate, requireRole(UserRole.ADM
 
     const liquidation = await prisma.liquidation.findUnique({ where: { id: req.params.id } });
     if (!liquidation) throw new NotFoundError('Liquidación');
+    await assertLiquidationAccess(req, req.params.id);
     if (liquidation.status === LiquidationStatus.ANULADO) {
       throw new AppError(409, 'No se pueden agregar ajustes a una liquidación anulada');
     }

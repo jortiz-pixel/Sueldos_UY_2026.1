@@ -397,6 +397,9 @@ employeesRouter.post('/:id/contracts', authenticate, requireRole(UserRole.ADMIN,
   try {
     const employee = await prisma.employee.findUnique({ where: { id: req.params.id } });
     if (!employee) throw new NotFoundError('Empleado');
+    // Debe tener acceso a la persona (evita vincular/sobrescribir una ficha de
+    // otra empresa) Y a la empresa destino del nuevo contrato.
+    await assertPersonaAccess(req, employee.id, employee.companyId);
 
     const data = contractSchema.parse(req.body);
     await checkCompanyAccess(req, data.companyId);
