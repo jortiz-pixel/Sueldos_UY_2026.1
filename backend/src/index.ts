@@ -23,6 +23,11 @@ import { errorHandler } from './middleware/errorHandler';
 import { logger } from './utils/logger';
 
 const app = express();
+
+// Detrás de Traefik/nginx: confiar en el primer proxy para que el rate limit
+// y los logs usen la IP real del cliente (X-Forwarded-For) y no la del proxy.
+app.set('trust proxy', 1);
+app.disable('x-powered-by');
 const PORT = process.env.PORT || 3000;
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173').split(',');
 
@@ -46,6 +51,18 @@ const limiter = rateLimit({
   message: { error: 'Demasiadas solicitudes. Intente nuevamente más tarde.' },
 });
 app.use('/api/', limiter);
+
+// Límite estricto para autenticación: frena fuerza bruta de contraseñas.
+// Solo cuentan los intentos FALLIDOS (los logins correctos no bloquean).
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiados intentos de acceso. Esperá 15 minutos e intentá de nuevo.' },
+});
+app.use('/api/auth', authLimiter);
 
 app.use(compression());
 app.use(express.json({ limit: '10mb' }));

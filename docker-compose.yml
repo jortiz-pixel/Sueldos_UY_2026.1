@@ -5,10 +5,14 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: sueldos_user
-      POSTGRES_PASSWORD: sueldos_pass
+      # Definir POSTGRES_PASSWORD en .env (rotar: ALTER USER en el contenedor +
+      # actualizar .env + docker compose up -d). El default solo mantiene
+      # compatibilidad con bases ya inicializadas.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sueldos_pass}
       POSTGRES_DB: sueldos_uy
-    ports:
-      - "5432:5432"
+    # SIN "ports": la base solo es accesible desde la red interna de Docker.
+    # Nunca publicar 5432 a internet. Acceso de administración:
+    #   docker compose exec postgres psql -U sueldos_user -d sueldos_uy
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -25,13 +29,13 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      DATABASE_URL: "postgresql://sueldos_user:sueldos_pass@postgres:5432/sueldos_uy?schema=public"
+      DATABASE_URL: "postgresql://sueldos_user:${POSTGRES_PASSWORD:-sueldos_pass}@postgres:5432/sueldos_uy?schema=public"
       NODE_ENV: production
       STORAGE_DIR: /app/storage
       # Orígenes del navegador permitidos (CORS). El dominio de producción debe
       # estar acá o el login se bloquea con "Not allowed by CORS". Se puede
       # sobreescribir definiendo ALLOWED_ORIGINS en el archivo .env.
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://sueldos.gro.com.uy,http://187.77.6.69:8080,http://localhost:5173}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://sueldos.gro.com.uy,http://localhost:5173}
       # Login con Google. El Client ID es público (solo verifica el ID token).
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-452392392541-o8r6toecbd4s09iccfaiaehtfvt9oq6l.apps.googleusercontent.com}
       # Dominios con alta automática por Google (coma-separados). Vacío = solo
@@ -40,8 +44,10 @@ services:
       # Versión desplegada (la setea deploy/deploy.sh con el commit y la fecha).
       APP_VERSION: ${APP_VERSION:-dev}
       APP_BUILT_AT: ${APP_BUILT_AT:-}
+    # Solo localhost: el frontend llega por la red interna (nginx proxy /api) y
+    # deploy.sh verifica con curl localhost:3000. Nada externo necesita el 3000.
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     volumes:
       - uploads_data:/app/storage
     depends_on:
@@ -56,8 +62,12 @@ services:
     restart: unless-stopped
     environment:
       VITE_API_URL: http://backend:3000
+    # Traefik llega al contenedor por la red de Docker (labels de abajo); el
+    # 8080 del host queda solo en localhost. Si el sitio dejara de responder
+    # tras el deploy (proxy del host apuntando a la IP pública), definir
+    # FRONTEND_BIND=0.0.0.0 en .env y volver a levantar.
     ports:
-      - "8080:80"
+      - "${FRONTEND_BIND:-127.0.0.1}:8080:80"
     depends_on:
       - backend
     labels:

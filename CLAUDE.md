@@ -69,6 +69,20 @@ y a prueba) · Conceptos · Liquidaciones · Nómina BPS (N y R) · Calendario
 (licencias + saldos + vencimientos) · Reportes (pagos del mes, costo de personal,
 nómina, BPS, IRPF) · Accesos · Parámetros.
 
+## Seguridad (decisiones tomadas — no revertir)
+
+- PostgreSQL NUNCA publica el 5432 (solo red interna de Docker). Backend 3000
+  bindea a 127.0.0.1; frontend 8080 a `${FRONTEND_BIND:-127.0.0.1}` (Traefik
+  llega por la red de Docker vía labels). Rollback de emergencia:
+  `FRONTEND_BIND=0.0.0.0` en `.env` del servidor.
+- Secretos SOLO en `.env` del servidor (no commiteado): `POSTGRES_PASSWORD`
+  (parametrizada en compose; la histórica `sueldos_pass` quedó quemada en git
+  → debe rotarse con `ALTER USER` en el contenedor), `JWT_SECRET`, etc.
+- Backend: `trust proxy 1` (IP real detrás de Traefik/nginx), helmet, rate
+  limit global 100/15min + `/api/auth` 20 intentos fallidos/15min,
+  `x-powered-by` deshabilitado, errores 500 sin detalle en producción.
+- Storage de adjuntos con protección de path traversal (`storage.service.ts`).
+
 ## Pendientes conocidos (roadmap acordado)
 
 1. Consolidado multi-empresa (fin de mes del estudio en una pantalla).

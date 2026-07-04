@@ -31,6 +31,14 @@ echo "▶ Levantando contenedores…"
 docker compose up -d
 
 echo ""
+echo "▶ Verificando exposición de puertos…"
+if ss -tln 2>/dev/null | grep -qE '0\.0\.0\.0:5432|\[::\]:5432'; then
+  echo "  ⚠️  ATENCIÓN: el 5432 (PostgreSQL) sigue expuesto a internet."
+else
+  echo "  ✔ PostgreSQL sin exposición pública."
+fi
+
+echo ""
 echo "✅ Deploy OK"
 echo "   Versión desplegada: $COMMIT  ($APP_BUILT_AT)"
 echo "   Verificá en la app (pie de la barra lateral) o:"
