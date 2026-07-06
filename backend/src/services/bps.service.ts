@@ -7,12 +7,12 @@
  *     base 3% (ingreso <= 2.5 BPC) o 4.5% (ingreso > 2.5 BPC)
  *     +1.5% si tiene hijos a cargo
  *     +2%   si tiene cónyuge a cargo
- * - FRL (obrero):          0.125% del salario nominal
+ * - FRL (obrero):          0.10% del salario nominal (2026)
  *
  * APORTES PATRONALES (a cargo del empleador):
  * - BPS IVS (patronal):    7.5% del salario nominal
  * - FONASA/DISSE patronal: 5% (parametrizable)
- * - FRL (patronal):        0.025% del salario nominal
+ * - FRL (patronal):        0.10% del salario nominal (2026)
  * - BSE (seguro accidentes): tasa configurable por empresa
  *
  * Nota: Todos los montos en centésimos (BigInt).

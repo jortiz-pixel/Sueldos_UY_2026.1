@@ -25,8 +25,8 @@ export interface PayrollParameters {
   fonasaHijosRate: number;        // 150 bp = +1.5% si tiene hijos a cargo
   fonasaConyugeRate: number;      // 200 bp = +2% si tiene cónyuge a cargo
   fonasaFamiliaRate: number;      // (compat) 200 bp = 2%
-  frlObreroRate: number;          // 12.5 bp = 0.125%
-  frlPatronalRate: number;        // 2.5 bp = 0.025%
+  frlObreroRate: number;          // 10 bp = 0.10%
+  frlPatronalRate: number;        // 10 bp = 0.10%
   bpsIvsPatronalRate: number;     // 750 bp = 7.5%
   bseFondoGravamen: number;       // Tasa BSE (configurable por empresa)
   irpfBrackets: IrpfBracket[];
@@ -142,8 +142,8 @@ async function getPayrollParameters(asOfDate: Date = new Date()): Promise<Payrol
     fonasaHijosRate: fonasaHijosRaw ?? 150,         // +1.5%
     fonasaConyugeRate: fonasaConyuge,               // +2%
     fonasaFamiliaRate: fonasaConyuge,               // (compat)
-    frlObreroRate: frlObreroRaw ?? 12.5,            // 0.125%
-    frlPatronalRate: frlPatronalRaw ?? 2.5,         // 0.025%
+    frlObreroRate: frlObreroRaw ?? 10,              // 0.10% (2026)
+    frlPatronalRate: frlPatronalRaw ?? 10,          // 0.10% (2026)
     bpsIvsPatronalRate: bpsIvsRaw ?? 750,           // 7.5%
     bseFondoGravamen: 25,                           // Default 0.25%; overridden per company
     irpfHijosBpc: irpfHijosRaw ?? 20,              // 20 BPC/año por hijo
