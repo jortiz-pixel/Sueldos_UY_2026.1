@@ -63,45 +63,26 @@ export async function calcularLiquidacionLicencia(input: LicenciaInput) {
     ? ultimas.reduce((s, l) => s + l.totalHaberes, 0n) / BigInt(mesesPromedio)
     : employee.salarioNominal;
 
-  // Importe de licencia (GRAVADO) = base / 30 × días tomados.
+  // El salario vacacional se paga con el JORNAL LÍQUIDO (nominal del día menos
+  // los aportes personales), EXENTO de aportes (Ley 16.101). GNS lo emite en una
+  // liquidación aparte, 100% líquido: la licencia gozada (con sus aportes) va en
+  // la mensualidad, desglosada en días de jornal + días de licencia.
   const jornalBruto = multiplyFraction(baseLicencia, 1, 30);
-  const importeLicencia = multiplyFraction(baseLicencia, input.diasHabilesTomar, 30);
-
-  // Aportes SOLO sobre la licencia (el salario vacacional es EXENTO de CESS).
-  const aportesObreros = calcularAportesObreros({
-    salarioNominal: importeLicencia,
+  const aportesMes = calcularAportesObreros({
+    salarioNominal: baseLicencia,
     hijosACargo: employee.hijosACargo,
     conyugeACargo: employee.conyugeACargo,
     params,
     bseRateEmpresa: bseRate,
   });
+  const jornalLiquido = multiplyFraction(maxBigInt(0n, baseLicencia - aportesMes.total), 1, 30);
+  const salarioVacacional = jornalLiquido * BigInt(input.diasHabilesTomar);
+  const jornalLiquidoTxt = (Number(jornalLiquido) / 100).toFixed(2);
 
-  const aportesPatronales = calcularAportesPatronales({
-    salarioNominal: importeLicencia,
-    hijosACargo: employee.hijosACargo,
-    conyugeACargo: employee.conyugeACargo,
-    params,
-    bseRateEmpresa: bseRate,
-  });
-
-  // Salario vacacional = 100% del jornal LÍQUIDO de vacaciones (licencia − aportes personales). Exento de CESS.
-  const salarioVacacional = maxBigInt(0n, importeLicencia - aportesObreros.total);
-
-  const totalBruto = importeLicencia + salarioVacacional;
-
-  // IRPF: tanto la licencia gozada como el salario vacacional son renta gravada por IRPF.
-  const irpfResult = calcularIrpfMensual({
-    salarioNominal: totalBruto,
-    fonasaMensual: aportesObreros.fonasaTotal,
-    bpsMensual: aportesObreros.jubilatorio,
-    hijosACargo: employee.hijosACargo,
-    hijosDiscapacitados: employee.hijosDiscapacitados,
-    conyugeACargo: employee.conyugeACargo,
-    params,
-  });
-
-  const totalDescuentos = aportesObreros.total + irpfResult.retencionMensual;
-  const liquidoPercibir = maxBigInt(0n, totalBruto - totalDescuentos);
+  const totalBruto = salarioVacacional;
+  const totalDescuentos = 0n;             // exento: sin descuentos
+  const totalPatronal = 0n;               // exento de aportes patronales
+  const liquidoPercibir = salarioVacacional;
 
   const liquidacion = await prisma.liquidation.upsert({
     where: {
@@ -122,7 +103,7 @@ export async function calcularLiquidacionLicencia(input: LicenciaInput) {
       diasHabiles: input.diasHabilesTomar,
       totalHaberes: totalBruto,
       totalDescuentos,
-      totalPatronal: aportesPatronales.total,
+      totalPatronal,
       liquidoPercibir,
       parametersSnapshot: { bpc: params.bpc.toString() },
     },
@@ -132,87 +113,31 @@ export async function calcularLiquidacionLicencia(input: LicenciaInput) {
       diasHabiles: input.diasHabilesTomar,
       totalHaberes: totalBruto,
       totalDescuentos,
-      totalPatronal: aportesPatronales.total,
+      totalPatronal,
       liquidoPercibir,
     },
   });
 
   await prisma.payrollItem.deleteMany({ where: { liquidationId: liquidacion.id } });
-  await prisma.payrollItem.createMany({
-    data: [
-      {
-        liquidationId: liquidacion.id,
-        employeeId: input.employeeId,
-        itemType: ItemType.HABER,
-        concepto: 'SALARIO_LICENCIA',
-        descripcion: `Salario de licencia (${input.diasHabilesTomar} días · base prom. ${mesesPromedio || 'nominal'} ${mesesPromedio ? 'm/30' : ''})`,
-        baseCalculo: jornalBruto,
-        rate: null,
-        amount: importeLicencia,
-        calculationDetail: {
-          baseLicencia: baseLicencia.toString(),
-          jornalBruto: jornalBruto.toString(),
-          mesesPromedio,
-          diasHabiles: input.diasHabilesTomar,
-          formula: 'promedio_haberes_12m / 30 * dias',
-        } as unknown as Prisma.InputJsonValue,
-      },
-      {
-        liquidationId: liquidacion.id,
-        employeeId: input.employeeId,
-        itemType: ItemType.HABER,
-        concepto: 'SALARIO_VACACIONAL',
-        descripcion: 'Salario vacacional (jornal líquido de vacaciones · exento de aportes)',
-        baseCalculo: importeLicencia,
-        rate: null,
-        amount: salarioVacacional,
-        calculationDetail: Prisma.DbNull,
-      },
-      {
-        liquidationId: liquidacion.id,
-        employeeId: input.employeeId,
-        itemType: ItemType.DESCUENTO_OBRERO,
-        concepto: 'BPS_JUBILATORIO',
-        descripcion: 'BPS Jubilatorio sobre licencia',
-        baseCalculo: importeLicencia,
-        rate: params.bpsJubilatorioRate,
-        amount: aportesObreros.jubilatorio,
-        calculationDetail: Prisma.DbNull,
-      },
-      {
-        liquidationId: liquidacion.id,
-        employeeId: input.employeeId,
-        itemType: ItemType.DESCUENTO_OBRERO,
-        concepto: 'FONASA',
-        descripcion: 'FONASA sobre licencia',
-        baseCalculo: importeLicencia,
-        rate: params.fonasaBasicRate,
-        amount: aportesObreros.fonasaTotal,
-        calculationDetail: Prisma.DbNull,
-      },
-      {
-        liquidationId: liquidacion.id,
-        employeeId: input.employeeId,
-        itemType: ItemType.DESCUENTO_OBRERO,
-        concepto: 'FRL',
-        descripcion: 'Fondo de Reconversión Laboral sobre licencia',
-        baseCalculo: importeLicencia,
-        rate: params.frlObreroRate,
-        amount: aportesObreros.frl,
-        calculationDetail: Prisma.DbNull,
-      },
-      ...(irpfResult.retencionMensual > 0n ? [{
-        liquidationId: liquidacion.id,
-        employeeId: input.employeeId,
-        itemType: ItemType.DESCUENTO_OBRERO,
-        concepto: 'IRPF',
-        descripcion: 'IRPF sobre licencia',
-        baseCalculo: totalBruto,
-        rate: null,
-        amount: irpfResult.retencionMensual,
-        calculationDetail: Prisma.DbNull,
-      }] : []),
-    ],
+  await prisma.payrollItem.create({
+    data: {
+      liquidationId: liquidacion.id,
+      employeeId: input.employeeId,
+      itemType: ItemType.HABER,
+      concepto: 'SALARIO_VACACIONAL',
+      descripcion: `Salario Vacacional ${input.diasHabilesTomar} x ${jornalLiquidoTxt}`,
+      baseCalculo: jornalBruto,
+      rate: null,
+      amount: salarioVacacional,
+      calculationDetail: {
+        baseLicencia: baseLicencia.toString(),
+        jornalBruto: jornalBruto.toString(),
+        jornalLiquido: jornalLiquido.toString(),
+        aportesMes: aportesMes.total.toString(),
+        diasHabiles: input.diasHabilesTomar,
+        formula: '(base - aportes_personales) / 30 * dias · exento',
+      } as unknown as Prisma.InputJsonValue,
+    },
   });
 
   await prisma.vacationAccrual.upsert({
@@ -232,7 +157,6 @@ export async function calcularLiquidacionLicencia(input: LicenciaInput) {
 
   return {
     liquidacionId: liquidacion.id,
-    salarioLicencia: importeLicencia,
     salarioVacacional,
     totalBruto,
     totalDescuentos,

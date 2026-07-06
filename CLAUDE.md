@@ -56,7 +56,13 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
   liquidación final automática (aguinaldo/licencia/vacacional proporcionales; IPD).
 - **Contrato a prueba** = modalidad de 90 días rescindible sin IPD (no es un borrador).
 - **Licencias**: Ley 12.590 (20/25/30 días por antigüedad; proporcional 1er año);
-  días sin domingos; anticipos permitidos con confirmación.
+  días sin domingos; anticipos permitidos con confirmación. Al liquidar (estilo
+  GNS): la licencia GOZADA se paga en la MENSUALIDAD, desglosando el sueldo en
+  'Jornal N x jornal' (días trabajados) + 'Licencia M x jornal' (días de
+  licencia), con aportes sobre el total; los días de licencia se toman de las
+  licencias del calendario si no se indican. El SALARIO VACACIONAL va en una
+  liquidación especial aparte (tipo LICENCIA): jornal LÍQUIDO ((nominal −
+  aportes personales)/30) × días, EXENTO (sin descuentos).
 - **Nómina BPS (ATYR v3.0)**: generador validado byte a byte contra archivo real
   de GNS (`N_0626_AMIG_8269951`). Registros 1/4/5/6/7/12; en nóminas el mes de
   cargo va NULO en 6/7 (en rectificativas va lleno y el reg. 4 sin mes).

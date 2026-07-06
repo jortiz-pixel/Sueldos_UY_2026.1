@@ -467,7 +467,7 @@ export default function LiquidationPage() {
               <label className="form-label">Tipo</label>
               <select value={espTipo} onChange={(e) => setEspTipo(e.target.value as 'AGUINALDO' | 'LICENCIA' | 'EGRESO')} className="form-input">
                 <option value="AGUINALDO">Aguinaldo</option>
-                <option value="LICENCIA">Licencia</option>
+                <option value="LICENCIA">Salario vacacional</option>
                 <option value="EGRESO">Egreso (liquidación final)</option>
               </select>
             </div>
@@ -485,7 +485,7 @@ export default function LiquidationPage() {
             )}
             <p className="text-xs text-gray-400">
               {espTipo === 'AGUINALDO' && 'Calcula 1/12 de los haberes del semestre (jun: dic–may · dic: jun–nov).'}
-              {espTipo === 'LICENCIA' && 'Calcula jornal de licencia + salario vacacional por los días indicados.'}
+              {espTipo === 'LICENCIA' && 'Genera el salario vacacional (jornal líquido × días, sin descuentos). Los días de licencia gozada se pagan en la mensualidad, con sus aportes.'}
               {espTipo === 'EGRESO' && 'Liquidación final a la fecha de egreso (incluye partidas pendientes).'}
             </p>
             <div className="flex justify-end gap-2 pt-2">

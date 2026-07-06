@@ -347,7 +347,6 @@ liquidationRouter.post('/licencia', authenticate, requireRole(UserRole.ADMIN, Us
     const result = await calcularLiquidacionLicencia(input);
     res.json({
       ...result,
-      salarioLicencia: result.salarioLicencia.toString(),
       salarioVacacional: result.salarioVacacional.toString(),
       totalBruto: result.totalBruto.toString(),
       totalDescuentos: result.totalDescuentos.toString(),

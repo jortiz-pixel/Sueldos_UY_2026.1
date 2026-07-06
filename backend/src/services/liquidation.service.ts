@@ -12,12 +12,40 @@ import { resolverContratoEnMes, diasTrabajadosEnMes, datosLaboralesEfectivos } f
 import { evaluarConcepto, ConceptoContext } from './concept.engine';
 import { AppError } from '../middleware/errorHandler';
 
+// Días hábiles de licencia GOZADA (LeaveRequest aprobada/pendiente) que caen
+// dentro del mes, sin contar domingos (criterio uruguayo).
+async function diasLicenciaDelMes(employeeId: string, year: number, month: number): Promise<number> {
+  const monthStart = new Date(year, month - 1, 1);
+  const monthEnd = new Date(year, month, 0);
+  const leaves = await prisma.leaveRequest.findMany({
+    where: {
+      employeeId,
+      status: { in: ['PENDIENTE', 'APROBADA'] },
+      fechaInicio: { lte: monthEnd },
+      fechaFin: { gte: monthStart },
+    },
+    select: { fechaInicio: true, fechaFin: true },
+  });
+  let dias = 0;
+  for (const l of leaves) {
+    const d = new Date(Math.max(new Date(l.fechaInicio).getTime(), monthStart.getTime()));
+    const fin = new Date(Math.min(new Date(l.fechaFin).getTime(), monthEnd.getTime()));
+    while (d <= fin) {
+      if (d.getDay() !== 0) dias++; // sin domingos
+      d.setDate(d.getDate() + 1);
+    }
+  }
+  return dias;
+}
+
+
 export interface LiquidacionInput {
   employeeId: string;
   periodId: string;
   year: number;
   month: number;
   diasTrabajados?: number;
+  diasLicencia?: number;   // días de licencia gozada en el mes (desglosa el sueldo)
   horasExtraDiurnas?: number;
   horasExtraNocturnas?: number;
   comisiones?: bigint;
@@ -72,29 +100,73 @@ export async function generarLiquidacionMensual(
   // Días trabajados: los indicados, o los que surgen del solapamiento del
   // contrato con el mes (alta/baja a mitad de mes → liquidación parcial).
   const diasTrabajados = input.diasTrabajados ?? diasTrabajadosEnMes(contrato, input.year, input.month);
+
+  // Días de licencia GOZADA del mes: los indicados o, si no, los que surgen de
+  // las licencias aprobadas del calendario que caen en el período. La licencia
+  // gozada se paga como jornal común (gravado) — se desglosa del sueldo.
+  const diasLicencia = Math.min(
+    input.diasLicencia ?? await diasLicenciaDelMes(input.employeeId, input.year, input.month),
+    diasTrabajados,
+  );
+  const diasJornal = Math.max(0, diasTrabajados - diasLicencia);
+
   const salarioBase = labor.salaryType === 'MENSUAL'
     ? salarioProporcional(labor.salarioNominal, diasTrabajados, 30)
     : (labor.jornal ?? 0n) * BigInt(diasTrabajados);
 
   const items: Omit<PayrollItem, 'id' | 'liquidationId' | 'createdAt'>[] = [];
 
-  items.push({
-    employeeId: input.employeeId,
-    itemType: ItemType.HABER,
-    concepto: 'SUELDO_BASICO',
-    descripcion: labor.salaryType === 'MENSUAL'
-      ? `Sueldo básico ${diasTrabajados < 30 ? `(${diasTrabajados}/30 días)` : ''}`
-      : `Jornal (${diasTrabajados} días)`,
-    baseCalculo: labor.salarioNominal,
-    rate: diasTrabajados < 30 ? Math.round(diasTrabajados * 10000 / 30) : null,
-    amount: salarioBase,
-    calculationDetail: {
-      salarioNominal: labor.salarioNominal.toString(),
-      diasTrabajados,
-      diasMes: 30,
-      contratoId: contrato?.id ?? null,
-    } as unknown as Prisma.JsonValue,
-  });
+  // Valor del jornal (nominal/30 para mensual, o el jornal para jornalero),
+  // usado en la descripción estilo GNS "Jornal N x valor".
+  const jornalCent = labor.salaryType === 'MENSUAL'
+    ? salarioProporcional(labor.salarioNominal, 1, 30)
+    : (labor.jornal ?? 0n);
+  const jornalTxt = (Number(jornalCent) / 100).toFixed(2);
+
+  if (labor.salaryType === 'MENSUAL' && diasLicencia > 0) {
+    // Desglose GNS: días trabajados como "Jornal" + días de licencia gozada como
+    // "Licencia". Ambos gravados; la suma es el sueldo del mes (aportes sobre el total).
+    const montoJornal = salarioProporcional(labor.salarioNominal, diasJornal, 30);
+    const montoLicencia = salarioBase - montoJornal; // evita descuadre por redondeo
+    items.push({
+      employeeId: input.employeeId,
+      itemType: ItemType.HABER,
+      concepto: 'SUELDO_BASICO',
+      descripcion: `Jornal ${diasJornal} x ${jornalTxt}`,
+      baseCalculo: labor.salarioNominal,
+      rate: null,
+      amount: montoJornal,
+      calculationDetail: { diasJornal, jornalCent: jornalCent.toString(), contratoId: contrato?.id ?? null } as unknown as Prisma.JsonValue,
+    });
+    items.push({
+      employeeId: input.employeeId,
+      itemType: ItemType.HABER,
+      concepto: 'LICENCIA_GOZADA',
+      descripcion: `Licencia ${diasLicencia} x ${jornalTxt}`,
+      baseCalculo: labor.salarioNominal,
+      rate: null,
+      amount: montoLicencia,
+      calculationDetail: { diasLicencia, jornalCent: jornalCent.toString() } as unknown as Prisma.JsonValue,
+    });
+  } else {
+    items.push({
+      employeeId: input.employeeId,
+      itemType: ItemType.HABER,
+      concepto: 'SUELDO_BASICO',
+      descripcion: labor.salaryType === 'MENSUAL'
+        ? `Sueldo básico ${diasTrabajados < 30 ? `(${diasTrabajados}/30 días)` : ''}`
+        : `Jornal (${diasTrabajados} días)`,
+      baseCalculo: labor.salarioNominal,
+      rate: diasTrabajados < 30 ? Math.round(diasTrabajados * 10000 / 30) : null,
+      amount: salarioBase,
+      calculationDetail: {
+        salarioNominal: labor.salarioNominal.toString(),
+        diasTrabajados,
+        diasMes: 30,
+        contratoId: contrato?.id ?? null,
+      } as unknown as Prisma.JsonValue,
+    });
+  }
 
   if ((input.horasExtraDiurnas ?? 0) > 0 || (input.horasExtraNocturnas ?? 0) > 0) {
     const he = calcularHorasExtra(
