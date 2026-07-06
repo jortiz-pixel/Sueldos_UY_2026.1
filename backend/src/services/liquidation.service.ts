@@ -10,6 +10,7 @@ import { calcularIrpfMensual, calcularIrpfSimplificado } from './irpf.service';
 import { parametersService } from './parameters.service';
 import { resolverContratoEnMes, diasTrabajadosEnMes, datosLaboralesEfectivos } from './contract.service';
 import { evaluarConcepto, ConceptoContext } from './concept.engine';
+import { calcularAguinaldoBrutoSemestre } from './aguinaldo.service';
 import { AppError } from '../middleware/errorHandler';
 
 // Días hábiles de licencia GOZADA (LeaveRequest aprobada/pendiente) que caen
@@ -337,12 +338,21 @@ export async function generarLiquidacionMensual(
   // la que se calculan los aportes personales, patronales y el IRPF.
   const baseGravada = gravadoHaberes;
 
+  // En junio y diciembre el ADICIONAL de FONASA del aguinaldo se cobra en la
+  // mensualidad: su base es (nominal del mes + aguinaldo del semestre). El
+  // aguinaldo se calcula sobre las mensuales confirmadas del semestre (no
+  // depende de la mensual de este mes).
+  const fonasaAdicionalExtraBase = (input.month === 6 || input.month === 12)
+    ? (await calcularAguinaldoBrutoSemestre(input.employeeId, input.year, input.month)).bruto
+    : 0n;
+
   const aportesObreros = calcularAportesObreros({
     salarioNominal: baseGravada,
     hijosACargo: employee.hijosACargo,
     conyugeACargo: employee.conyugeACargo,
     params,
     bseRateEmpresa: bseRate,
+    fonasaAdicionalExtraBase,
   });
 
   items.push({
@@ -371,6 +381,11 @@ export async function generarLiquidacionMensual(
       conyugeRate: aportesObreros.detail.fonasaConyugeRate,
       hijosACargo: employee.hijosACargo,
       conyugeACargo: employee.conyugeACargo,
+      seguro: aportesObreros.fonasaBasico.toString(),
+      seguroRate: aportesObreros.detail.fonasaSeguroRate,
+      adicional: aportesObreros.fonasaFamilia.toString(),
+      adicionalRate: aportesObreros.detail.fonasaAdicionalRate,
+      adicionalBase: aportesObreros.detail.fonasaAdicionalBase.toString(),
     } as unknown as Prisma.JsonValue,
   });
 

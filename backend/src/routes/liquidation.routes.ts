@@ -1,12 +1,12 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import { UserRole, LiquidationStatus, PeriodStatus, ItemType, LiquidationType } from '@prisma/client';
+import { UserRole, LiquidationStatus, PeriodStatus, ItemType, LiquidationType, Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { authenticate, requireRole } from '../middleware/auth';
 import { assertCompanyAccess } from '../middleware/tenancy';
 import { AppError, NotFoundError } from '../middleware/errorHandler';
 import { generarLiquidacionMensual, confirmarLiquidacion, valorJornalFalta } from '../services/liquidation.service';
-import { calcularAguinaldo } from '../services/aguinaldo.service';
+import { calcularAguinaldo, calcularAguinaldoBrutoSemestre } from '../services/aguinaldo.service';
 import { calcularLiquidacionLicencia, calcularLiquidacionFinal } from '../services/vacation.service';
 import { calcularAportesObreros, calcularAportesPatronales } from '../services/bps.service';
 import { calcularIrpfMensual } from '../services/irpf.service';
@@ -575,7 +575,13 @@ async function recalcularLiquidacion(liquidationId: string): Promise<void> {
     if (gravado) baseGravada += it.amount;
   }
 
-  const obreros = calcularAportesObreros({ salarioNominal: baseGravada, hijosACargo: employee.hijosACargo, conyugeACargo: employee.conyugeACargo, params, bseRateEmpresa: bseRate });
+  // Junio/diciembre: el adicional FONASA del aguinaldo se cobra en la mensualidad
+  // (base = nominal del mes + aguinaldo del semestre).
+  const fonasaAdicionalExtraBase = (liq.month === 6 || liq.month === 12)
+    ? (await calcularAguinaldoBrutoSemestre(liq.employeeId, liq.year, liq.month)).bruto
+    : 0n;
+
+  const obreros = calcularAportesObreros({ salarioNominal: baseGravada, hijosACargo: employee.hijosACargo, conyugeACargo: employee.conyugeACargo, params, bseRateEmpresa: bseRate, fonasaAdicionalExtraBase });
   const patronales = calcularAportesPatronales({ salarioNominal: baseGravada, fonasaFamilia: employee.fonasaFamilia, params, bseRateEmpresa: bseRate, fonasaPatronalRate: 500 });
   const irpf = calcularIrpfMensual({
     salarioNominal: baseGravada,
@@ -604,6 +610,26 @@ async function recalcularLiquidacion(liquidationId: string): Promise<void> {
         data: { baseCalculo: baseGravada, amount: u.amount, descripcion: u.descripcion, ...(u.rate !== undefined ? { rate: u.rate } : {}) },
       });
     }
+  }
+
+  // FONASA: refrescar tasa efectiva y el detalle del adicional (base = mes +
+  // aguinaldo en junio/diciembre) para que el recibo muestre el desglose correcto.
+  const fonasaItem = liq.items.find((i) => i.concepto === 'FONASA');
+  if (fonasaItem) {
+    await prisma.payrollItem.update({
+      where: { id: fonasaItem.id },
+      data: {
+        rate: obreros.detail.fonasaRateEfectivo,
+        calculationDetail: {
+          base: baseGravada.toString(),
+          seguro: obreros.fonasaBasico.toString(),
+          seguroRate: obreros.detail.fonasaSeguroRate,
+          adicional: obreros.fonasaFamilia.toString(),
+          adicionalRate: obreros.detail.fonasaAdicionalRate,
+          adicionalBase: obreros.detail.fonasaAdicionalBase.toString(),
+        } as unknown as Prisma.InputJsonValue,
+      },
+    });
   }
 
   const irpfItem = liq.items.find((i) => i.concepto === 'IRPF');

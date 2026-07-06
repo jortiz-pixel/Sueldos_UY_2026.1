@@ -29,6 +29,7 @@ interface LiquidationForPdf {
     baseCalculo: bigint | null;
     rate: number | null;
     amount: bigint;
+    calculationDetail?: unknown;
   }>;
 }
 
@@ -153,14 +154,17 @@ export function generateReciboPDF(
       if (d.concepto === 'BPS_JUBILATORIO') {
         descFilas.push({ nombre: 'Aporte Jubilatorio', detalle: `${((d.rate ?? 0) / 100)} % ${baseTxt}`, importe: d.amount });
       } else if (d.concepto === 'FONASA') {
+        const cd = (d.calculationDetail ?? {}) as Record<string, unknown>;
         const base = d.baseCalculo ?? 0n;
-        const seguro = (base * 3n) / 100n;
-        const adic = d.amount - seguro;
-        descFilas.push({ nombre: 'Seguro x Enfermedad', detalle: `3 % ${baseTxt}`, importe: seguro });
-        if (adic > 0n) {
-          const adicRate = ((d.rate ?? 0) - 300) / 100;
-          descFilas.push({ nombre: 'Adic. Sist. Nac. Int. de Salud', detalle: `${adicRate} % ${baseTxt}`, importe: adic });
-        }
+        // Seguro de enfermedad (3% fijo sobre el nominal del mes).
+        const seguro = cd.seguro !== undefined ? BigInt(cd.seguro as string) : (base * 3n) / 100n;
+        const seguroRate = cd.seguroRate !== undefined ? Number(cd.seguroRate) : 300;
+        descFilas.push({ nombre: 'Seguro x Enfermedad', detalle: `${seguroRate / 100} % ${baseTxt}`, importe: seguro });
+        // Adicional (complemento). En junio/diciembre la base incluye el aguinaldo.
+        const adic = cd.adicional !== undefined ? BigInt(cd.adicional as string) : d.amount - seguro;
+        const adicRate = cd.adicionalRate !== undefined ? Number(cd.adicionalRate) : ((d.rate ?? 0) - 300);
+        const adicBase = cd.adicionalBase !== undefined ? BigInt(cd.adicionalBase as string) : base;
+        descFilas.push({ nombre: 'Adic. Sist. Nac. Int. de Salud', detalle: `${adicRate / 100} % de ${fmt(adicBase)}`, importe: adic });
       } else if (d.concepto === 'FRL') {
         descFilas.push({ nombre: 'FRL', detalle: `${((d.rate ?? 0) / 100)} % ${baseTxt}`, importe: d.amount });
       } else if (d.concepto === 'IRPF') {

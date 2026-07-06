@@ -29,6 +29,10 @@ export interface AportesInput {
   conyugeACargo?: boolean;      // FONASA: +2% si true
   fonasaFamilia?: boolean;      // (compat) si true y no se pasan hijos/cónyuge -> +1.5%
   fonasaPatronalRate?: number;  // FONASA patronal (si es distinto a default)
+  // Base adicional para el ADICIONAL de FONASA (complemento por encima del 3%).
+  // Se usa en junio/diciembre: el adicional del aguinaldo NO se cobra en el
+  // aguinaldo sino en la mensualidad, sobre (nominal del mes + aguinaldo).
+  fonasaAdicionalExtraBase?: bigint;
 }
 
 export interface AportesObreros {
@@ -44,6 +48,9 @@ export interface AportesObreros {
     fonasaBaseRate: number;
     fonasaHijosRate: number;
     fonasaConyugeRate: number;
+    fonasaSeguroRate: number;      // 3% seguro de enfermedad (siempre)
+    fonasaAdicionalRate: number;   // complemento por encima del 3%
+    fonasaAdicionalBase: bigint;   // base sobre la que se aplicó el adicional
     frlRate: number;
   };
 }
@@ -91,9 +98,17 @@ export function calcularAportesObreros(input: AportesInput): AportesObreros {
   const jubilatorio = applyRate(salarioNominal, params.bpsJubilatorioRate);
 
   const fonasa = calcularTasaFonasa(input);
-  const fonasaTotal = applyRate(salarioNominal, fonasa.rateTotal);
-  const fonasaBasico = applyRate(salarioNominal, fonasa.baseRate);
-  const fonasaFamiliaAporte = fonasaTotal - fonasaBasico;
+  // FONASA se compone del "seguro de enfermedad" (3% fijo, siempre sobre el
+  // nominal) + un ADICIONAL/complemento (el resto de la tasa: escalón >2,5 BPC,
+  // hijos, cónyuge). El adicional puede llevar una base extra (aguinaldo en
+  // junio/diciembre). Cada componente se redondea por separado (criterio GNS).
+  const seguroRate = params.fonasaBasicRate; // 3%
+  const adicionalRate = Math.max(0, fonasa.rateTotal - seguroRate);
+  const adicionalBase = salarioNominal + (input.fonasaAdicionalExtraBase ?? 0n);
+
+  const fonasaBasico = applyRate(salarioNominal, seguroRate);
+  const fonasaFamiliaAporte = applyRate(adicionalBase, adicionalRate);
+  const fonasaTotal = fonasaBasico + fonasaFamiliaAporte;
 
   const frl = applyRate(salarioNominal, params.frlObreroRate);
 
@@ -110,6 +125,9 @@ export function calcularAportesObreros(input: AportesInput): AportesObreros {
       fonasaBaseRate: fonasa.baseRate,
       fonasaHijosRate: fonasa.hijosRate,
       fonasaConyugeRate: fonasa.conyugeRate,
+      fonasaSeguroRate: seguroRate,
+      fonasaAdicionalRate: adicionalRate,
+      fonasaAdicionalBase: adicionalBase,
       frlRate: params.frlObreroRate,
     },
   };

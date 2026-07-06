@@ -42,7 +42,15 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
 
 - **BPC**: 2026 = $6.864 · 2025 = $6.576 (parámetros por fecha de vigencia).
 - **FONASA obrero**: base 3% (≤2,5 BPC) / 4,5% (>2,5 BPC); +1,5% hijos a cargo;
-  +2% cónyuge a cargo. Confirmado correcto por el usuario.
+  +2% cónyuge a cargo. Confirmado correcto por el usuario. Se desglosa en
+  "Seguro x Enfermedad" (3% fijo) + "Adicional" (el resto: escalón + hijos +
+  cónyuge); cada parte se redondea aparte (criterio GNS).
+- **FONASA en meses con aguinaldo (junio/diciembre)**: el ADICIONAL del aguinaldo
+  NO se descuenta en el aguinaldo (ahí va solo el 3%). Se traslada a la
+  mensualidad del mes: su adicional se calcula sobre (nominal del mes +
+  aguinaldo del semestre). El aguinaldo del semestre se toma de las mensuales
+  confirmadas → conviene confirmar el semestre antes de liquidar junio/diciembre.
+  Validado contra recibos GNS (Belén Martínez, junio 2026).
 - **FRL**: 0,10% obrero y patronal (2026). Patronales: IVS 7,5%, FONASA 5%, BSE por empresa.
 - **IRPF** (auditado contra Comunicado BPS R 5/2026): escala anual en BPC
   0-84:0 · 84-120:10 · 120-180:15 · 180-360:24 · 360-600:25 · 600-900:27 ·
