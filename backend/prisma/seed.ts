@@ -118,6 +118,10 @@ async function main() {
   ];
   for (const p of params2024) await prisma.payrollParameter.upsert({ where: { id: `seed_2024_${p.key}` }, update: { value: p.value, description: p.description }, create: { id: `seed_2024_${p.key}`, key: p.key, value: p.value, description: p.description, effectiveDate: effectiveDate2024, companyId: null } });
   await prisma.payrollParameter.upsert({ where: { id: 'seed_2025_BPC' }, update: { value: '7622' }, create: { id: 'seed_2025_BPC', key: 'BPC', value: '7622', description: 'BPC 2025', effectiveDate: effectiveDate2025, companyId: null } });
+  // FRL 0,10% con vigencia desde diciembre 2025 (paridad con la migración 20260709120000).
+  const effectiveDateDic2025 = new Date('2025-12-01T00:00:00.000Z');
+  await prisma.payrollParameter.upsert({ where: { id: 'frl_2025_12_obrero' }, update: { value: '10' }, create: { id: 'frl_2025_12_obrero', key: 'FRL_OBRERO_RATE_BP', value: '10', description: 'FRL obrero 0,10% (desde 12/2025)', effectiveDate: effectiveDateDic2025, companyId: null } });
+  await prisma.payrollParameter.upsert({ where: { id: 'frl_2025_12_patronal' }, update: { value: '10' }, create: { id: 'frl_2025_12_patronal', key: 'FRL_PATRONAL_RATE_BP', value: '10', description: 'FRL patronal 0,10% (desde 12/2025)', effectiveDate: effectiveDateDic2025, companyId: null } });
   console.log(`✅ Parámetros BPS/IRPF cargados`);
 
   await prisma.irpfBracket.deleteMany({ where: { effectiveDate: effectiveDate2024 } });
