@@ -31,9 +31,11 @@ function mesesDelSemestre(year: number, month: number): { year: number; month: n
   return meses;
 }
 
-// Aguinaldo bruto = (suma de haberes de las mensuales CONFIRMADAS del semestre)
-// / 12. Se usa tanto para liquidar el aguinaldo como para la base del adicional
-// FONASA de la mensualidad de junio/diciembre. Devuelve 0 si no hay confirmadas.
+// Aguinaldo bruto = (suma del "Total de Haberes" de las mensuales del semestre)
+// / 12. Toma todas las mensuales generadas del semestre (BORRADOR o CONFIRMADO,
+// excluye ANULADO), así se suman los 6 importes aunque alguna no esté confirmada
+// todavía. Se usa para liquidar el aguinaldo y para la base del adicional FONASA
+// de la mensualidad de junio/diciembre. Devuelve 0 si no hay ninguna.
 export async function calcularAguinaldoBrutoSemestre(
   employeeId: string, year: number, month: number,
 ): Promise<{ bruto: bigint; sumaHaberesSemestre: bigint; mesesConsiderados: number }> {
@@ -41,7 +43,7 @@ export async function calcularAguinaldoBrutoSemestre(
     where: {
       employeeId,
       type: LiquidationType.MENSUAL,
-      status: LiquidationStatus.CONFIRMADO,
+      status: { in: [LiquidationStatus.BORRADOR, LiquidationStatus.CONFIRMADO] },
       OR: mesesDelSemestre(year, month),
     },
     select: { totalHaberes: true },
@@ -84,7 +86,7 @@ export async function calcularAguinaldo(input: AguinaldoInput): Promise<{
   if (mesesConsiderados === 0) {
     throw new AppError(
       400,
-      'No hay liquidaciones mensuales confirmadas en el semestre del aguinaldo (Dic–May para el de junio; Jun–Nov para el de diciembre). Confirmá las mensuales del semestre antes de generar el aguinaldo.',
+      'No hay liquidaciones mensuales en el semestre del aguinaldo (Dic–May para el de junio; Jun–Nov para el de diciembre). Generá las mensuales del semestre antes del aguinaldo.',
     );
   }
 

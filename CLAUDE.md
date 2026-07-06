@@ -51,9 +51,11 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
 - **FONASA en meses con aguinaldo (junio/diciembre)**: el ADICIONAL del aguinaldo
   NO se descuenta en el aguinaldo (ahí va solo el 3%). Se traslada a la
   mensualidad del mes: su adicional se calcula sobre (nominal del mes +
-  aguinaldo del semestre). El aguinaldo del semestre se toma de las mensuales
-  confirmadas → conviene confirmar el semestre antes de liquidar junio/diciembre.
-  Validado contra recibos GNS (Belén Martínez, junio 2026).
+  aguinaldo del semestre). Validado contra recibos GNS (Belén Martínez, junio 2026).
+- **Aguinaldo**: bruto = suma del "Total de Haberes" (neto de faltas) de las
+  mensuales del semestre / 12. Semestres: junio = Dic(año-1)–May · diciembre =
+  Jun–Nov. Toma todas las mensuales GENERADAS del semestre (borrador o
+  confirmada, excluye anulada), así suma los 6 importes aunque falte confirmar.
 - **FRL**: 0,10% obrero y patronal (2026). Patronales: IVS 7,5%, FONASA 5%, BSE por empresa.
 - **IRPF** (auditado contra Comunicado BPS R 5/2026): escala anual en BPC
   0-84:0 · 84-120:10 · 120-180:15 · 180-360:24 · 360-600:25 · 600-900:27 ·
