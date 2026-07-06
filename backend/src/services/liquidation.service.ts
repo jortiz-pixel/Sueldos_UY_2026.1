@@ -242,6 +242,52 @@ export async function generarLiquidacionMensual(
     .filter((i) => i.itemType === ItemType.HABER)
     .reduce((sum, i) => sum + i.amount, 0n);
 
+  // FALTAS: en el recibo (estilo GNS) las faltas figuran del lado de los HABERES
+  // como un haber NEGATIVO (días × jornal). Así el "Total de Haberes" ya sale
+  // NETO de faltas y TODOS los descuentos (aportes personales, patronales e
+  // IRPF) se calculan sobre ese neto. Se detectan por el código FALTAS y pueden
+  // venir cargadas a mano ("otros descuentos") o desde el motor de conceptos.
+  const esFalta = (codigo: string) => codigo.trim().toUpperCase() === 'FALTAS';
+  const montoFalta = (v: bigint) => (v < 0n ? v : -v); // el importe de falta siempre resta
+
+  const otrosDescuentosSinFaltas = (input.otrosDescuentos ?? []).filter((od) => !esFalta(od.concepto));
+  for (const od of (input.otrosDescuentos ?? []).filter((od) => esFalta(od.concepto))) {
+    const amount = montoFalta(od.amount);
+    if (amount === 0n) continue;
+    items.push({
+      employeeId: input.employeeId,
+      itemType: ItemType.HABER,
+      concepto: od.concepto,
+      descripcion: od.descripcion,
+      baseCalculo: null,
+      rate: null,
+      amount,
+      calculationDetail: { falta: true } as unknown as Prisma.JsonValue,
+    });
+    gravadoHaberes += amount; // amount es negativo → reduce el neto imponible
+  }
+
+  for (const c of conceptos.filter((c) => c.tipoOperacion === ItemType.DESCUENTO_OBRERO && esFalta(c.codigo))) {
+    const amount = montoFalta(evaluarConcepto(c, {
+      salarioNominal: labor.salarioNominal,
+      sueldoBasico: salarioBase,
+      haberesGravados: gravadoHaberes,
+      cantidades: input.cantidadesConcepto,
+    }));
+    if (amount === 0n) continue;
+    items.push({
+      employeeId: input.employeeId,
+      itemType: ItemType.HABER,
+      concepto: c.codigo,
+      descripcion: c.nombre,
+      baseCalculo: null,
+      rate: c.valorRate ?? null,
+      amount,
+      calculationDetail: { motor: 'CONCEPTO', tipoCalculo: c.tipoCalculo, falta: true } as unknown as Prisma.JsonValue,
+    });
+    gravadoHaberes += amount;
+  }
+
   const ctxConcepto: ConceptoContext = {
     salarioNominal: labor.salarioNominal,
     sueldoBasico: salarioBase,
@@ -270,55 +316,9 @@ export async function generarLiquidacionMensual(
     .filter((i) => i.itemType === ItemType.HABER)
     .reduce((sum, i) => sum + i.amount, 0n);
 
-  // FALTAS: las faltas reducen el nominal imponible. Su monto se descuenta del
-  // total de haberes ANTES de calcular los aportes (BPS, FONASA, FRL) e IRPF —
-  // como en el recibo, el trabajador aporta sobre lo efectivamente ganado. La
-  // línea de FALTAS igual figura como descuento (netea el líquido), pero se
-  // procesa acá y NO se repite en los descuentos genéricos de más abajo.
-  const esFalta = (codigo: string) => codigo.trim().toUpperCase() === 'FALTAS';
-
-  let faltasTotal = 0n;
-
-  const faltasManuales = (input.otrosDescuentos ?? []).filter((od) => esFalta(od.concepto));
-  const otrosDescuentosSinFaltas = (input.otrosDescuentos ?? []).filter((od) => !esFalta(od.concepto));
-  for (const od of faltasManuales) {
-    items.push({
-      employeeId: input.employeeId,
-      itemType: ItemType.DESCUENTO_OBRERO,
-      concepto: od.concepto,
-      descripcion: od.descripcion,
-      baseCalculo: null,
-      rate: null,
-      amount: od.amount,
-      calculationDetail: { reduceImponible: true } as unknown as Prisma.JsonValue,
-    });
-    faltasTotal += od.amount;
-  }
-
-  const conceptosFalta = conceptos.filter((c) => c.tipoOperacion === ItemType.DESCUENTO_OBRERO && esFalta(c.codigo));
-  for (const c of conceptosFalta) {
-    const amount = evaluarConcepto(c, {
-      salarioNominal: labor.salarioNominal,
-      sueldoBasico: salarioBase,
-      haberesGravados: gravadoHaberes,
-      cantidades: input.cantidadesConcepto,
-    });
-    if (amount <= 0n) continue;
-    items.push({
-      employeeId: input.employeeId,
-      itemType: ItemType.DESCUENTO_OBRERO,
-      concepto: c.codigo,
-      descripcion: c.nombre,
-      baseCalculo: null,
-      rate: c.valorRate ?? null,
-      amount,
-      calculationDetail: { motor: 'CONCEPTO', tipoCalculo: c.tipoCalculo, reduceImponible: true } as unknown as Prisma.JsonValue,
-    });
-    faltasTotal += amount;
-  }
-
-  // Base imponible = haberes gravados menos faltas (nunca negativa).
-  const baseGravada = gravadoHaberes > faltasTotal ? gravadoHaberes - faltasTotal : 0n;
+  // El total de haberes ya está NETO de faltas → esa es la base imponible sobre
+  // la que se calculan los aportes personales, patronales y el IRPF.
+  const baseGravada = gravadoHaberes;
 
   const aportesObreros = calcularAportesObreros({
     salarioNominal: baseGravada,
