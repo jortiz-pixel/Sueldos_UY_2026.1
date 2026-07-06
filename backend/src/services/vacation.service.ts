@@ -14,7 +14,7 @@ import {
   calcularAntiguedadMeses,
   diasPreavisoCorrespondientes,
 } from '../utils/date';
-import { resolverContratoVigente } from './contract.service';
+import { resolverContratoVigente, datosLaboralesEfectivos } from './contract.service';
 import { AppError } from '../middleware/errorHandler';
 
 export interface LicenciaInput {
@@ -53,18 +53,18 @@ export async function calcularLiquidacionLicencia(input: LicenciaInput) {
     throw new AppError(400, `Días insuficientes. Disponibles: ${diasDisponibles}, solicitados: ${input.diasHabilesTomar}. Marcá "anticipar" para tomarlos igual.`);
   }
 
-  // Base de licencia = promedio mensual de los haberes reales de los últimos 12 meses
-  // trabajados (liquidaciones MENSUALES confirmadas). Sin historial, cae al nominal.
-  const ultimas = await prisma.liquidation.findMany({
-    where: { employeeId: input.employeeId, type: LiquidationType.MENSUAL, status: LiquidationStatus.CONFIRMADO },
-    orderBy: [{ year: 'desc' }, { month: 'desc' }],
-    take: 12,
-    select: { totalHaberes: true },
+  // Base de licencia = SUELDO BÁSICO mensual (el jornal nominal es básico/30).
+  // Mensual: el nominal del contrato vigente. Jornalero: jornal × 30. Es la misma
+  // base que usa la licencia gozada en la mensualidad, para que el líquido de
+  // ambos conceptos coincida.
+  const period = await prisma.payrollPeriod.findUnique({
+    where: { id: input.periodId }, select: { companyId: true },
   });
-  const mesesPromedio = ultimas.length;
-  const baseLicencia = mesesPromedio > 0
-    ? ultimas.reduce((s, l) => s + l.totalHaberes, 0n) / BigInt(mesesPromedio)
-    : employee.salarioNominal;
+  const contrato = await resolverContratoVigente(input.employeeId, asOfDate, period?.companyId);
+  const labor = datosLaboralesEfectivos(employee, contrato);
+  const baseLicencia = labor.salaryType === 'MENSUAL'
+    ? labor.salarioNominal
+    : (labor.jornal ?? 0n) * 30n;
 
   // El salario vacacional se paga con el JORNAL LÍQUIDO (nominal del día menos
   // los aportes personales), EXENTO de aportes (Ley 16.101). GNS lo emite en una

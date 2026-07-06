@@ -82,9 +82,12 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
   GNS): la licencia GOZADA se paga en la MENSUALIDAD, desglosando el sueldo en
   'Jornal N x jornal' (días trabajados) + 'Licencia M x jornal' (días de
   licencia), con aportes sobre el total; los días de licencia se toman de las
-  licencias del calendario si no se indican. El SALARIO VACACIONAL va en una
-  liquidación especial aparte (tipo LICENCIA): jornal LÍQUIDO ((nominal −
-  aportes personales)/30) × días, EXENTO (sin descuentos).
+  licencias del calendario si no se indican. Base = SUELDO BÁSICO del contrato
+  (jornal nominal = básico/30), NO promedio de 12 meses. El SALARIO VACACIONAL
+  va en una liquidación especial aparte (tipo LICENCIA): jornal LÍQUIDO ((básico
+  − aportes personales)/30) × días, EXENTO (sin descuentos). El líquido de la
+  licencia gozada (jornal nominal − descuentos) y el del salario vacacional
+  (jornal líquido) coinciden por día.
 - **Nómina BPS (ATYR v3.0)**: generador validado byte a byte contra archivo real
   de GNS (`N_0626_AMIG_8269951`). Registros 1/4/5/6/7/12; en nóminas el mes de
   cargo va NULO en 6/7 (en rectificativas va lleno y el reg. 4 sin mes).
