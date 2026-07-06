@@ -121,13 +121,13 @@ reportsRouter.get('/bps-nomina', authenticate, async (req: Request, res: Respons
         bpsNumero: emp?.bpsNumero,
         salarioNominal: l.totalHaberes.toString(),
         jubilatorioObrero: getItem('BPS_JUBILATORIO').toString(),
-        fonasaObrero: getItem('FONASA').toString(),
+        fonasaObrero: (getItem('FONASA') + getItem('FONASA_ADICIONAL')).toString(),
         frlObrero: getItem('FRL').toString(),
         ivsPatronal: getItem('BPS_IVS_PATRONAL').toString(),
         fonasaPatronal: getItem('FONASA_PATRONAL').toString(),
         frlPatronal: getItem('FRL_PATRONAL').toString(),
         bse: getItem('BSE').toString(),
-        totalObrero: (getItem('BPS_JUBILATORIO') + getItem('FONASA') + getItem('FRL')).toString(),
+        totalObrero: (getItem('BPS_JUBILATORIO') + getItem('FONASA') + getItem('FONASA_ADICIONAL') + getItem('FRL')).toString(),
         totalPatronal: (getItem('BPS_IVS_PATRONAL') + getItem('FONASA_PATRONAL') + getItem('FRL_PATRONAL') + getItem('BSE')).toString(),
       };
     });
@@ -240,11 +240,11 @@ function resumenPagos(liqs: LiqConItems[]) {
 
   const liquidos = liqs.reduce((s, l) => s + l.liquidoPercibir, 0n);
   const obreroJubilatorio = suma((i) => i.itemType === ItemType.DESCUENTO_OBRERO && i.concepto === 'BPS_JUBILATORIO');
-  const obreroFonasa = suma((i) => i.itemType === ItemType.DESCUENTO_OBRERO && i.concepto === 'FONASA');
+  const obreroFonasa = suma((i) => i.itemType === ItemType.DESCUENTO_OBRERO && (i.concepto === 'FONASA' || i.concepto === 'FONASA_ADICIONAL'));
   const obreroFrl = suma((i) => i.itemType === ItemType.DESCUENTO_OBRERO && i.concepto === 'FRL');
   const irpf = suma((i) => i.itemType === ItemType.DESCUENTO_OBRERO && i.concepto === 'IRPF');
   const otrasRetenciones = suma((i) => i.itemType === ItemType.DESCUENTO_OBRERO
-    && !['BPS_JUBILATORIO', 'FONASA', 'FRL', 'IRPF'].includes(i.concepto));
+    && !['BPS_JUBILATORIO', 'FONASA', 'FONASA_ADICIONAL', 'FRL', 'IRPF'].includes(i.concepto));
 
   const patronalJubilatorio = suma((i) => i.itemType === ItemType.APORTE_PATRONAL && i.concepto === 'BPS_IVS_PATRONAL');
   const patronalFonasa = suma((i) => i.itemType === ItemType.APORTE_PATRONAL && i.concepto === 'FONASA_PATRONAL');

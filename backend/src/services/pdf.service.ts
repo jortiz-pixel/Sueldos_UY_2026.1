@@ -154,17 +154,12 @@ export function generateReciboPDF(
       if (d.concepto === 'BPS_JUBILATORIO') {
         descFilas.push({ nombre: 'Aporte Jubilatorio', detalle: `${((d.rate ?? 0) / 100)} % ${baseTxt}`, importe: d.amount });
       } else if (d.concepto === 'FONASA') {
-        const cd = (d.calculationDetail ?? {}) as Record<string, unknown>;
-        const base = d.baseCalculo ?? 0n;
-        // Seguro de enfermedad (3% fijo sobre el nominal del mes).
-        const seguro = cd.seguro !== undefined ? BigInt(cd.seguro as string) : (base * 3n) / 100n;
-        const seguroRate = cd.seguroRate !== undefined ? Number(cd.seguroRate) : 300;
-        descFilas.push({ nombre: 'Seguro x Enfermedad', detalle: `${seguroRate / 100} % ${baseTxt}`, importe: seguro });
-        // Adicional (complemento). En junio/diciembre la base incluye el aguinaldo.
-        const adic = cd.adicional !== undefined ? BigInt(cd.adicional as string) : d.amount - seguro;
-        const adicRate = cd.adicionalRate !== undefined ? Number(cd.adicionalRate) : ((d.rate ?? 0) - 300);
-        const adicBase = cd.adicionalBase !== undefined ? BigInt(cd.adicionalBase as string) : base;
-        descFilas.push({ nombre: 'Adic. Sist. Nac. Int. de Salud', detalle: `${adicRate / 100} % de ${fmt(adicBase)}`, importe: adic });
+        // FONASA (Seguro por Enfermedad): 3% fijo sobre el total de haberes.
+        descFilas.push({ nombre: 'Seguro x Enfermedad', detalle: `${(d.rate ?? 0) / 100} % ${baseTxt}`, importe: d.amount });
+      } else if (d.concepto === 'FONASA_ADICIONAL') {
+        // Adicional FONASA: complemento según seguro de salud. En junio/diciembre
+        // la base (baseCalculo) ya incluye el aguinaldo del semestre.
+        descFilas.push({ nombre: 'Adic. Sist. Nac. Int. de Salud', detalle: `${(d.rate ?? 0) / 100} % ${baseTxt}`, importe: d.amount });
       } else if (d.concepto === 'FRL') {
         descFilas.push({ nombre: 'FRL', detalle: `${((d.rate ?? 0) / 100)} % ${baseTxt}`, importe: d.amount });
       } else if (d.concepto === 'IRPF') {

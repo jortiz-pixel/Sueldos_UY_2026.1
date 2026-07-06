@@ -366,28 +366,40 @@ export async function generarLiquidacionMensual(
     calculationDetail: { base: baseGravada.toString(), rateBp: params.bpsJubilatorioRate } as unknown as Prisma.JsonValue,
   });
 
+  // FONASA (Seguro por Enfermedad): 3% fijo sobre el total de haberes.
   items.push({
     employeeId: input.employeeId,
     itemType: ItemType.DESCUENTO_OBRERO,
     concepto: 'FONASA',
-    descripcion: 'FONASA',
+    descripcion: 'FONASA (Seguro por Enfermedad)',
     baseCalculo: baseGravada,
-    rate: aportesObreros.detail.fonasaRateEfectivo,
-    amount: aportesObreros.fonasaTotal,
-    calculationDetail: {
-      base: baseGravada.toString(),
-      baseRate: aportesObreros.detail.fonasaBaseRate,
-      hijosRate: aportesObreros.detail.fonasaHijosRate,
-      conyugeRate: aportesObreros.detail.fonasaConyugeRate,
-      hijosACargo: employee.hijosACargo,
-      conyugeACargo: employee.conyugeACargo,
-      seguro: aportesObreros.fonasaBasico.toString(),
-      seguroRate: aportesObreros.detail.fonasaSeguroRate,
-      adicional: aportesObreros.fonasaFamilia.toString(),
-      adicionalRate: aportesObreros.detail.fonasaAdicionalRate,
-      adicionalBase: aportesObreros.detail.fonasaAdicionalBase.toString(),
-    } as unknown as Prisma.JsonValue,
+    rate: aportesObreros.detail.fonasaSeguroRate,
+    amount: aportesObreros.fonasaBasico,
+    calculationDetail: { base: baseGravada.toString(), rateBp: aportesObreros.detail.fonasaSeguroRate } as unknown as Prisma.JsonValue,
   });
+
+  // Adicional FONASA: complemento según el seguro de salud (escalón > 2,5 BPC +
+  // hijos + cónyuge). Partida SEPARADA. En junio/diciembre su base incluye el
+  // aguinaldo del semestre (fonasaAdicionalBase).
+  if (aportesObreros.fonasaFamilia > 0n) {
+    items.push({
+      employeeId: input.employeeId,
+      itemType: ItemType.DESCUENTO_OBRERO,
+      concepto: 'FONASA_ADICIONAL',
+      descripcion: 'Adicional FONASA',
+      baseCalculo: aportesObreros.detail.fonasaAdicionalBase,
+      rate: aportesObreros.detail.fonasaAdicionalRate,
+      amount: aportesObreros.fonasaFamilia,
+      calculationDetail: {
+        base: aportesObreros.detail.fonasaAdicionalBase.toString(),
+        rateBp: aportesObreros.detail.fonasaAdicionalRate,
+        hijosRate: aportesObreros.detail.fonasaHijosRate,
+        conyugeRate: aportesObreros.detail.fonasaConyugeRate,
+        hijosACargo: employee.hijosACargo,
+        conyugeACargo: employee.conyugeACargo,
+      } as unknown as Prisma.JsonValue,
+    });
+  }
 
   items.push({
     employeeId: input.employeeId,

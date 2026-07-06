@@ -189,9 +189,9 @@ export async function calcularAguinaldo(input: AguinaldoInput): Promise<{
         employeeId: input.employeeId,
         itemType: ItemType.DESCUENTO_OBRERO,
         concepto: 'FONASA',
-        descripcion: 'FONASA sobre aguinaldo',
+        descripcion: 'FONASA (Seguro por Enfermedad) sobre aguinaldo',
         baseCalculo: aguinaldoBruto,
-        rate: params.fonasaBasicRate, // 3% (sin adicional en el aguinaldo)
+        rate: params.fonasaBasicRate, // 3% (el adicional se cobra en la mensualidad)
         amount: fonasaAguinaldo,
         calculationDetail: { soloSeguro: true, adicionalEnMensualidad: true } as unknown as Prisma.InputJsonValue,
       },

@@ -159,7 +159,10 @@ export default function ReportsPage() {
                     <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">Sin datos para este período</td></tr>
                   ) : nomina.nomina.map((item: NominaItem) => {
                     const bpsJub = item.descuentos.find((d) => d.concepto === 'BPS_JUBILATORIO')?.amount ?? '0';
-                    const fonasa = item.descuentos.find((d) => d.concepto === 'FONASA')?.amount ?? '0';
+                    const fonasa = (
+                      BigInt(item.descuentos.find((d) => d.concepto === 'FONASA')?.amount ?? '0')
+                      + BigInt(item.descuentos.find((d) => d.concepto === 'FONASA_ADICIONAL')?.amount ?? '0')
+                    ).toString();
                     const irpfItem = item.descuentos.find((d) => d.concepto === 'IRPF')?.amount ?? '0';
                     return (
                       <tr key={item.liquidacion.id} className="hover:bg-gray-50">

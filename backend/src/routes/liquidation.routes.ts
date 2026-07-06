@@ -595,7 +595,8 @@ async function recalcularLiquidacion(liquidationId: string): Promise<void> {
 
   const updates: Array<{ concepto: string; amount: bigint; rate?: number; descripcion: string }> = [
     { concepto: 'BPS_JUBILATORIO', amount: obreros.jubilatorio, rate: params.bpsJubilatorioRate, descripcion: 'BPS Jubilatorio' },
-    { concepto: 'FONASA', amount: obreros.fonasaTotal, descripcion: 'FONASA' },
+    // FONASA (Seguro por Enfermedad): 3% fijo sobre el total de haberes.
+    { concepto: 'FONASA', amount: obreros.fonasaBasico, rate: obreros.detail.fonasaSeguroRate, descripcion: 'FONASA (Seguro por Enfermedad)' },
     { concepto: 'FRL', amount: obreros.frl, rate: params.frlObreroRate, descripcion: 'Fondo de Reconversión Laboral' },
     { concepto: 'BPS_IVS_PATRONAL', amount: patronales.bpsIvs, rate: params.bpsIvsPatronalRate, descripcion: 'BPS IVS Patronal' },
     { concepto: 'FONASA_PATRONAL', amount: patronales.fonasa, descripcion: 'FONASA Patronal' },
@@ -612,24 +613,25 @@ async function recalcularLiquidacion(liquidationId: string): Promise<void> {
     }
   }
 
-  // FONASA: refrescar tasa efectiva y el detalle del adicional (base = mes +
-  // aguinaldo en junio/diciembre) para que el recibo muestre el desglose correcto.
-  const fonasaItem = liq.items.find((i) => i.concepto === 'FONASA');
-  if (fonasaItem) {
-    await prisma.payrollItem.update({
-      where: { id: fonasaItem.id },
-      data: {
-        rate: obreros.detail.fonasaRateEfectivo,
-        calculationDetail: {
-          base: baseGravada.toString(),
-          seguro: obreros.fonasaBasico.toString(),
-          seguroRate: obreros.detail.fonasaSeguroRate,
-          adicional: obreros.fonasaFamilia.toString(),
-          adicionalRate: obreros.detail.fonasaAdicionalRate,
-          adicionalBase: obreros.detail.fonasaAdicionalBase.toString(),
-        } as unknown as Prisma.InputJsonValue,
-      },
-    });
+  // Adicional FONASA: partida separada. Su base incluye el aguinaldo en junio/
+  // diciembre. Se crea/actualiza si corresponde y se elimina si quedó en 0.
+  const adicionalItem = liq.items.find((i) => i.concepto === 'FONASA_ADICIONAL');
+  if (obreros.fonasaFamilia > 0n) {
+    const adicData = {
+      baseCalculo: obreros.detail.fonasaAdicionalBase,
+      rate: obreros.detail.fonasaAdicionalRate,
+      amount: obreros.fonasaFamilia,
+      descripcion: 'Adicional FONASA',
+    };
+    if (adicionalItem) {
+      await prisma.payrollItem.update({ where: { id: adicionalItem.id }, data: adicData });
+    } else {
+      await prisma.payrollItem.create({
+        data: { liquidationId, employeeId: liq.employeeId, itemType: ItemType.DESCUENTO_OBRERO, concepto: 'FONASA_ADICIONAL', ...adicData },
+      });
+    }
+  } else if (adicionalItem) {
+    await prisma.payrollItem.delete({ where: { id: adicionalItem.id } });
   }
 
   const irpfItem = liq.items.find((i) => i.concepto === 'IRPF');

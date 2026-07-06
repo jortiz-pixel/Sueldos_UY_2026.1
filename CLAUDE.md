@@ -42,9 +42,12 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
 
 - **BPC**: 2026 = $6.864 · 2025 = $6.576 (parámetros por fecha de vigencia).
 - **FONASA obrero**: base 3% (≤2,5 BPC) / 4,5% (>2,5 BPC); +1,5% hijos a cargo;
-  +2% cónyuge a cargo. Confirmado correcto por el usuario. Se desglosa en
-  "Seguro x Enfermedad" (3% fijo) + "Adicional" (el resto: escalón + hijos +
-  cónyuge); cada parte se redondea aparte (criterio GNS).
+  +2% cónyuge a cargo. Confirmado correcto por el usuario. Son DOS partidas
+  SEPARADAS (conceptos distintos, cada una su ítem): `FONASA` = "Seguro por
+  Enfermedad" 3% fijo sobre el total de haberes · `FONASA_ADICIONAL` =
+  "Adicional FONASA", el complemento según el seguro de salud (escalón >2,5 BPC
+  + hijos + cónyuge). Cada parte se redondea aparte (criterio GNS). El adicional
+  solo se crea si es > 0. Reportes/Excel suman ambos como "FONASA total".
 - **FONASA en meses con aguinaldo (junio/diciembre)**: el ADICIONAL del aguinaldo
   NO se descuenta en el aguinaldo (ahí va solo el 3%). Se traslada a la
   mensualidad del mes: su adicional se calcula sobre (nominal del mes +

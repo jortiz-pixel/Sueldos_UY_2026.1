@@ -333,10 +333,16 @@ export async function calcularLiquidacionFinal(
       },
       {
         liquidationId: liquidacion.id, employeeId, itemType: ItemType.DESCUENTO_OBRERO,
-        concepto: 'FONASA', descripcion: 'FONASA',
-        baseCalculo: baseBpsIrpf, rate: params.fonasaBasicRate, amount: aportesObreros.fonasaTotal,
+        concepto: 'FONASA', descripcion: 'FONASA (Seguro por Enfermedad)',
+        baseCalculo: baseBpsIrpf, rate: aportesObreros.detail.fonasaSeguroRate, amount: aportesObreros.fonasaBasico,
         calculationDetail: Prisma.DbNull,
       },
+      ...(aportesObreros.fonasaFamilia > 0n ? [{
+        liquidationId: liquidacion.id, employeeId, itemType: ItemType.DESCUENTO_OBRERO,
+        concepto: 'FONASA_ADICIONAL', descripcion: 'Adicional FONASA',
+        baseCalculo: baseBpsIrpf, rate: aportesObreros.detail.fonasaAdicionalRate, amount: aportesObreros.fonasaFamilia,
+        calculationDetail: Prisma.DbNull,
+      }] : []),
       {
         liquidationId: liquidacion.id, employeeId, itemType: ItemType.DESCUENTO_OBRERO,
         concepto: 'FRL', descripcion: 'Fondo de Reconversión Laboral',
