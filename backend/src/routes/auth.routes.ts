@@ -12,6 +12,7 @@ import {
   authenticate,
 } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
+import { recordAudit } from '../services/audit.service';
 
 export const authRouter = Router();
 
@@ -49,11 +50,15 @@ authRouter.post('/login', async (req: Request, res: Response, next: NextFunction
 
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user || !user.active) {
+      await recordAudit({ action: 'LOGIN_FAILED', entity: 'auth', newData: { email, motivo: !user ? 'usuario inexistente' : 'usuario inactivo' }, req });
       throw new AppError(401, 'Credenciales incorrectas');
     }
 
     const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) throw new AppError(401, 'Credenciales incorrectas');
+    if (!valid) {
+      await recordAudit({ action: 'LOGIN_FAILED', entity: 'auth', userId: user.id, newData: { email, motivo: 'contraseña incorrecta' }, req });
+      throw new AppError(401, 'Credenciales incorrectas');
+    }
 
     const payload = {
       userId: user.id,
@@ -78,6 +83,8 @@ authRouter.post('/login', async (req: Request, res: Response, next: NextFunction
       where: { id: user.id },
       data: { lastLoginAt: new Date() },
     });
+
+    await recordAudit({ action: 'LOGIN', entity: 'auth', userId: user.id, companyId: user.companyId, newData: { email: user.email, metodo: 'password' }, req });
 
     res.json({
       accessToken,
@@ -131,6 +138,7 @@ authRouter.post('/google', async (req: Request, res: Response, next: NextFunctio
     if (!user.active) throw new AppError(401, 'Usuario inactivo');
 
     const { accessToken, refreshToken } = await emitirSesion(user);
+    await recordAudit({ action: 'LOGIN', entity: 'auth', userId: user.id, companyId: user.companyId, newData: { email: user.email, metodo: 'google' }, req });
     res.json({
       accessToken,
       refreshToken,
@@ -185,6 +193,7 @@ authRouter.post('/logout', authenticate, async (req: Request, res: Response, nex
         data: { revokedAt: new Date() },
       });
     }
+    await recordAudit({ action: 'LOGOUT', entity: 'auth', userId: req.user!.userId, req });
     res.json({ message: 'Sesión cerrada exitosamente' });
   } catch (err) {
     next(err);
@@ -226,6 +235,7 @@ authRouter.put('/change-password', authenticate, async (req: Request, res: Respo
       data: { passwordHash: hash },
     });
 
+    await recordAudit({ action: 'PASSWORD_CHANGE', entity: 'auth', userId: user.id, req });
     res.json({ message: 'Contraseña actualizada exitosamente' });
   } catch (err) {
     next(err);

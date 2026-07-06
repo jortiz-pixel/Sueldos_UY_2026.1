@@ -18,6 +18,7 @@ import CalendarioPage from './pages/CalendarioPage';
 import CentroMesPage from './pages/CentroMesPage';
 import ParametersPage from './pages/ParametersPage';
 import AccessPage from './pages/AccessPage';
+import AuditPage from './pages/AuditPage';
 import ImportPage from './pages/ImportPage';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -50,6 +51,7 @@ function AppRoutes() {
         <Route path="reports" element={<ReportsPage />} />
         <Route path="parameters" element={<ParametersPage />} />
         <Route path="access" element={<AccessPage />} />
+        <Route path="audit" element={<AuditPage />} />
         <Route path="import" element={<ImportPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

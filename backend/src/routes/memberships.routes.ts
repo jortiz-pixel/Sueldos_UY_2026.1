@@ -13,6 +13,7 @@ import { prisma } from '../utils/prisma';
 import { authenticate, requireRole } from '../middleware/auth';
 import { canManageCompany } from '../middleware/tenancy';
 import { AppError, NotFoundError } from '../middleware/errorHandler';
+import { recordAudit } from '../services/audit.service';
 
 export const membershipsRouter = Router();
 
@@ -172,6 +173,8 @@ membershipsRouter.post('/', authenticate, async (req: Request, res: Response, ne
           },
         });
 
+    await recordAudit({ action: 'ACCESS_GRANT', entity: 'membership', entityId: membership.id, companyId: data.companyId, newData: { email, role: data.role }, req });
+
     res.status(201).json({
       id: membership.id,
       role: membership.role,
@@ -215,6 +218,13 @@ membershipsRouter.patch('/:id', authenticate, async (req: Request, res: Response
     const updated = await prisma.membership.update({
       where: { id: membership.id },
       data: { role: data.role ?? undefined, estado: data.estado ?? undefined },
+    });
+    const revoca = data.estado && data.estado !== MembershipStatus.ACTIVA;
+    await recordAudit({
+      action: revoca ? 'ACCESS_REVOKE' : 'ACCESS_UPDATE',
+      entity: 'membership', entityId: updated.id, companyId: membership.companyId,
+      oldData: { role: membership.role, estado: membership.estado },
+      newData: { role: updated.role, estado: updated.estado }, req,
     });
     res.json({ id: updated.id, role: updated.role, estado: updated.estado });
   } catch (err) { next(err); }

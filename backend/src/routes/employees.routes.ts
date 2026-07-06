@@ -8,6 +8,7 @@ import { assertCompanyAccess, accessibleCompanyIds } from '../middleware/tenancy
 import { AppError, NotFoundError } from '../middleware/errorHandler';
 import { calcularAntiguedad, diasLicenciaCorrespondientes } from '../utils/date';
 import { calcularLiquidacionFinal } from '../services/vacation.service';
+import { recordAudit } from '../services/audit.service';
 
 export const employeesRouter = Router();
 
@@ -388,6 +389,7 @@ employeesRouter.delete('/:id/permanent', authenticate, requireRole(UserRole.ADMI
       prisma.attachment.deleteMany({ where: { ownerId: req.params.id } }),
       prisma.employee.delete({ where: { id: req.params.id } }),
     ]);
+    await recordAudit({ action: 'EMPLOYEE_DELETE', entity: 'employee', entityId: req.params.id, companyId: existing.companyId, oldData: { ci: existing.ci, nombre: existing.nombre, apellido: existing.apellido }, req });
     res.json({ message: 'Persona eliminada definitivamente' });
   } catch (err) { next(err); }
 });
@@ -561,6 +563,7 @@ employeesRouter.delete('/:id/contracts/:contractId/eliminar', authenticate, requ
     }
 
     await prisma.contrato.delete({ where: { id: req.params.contractId } });
+    await recordAudit({ action: 'CONTRACT_DELETE', entity: 'contract', entityId: req.params.contractId, companyId: contrato.companyId, newData: { employeeId: employee.id, numero: contrato.numero }, req });
     res.json({ message: 'Contrato eliminado' });
   } catch (err) { next(err); }
 });
@@ -654,6 +657,8 @@ employeesRouter.post('/:id/contracts/:contractId/baja', authenticate, requireRol
       await prisma.employee.update({ where: { id: req.params.id }, data: { fechaEgreso: fecha, active: false } });
     }
 
+    await recordAudit({ action: 'CONTRACT_BAJA', entity: 'contract', entityId: req.params.contractId, companyId: contrato.companyId, newData: { employeeId: req.params.id, fechaEgreso: fecha.toISOString(), causalEgresoCod, desvinculadaTotal: otrosVigentes === 0 }, req });
+
     res.json({
       ...serializeContrato(updated),
       liquidacionFinalId,
@@ -709,6 +714,7 @@ employeesRouter.post('/:id/contracts/:contractId/reactivar', authenticate, requi
       finalesEliminadas = del.count;
     }
 
+    await recordAudit({ action: 'CONTRACT_REACTIVATE', entity: 'contract', entityId: contrato.id, companyId: contrato.companyId, newData: { employeeId: employee.id, finalesEliminadas }, req });
     res.json({ ...serializeContrato(updated), finalesEliminadas });
   } catch (err) { next(err); }
 });

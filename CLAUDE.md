@@ -119,7 +119,7 @@ eliminar) · Personas (checklist BPS) · Importar (Excel + nómina ATYR para mig
 clientes desde GNS) · Contratos (bloque Historia Laboral BPS, contrato PDF común
 y a prueba) · Conceptos · Liquidaciones · Nómina BPS (N y R) · Calendario
 (licencias + saldos + vencimientos) · Reportes (pagos del mes, costo de personal,
-nómina, BPS, IRPF) · Accesos · Parámetros.
+nómina, BPS, IRPF) · Accesos · Auditoría (solo ADMIN) · Parámetros.
 
 ## Seguridad (decisiones tomadas — no revertir)
 
@@ -139,6 +139,12 @@ nómina, BPS, IRPF) · Accesos · Parámetros.
   `assertLiquidationAccess` (liquidaciones), `assertPersonaAccess` (personas),
   `assertCompanyAccess` (empresa directa), `assertConceptoScope` (conceptos).
   Nunca confiar en que un ID es del propio tenant.
+- Registro de auditoría (`audit_log`): `recordAudit()` en `audit.service.ts` es
+  fire-and-forget tolerante (nunca lanza ni bloquea). Se registran login (ok/
+  fallido), logout, cambio de contraseña, y acciones sensibles (crear/modificar/
+  eliminar empresa, compartir/revocar accesos, alta/baja/reactivar/eliminar
+  contratos, eliminar persona, eliminar/anular liquidación, cambio de parámetro).
+  Lectura en `GET /api/audit` (solo ADMIN) → menú "Auditoría" (`/audit`).
 
 ## Pendientes conocidos (roadmap acordado)
 

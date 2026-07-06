@@ -5,6 +5,7 @@ import { prisma } from '../utils/prisma';
 import { authenticate, requireRole } from '../middleware/auth';
 import { accessibleCompanyIds, assertCompanyAccess } from '../middleware/tenancy';
 import { AppError, NotFoundError } from '../middleware/errorHandler';
+import { recordAudit } from '../services/audit.service';
 
 export const companiesRouter = Router();
 
@@ -90,6 +91,7 @@ companiesRouter.post('/', authenticate, requireRole(UserRole.ADMIN), async (req:
   try {
     const data = companySchema.parse(req.body);
     const company = await prisma.company.create({ data });
+    await recordAudit({ action: 'COMPANY_CREATE', entity: 'company', entityId: company.id, companyId: company.id, newData: { razonSocial: company.razonSocial, rut: company.rut }, req });
     res.status(201).json(company);
   } catch (err) { next(err); }
 });
@@ -105,6 +107,7 @@ companiesRouter.put('/:id', authenticate, requireRole(UserRole.ADMIN, UserRole.O
 
     const data = companySchema.partial().parse(req.body);
     const company = await prisma.company.update({ where: { id: req.params.id }, data });
+    await recordAudit({ action: 'COMPANY_UPDATE', entity: 'company', entityId: company.id, companyId: company.id, oldData: { razonSocial: existing.razonSocial, rut: existing.rut, bseRate: existing.bseRate }, newData: data, req });
     res.json(company);
   } catch (err) { next(err); }
 });
@@ -117,6 +120,7 @@ companiesRouter.patch('/:id/visibility', authenticate, requireRole(UserRole.ADMI
     if (!company) throw new NotFoundError('Empresa');
     await assertCompanyAccess(req, company.id);
     const updated = await prisma.company.update({ where: { id: req.params.id }, data: { hidden } });
+    await recordAudit({ action: 'COMPANY_VISIBILITY', entity: 'company', entityId: updated.id, companyId: updated.id, newData: { hidden }, req });
     res.json({ id: updated.id, hidden: updated.hidden });
   } catch (err) { next(err); }
 });
@@ -137,6 +141,7 @@ companiesRouter.delete('/:id', authenticate, requireRole(UserRole.ADMIN), async 
     }
 
     await prisma.company.update({ where: { id: req.params.id }, data: { active: false } });
+    await recordAudit({ action: 'COMPANY_DELETE', entity: 'company', entityId: company.id, companyId: company.id, oldData: { razonSocial: company.razonSocial }, req });
     res.json({ message: 'Empresa eliminada exitosamente' });
   } catch (err) { next(err); }
 });
@@ -171,6 +176,7 @@ companiesRouter.post('/:id/users', authenticate, requireRole(UserRole.ADMIN), as
       data: { ...data, passwordHash, companyId: req.params.id },
       select: { id: true, email: true, nombre: true, apellido: true, role: true },
     });
+    await recordAudit({ action: 'USER_CREATE', entity: 'user', entityId: user.id, companyId: req.params.id, newData: { email: user.email, role: user.role }, req });
     res.status(201).json(user);
   } catch (err) { next(err); }
 });

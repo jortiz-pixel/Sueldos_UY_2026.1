@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, FileText, BarChart2,
-  Settings, LogOut, Building2, Calculator, Briefcase, UserCog, Upload, Menu, X, Landmark, CalendarDays, ListChecks,
+  Settings, LogOut, Building2, Calculator, Briefcase, UserCog, Upload, Menu, X, Landmark, CalendarDays, ListChecks, ShieldCheck,
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useCompany } from '../../hooks/useCompany';
@@ -23,6 +23,7 @@ const navItems = [
   { to: '/calendario', label: 'Calendario', icon: CalendarDays },
   { to: '/reports', label: 'Reportes', icon: BarChart2 },
   { to: '/access', label: 'Accesos', icon: UserCog },
+  { to: '/audit', label: 'Auditoría', icon: ShieldCheck, adminOnly: true },
   { to: '/parameters', label: 'Parámetros', icon: Settings },
 ];
 
@@ -55,7 +56,7 @@ export default function Layout() {
         </div>
 
         <nav className="flex-1 px-3 py-2 space-y-0.5 overflow-y-auto">
-          {navItems.map(({ to, label, icon: Icon, end }) => (
+          {navItems.filter((it) => !it.adminOnly || user?.role === 'ADMIN').map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
               to={to}

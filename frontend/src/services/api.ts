@@ -46,6 +46,27 @@ export const versionApi = {
   get: () => api.get<{ version: string; builtAt: string | null }>('/version').then((r) => r.data),
 };
 
+export interface AuditRow {
+  id: string;
+  action: string;
+  entity: string;
+  entityId: string | null;
+  createdAt: string;
+  ipAddress: string | null;
+  userAgent: string | null;
+  oldData: unknown;
+  newData: unknown;
+  usuario: string | null;
+  usuarioEmail: string | null;
+  empresa: string | null;
+}
+
+export const auditApi = {
+  list: (params: { page?: number; limit?: number; action?: string; entity?: string; from?: string; to?: string }) =>
+    api.get<{ data: AuditRow[]; pagination: { page: number; limit: number; total: number; totalPages: number } }>('/audit', { params })
+      .then((r) => r.data),
+};
+
 export const authApi = {
   login: (email: string, password: string) =>
     api.post<AuthResponse>('/auth/login', { email, password }).then((r) => r.data),

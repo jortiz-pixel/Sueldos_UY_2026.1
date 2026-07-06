@@ -10,6 +10,7 @@ import { calcularAguinaldo, calcularAguinaldoBrutoSemestre } from '../services/a
 import { calcularLiquidacionLicencia, calcularLiquidacionFinal } from '../services/vacation.service';
 import { calcularAportesObreros, calcularAportesPatronales, fonasaCargasDeSeguroSalud } from '../services/bps.service';
 import { resolverContratoEnMes } from '../services/contract.service';
+import { recordAudit } from '../services/audit.service';
 import { calcularIrpfMensual } from '../services/irpf.service';
 import { parametersService } from '../services/parameters.service';
 import { generateReciboPDF, reciboFilename } from '../services/pdf.service';
@@ -461,6 +462,7 @@ liquidationRouter.delete('/:id', authenticate, requireRole(UserRole.ADMIN, UserR
       prisma.payrollAdjustment.deleteMany({ where: { liquidationId: req.params.id } }),
       prisma.liquidation.delete({ where: { id: req.params.id } }),
     ]);
+    await recordAudit({ action: 'LIQUIDATION_DELETE', entity: 'liquidation', entityId: req.params.id, newData: { employeeId: liquidation.employeeId, type: liquidation.type, year: liquidation.year, month: liquidation.month }, req });
     res.json({ message: 'Liquidación eliminada' });
   } catch (err) { next(err); }
 });
@@ -478,6 +480,7 @@ liquidationRouter.post('/:id/cancel', authenticate, requireRole(UserRole.ADMIN),
       where: { id: req.params.id },
       data: { status: LiquidationStatus.ANULADO },
     });
+    await recordAudit({ action: 'LIQUIDATION_CANCEL', entity: 'liquidation', entityId: req.params.id, newData: { employeeId: liquidation.employeeId, type: liquidation.type, year: liquidation.year, month: liquidation.month }, req });
     res.json({ message: 'Liquidación anulada exitosamente' });
   } catch (err) { next(err); }
 });

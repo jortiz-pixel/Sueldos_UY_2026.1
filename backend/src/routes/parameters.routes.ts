@@ -6,6 +6,7 @@ import { authenticate, requireRole } from '../middleware/auth';
 import { assertCompanyAccess } from '../middleware/tenancy';
 import { NotFoundError } from '../middleware/errorHandler';
 import { parametersService } from '../services/parameters.service';
+import { recordAudit } from '../services/audit.service';
 
 export const parametersRouter = Router();
 
@@ -54,6 +55,7 @@ parametersRouter.post('/', authenticate, requireRole(UserRole.ADMIN), async (req
     });
 
     parametersService.clearCache();
+    await recordAudit({ action: 'PARAMETER_CHANGE', entity: 'parameter', entityId: param.id, newData: { key: rest.key, value, effectiveDate: rest.effectiveDate }, req });
     res.status(201).json(param);
   } catch (err) { next(err); }
 });
