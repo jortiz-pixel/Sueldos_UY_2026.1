@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import { UserRole, SalaryType, EstadoCivil, Contrato, Prisma } from '@prisma/client';
+import { UserRole, SalaryType, EstadoCivil, Contrato, Prisma, LiquidationType, LiquidationStatus } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { generateContratoPDF, contratoFilename } from '../services/pdf.service';
 import { authenticate, requireRole } from '../middleware/auth';
@@ -647,6 +647,55 @@ employeesRouter.post('/:id/contracts/:contractId/baja', authenticate, requireRol
       desvinculadaTotal: otrosVigentes === 0,
       aviso: avisoFinal,
     });
+  } catch (err) { next(err); }
+});
+
+// POST /:id/contracts/:contractId/reactivar → CANCELA una baja procesada por
+// error: limpia la fecha de egreso, la vigencia y la causal, reactiva el
+// contrato y la persona, y elimina la liquidación final (en BORRADOR) que la
+// baja hubiera generado. Deja el contrato como vigente.
+employeesRouter.post('/:id/contracts/:contractId/reactivar', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const employee = await prisma.employee.findUnique({ where: { id: req.params.id } });
+    if (!employee) throw new NotFoundError('Empleado');
+    await assertPersonaAccess(req, employee.id, employee.companyId);
+
+    const contrato = await prisma.contrato.findUnique({ where: { id: req.params.contractId } });
+    if (!contrato || contrato.employeeId !== req.params.id) throw new NotFoundError('Contrato');
+    await assertCompanyAccess(req, contrato.companyId);
+
+    const fechaEgreso = contrato.fechaFin ?? contrato.vigenciaHasta;
+
+    // 1) Limpiar la baja del contrato → vuelve a ser vigente.
+    const updated = await prisma.contrato.update({
+      where: { id: contrato.id },
+      data: { fechaFin: null, vigenciaHasta: null, causalEgresoCod: null, activo: true },
+    });
+
+    // 2) Reactivar la persona (la baja pudo haberla inactivado).
+    await prisma.employee.update({
+      where: { id: employee.id },
+      data: { active: true, fechaEgreso: null },
+    });
+
+    // 3) Eliminar la liquidación FINAL en BORRADOR generada por la baja (misma
+    //    empresa y mes del egreso). Solo si sigue en borrador (no confirmada).
+    let finalesEliminadas = 0;
+    if (fechaEgreso && contrato.companyId) {
+      const del = await prisma.liquidation.deleteMany({
+        where: {
+          employeeId: employee.id,
+          type: LiquidationType.LIQUIDACION_FINAL,
+          status: LiquidationStatus.BORRADOR,
+          year: fechaEgreso.getFullYear(),
+          month: fechaEgreso.getMonth() + 1,
+          period: { companyId: contrato.companyId },
+        },
+      });
+      finalesEliminadas = del.count;
+    }
+
+    res.json({ ...serializeContrato(updated), finalesEliminadas });
   } catch (err) { next(err); }
 });
 

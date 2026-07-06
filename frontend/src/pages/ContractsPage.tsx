@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { Link } from 'react-router-dom';
-import { Eye, Plus, X, AlertCircle, Pencil, Printer, Trash2 } from 'lucide-react';
+import { Eye, Plus, X, AlertCircle, Pencil, Printer, Trash2, Undo2 } from 'lucide-react';
 import { contractsApi, catalogsApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
@@ -152,6 +152,20 @@ export default function ContractsPage() {
     },
   });
 
+  const reactivarMutation = useMutation({
+    mutationFn: (c: ContratoRow) => contractsApi.reactivar(c.employee.id, c.id),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['contracts-company', companyId] });
+      queryClient.invalidateQueries({ queryKey: ['nomina-checklist'] });
+      const n = res?.finalesEliminadas ?? 0;
+      if (n > 0) alert(`Baja cancelada. Se eliminó ${n} liquidación final en borrador.`);
+    },
+    onError: (err: unknown) => {
+      const message = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      alert(message || 'No se pudo cancelar la baja.');
+    },
+  });
+
   const fmt = (s?: string | null) => s ? new Date(s).toLocaleDateString('es-UY') : 'Vigente';
 
   return (
@@ -234,6 +248,20 @@ export default function ContractsPage() {
                         <Printer size={15} />
                       </button>
                       <Link to={`/employees/${c.employee.id}`} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg inline-flex" title="Ver persona"><Eye size={15} /></Link>
+                      {isOperator && (c.vigenciaHasta || c.fechaFin) && (
+                        <button
+                          onClick={() => {
+                            if (confirm(`¿Cancelar la baja del contrato N° ${c.numero} de ${c.employee.apellido}, ${c.employee.nombre}? Se quitará la fecha de egreso, el contrato volverá a estar vigente y se eliminará la liquidación final en borrador (si la hubiera).`)) {
+                              reactivarMutation.mutate(c as ContratoRow);
+                            }
+                          }}
+                          disabled={reactivarMutation.isPending}
+                          className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg inline-flex"
+                          title="Cancelar baja / reactivar contrato"
+                        >
+                          <Undo2 size={15} />
+                        </button>
+                      )}
                       {isOperator && (
                         <button
                           onClick={() => {
