@@ -565,7 +565,11 @@ async function recalcularLiquidacion(liquidationId: string): Promise<void> {
   for (const it of liq.items) {
     if (it.itemType !== ItemType.HABER) continue;
     let gravado: boolean;
-    if (HABER_NO_GRAVADO.has(it.concepto)) gravado = false;
+    // FALTAS es un haber negativo que SÍ integra la base imponible: reduce el
+    // nominal sobre el que se calculan los aportes (aunque el catálogo la marque
+    // como no gravada, porque ahí figura del lado de los descuentos).
+    if (it.concepto === 'FALTAS') gravado = true;
+    else if (HABER_NO_GRAVADO.has(it.concepto)) gravado = false;
     else if (gravadoPorCodigo.has(it.concepto)) gravado = gravadoPorCodigo.get(it.concepto)!;
     else gravado = true;
     if (gravado) baseGravada += it.amount;
@@ -636,6 +640,14 @@ liquidationRouter.post('/:id/item', authenticate, requireRole(UserRole.ADMIN, Us
       throw new AppError(409, 'Solo se pueden agregar conceptos a liquidaciones en BORRADOR. Desconfirmá primero.');
     }
 
+    const centesimos = BigInt(Math.round(data.monto * 100));
+
+    // FALTAS: aunque se elijan desde la columna de Descuentos, van del lado de
+    // los HABERES como un haber NEGATIVO (estilo GNS). Así el "Total de Haberes"
+    // sale NETO de faltas y sobre ese neto se calculan TODOS los aportes e IRPF.
+    // Se detectan por la descripción (concepto FALTAS del catálogo).
+    const esFalta = /\bfaltas?\b/i.test(data.descripcion);
+
     // Un haber manual es gravado por defecto (entra al imponible). Si se marca
     // como no gravado, se etiqueta para excluirlo de la base de aportes.
     const noGravado = data.itemType === 'HABER' && data.gravado === false;
@@ -643,10 +655,10 @@ liquidationRouter.post('/:id/item', authenticate, requireRole(UserRole.ADMIN, Us
       data: {
         liquidationId: liquidation.id,
         employeeId: liquidation.employeeId,
-        itemType: data.itemType,
-        concepto: noGravado ? 'AJUSTE_NO_GRAVADO' : 'AJUSTE',
+        itemType: esFalta ? ItemType.HABER : data.itemType,
+        concepto: esFalta ? 'FALTAS' : (noGravado ? 'AJUSTE_NO_GRAVADO' : 'AJUSTE'),
         descripcion: data.descripcion,
-        amount: BigInt(Math.round(data.monto * 100)),
+        amount: esFalta ? -centesimos : centesimos, // la falta siempre resta
       },
     });
     await recalcularLiquidacion(liquidation.id);
@@ -692,11 +704,18 @@ liquidationRouter.patch('/:id/item/:itemId', authenticate, requireRole(UserRole.
     const item = await prisma.payrollItem.findUnique({ where: { id: req.params.itemId } });
     if (!item || item.liquidationId !== liquidation.id) throw new NotFoundError('Concepto');
 
+    // Al editar el monto, la falta se mantiene como haber negativo.
+    let nuevoMonto: bigint | undefined;
+    if (data.monto !== undefined) {
+      const centesimos = BigInt(Math.round(data.monto * 100));
+      nuevoMonto = item.concepto === 'FALTAS' ? -(centesimos < 0n ? -centesimos : centesimos) : centesimos;
+    }
+
     await prisma.payrollItem.update({
       where: { id: item.id },
       data: {
         descripcion: data.descripcion ?? undefined,
-        amount: data.monto !== undefined ? BigInt(Math.round(data.monto * 100)) : undefined,
+        amount: nuevoMonto,
       },
     });
     await recalcularLiquidacion(liquidation.id);
