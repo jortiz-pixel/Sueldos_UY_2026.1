@@ -160,39 +160,43 @@ export default function LiquidationPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-start justify-between flex-wrap gap-4">
-        <div>
+      {/* Encabezado: título (1/3) + identificación de la empresa (2/3), alineado
+          con el ancho del panel de liquidaciones de abajo. */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-stretch">
+        <div className="flex flex-col justify-center">
           <h1 className="text-2xl font-bold text-ink font-brand">Liquidaciones</h1>
           <p className="text-ink-subtle text-sm mt-0.5">Períodos y liquidaciones por empresa</p>
         </div>
-        {empresa && (
-          <div className="card px-4 py-3 flex items-start gap-3 min-w-[280px] border-l-4 border-l-brand-600">
-            <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center shrink-0">
-              <Building2 size={20} className="text-brand-600" />
+        {empresa ? (
+          <div className="lg:col-span-2 card px-5 py-4 flex items-center gap-4 border-l-4 border-l-brand-600">
+            <div className="w-11 h-11 rounded-xl bg-brand-50 flex items-center justify-center shrink-0">
+              <Building2 size={22} className="text-brand-600" />
             </div>
-            <div className="min-w-0">
-              <p className="text-sm font-bold text-ink leading-tight truncate">
+            <div className="min-w-0 flex-1">
+              <p className="text-base font-bold text-ink leading-tight truncate">
                 {empresa.nombreFantasia || empresa.razonSocial}
               </p>
               {empresa.nombreFantasia && empresa.razonSocial !== empresa.nombreFantasia && (
-                <p className="text-[11px] text-ink-subtle truncate">{empresa.razonSocial}</p>
-              )}
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-[11px] text-ink-muted">
-                <span className="inline-flex items-center gap-1" title="RUT">
-                  <Hash size={11} className="text-ink-subtle" /> RUT <span className="figure">{empresa.rut}</span>
-                </span>
-                <span className="inline-flex items-center gap-1" title="Nº de empresa BPS">
-                  <Landmark size={11} className="text-ink-subtle" /> BPS <span className="figure">{empresa.numeroBps || '—'}</span>
-                </span>
-              </div>
-              {empresa.domicilio && (
-                <p className="inline-flex items-center gap-1 mt-0.5 text-[11px] text-ink-muted">
-                  <MapPin size={11} className="text-ink-subtle shrink-0" />
-                  <span className="truncate">{[empresa.domicilio, empresa.localidad].filter(Boolean).join(', ')}</span>
-                </p>
+                <p className="text-xs text-ink-subtle truncate">{empresa.razonSocial}</p>
               )}
             </div>
+            <div className="hidden sm:flex items-center gap-6 shrink-0 pl-4 border-l border-hairline">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-ink-subtle font-semibold flex items-center gap-1"><Hash size={10} /> RUT</p>
+                <p className="text-sm text-ink figure">{empresa.rut}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-ink-subtle font-semibold flex items-center gap-1"><Landmark size={10} /> Nº BPS</p>
+                <p className="text-sm text-ink figure">{empresa.numeroBps || '—'}</p>
+              </div>
+              <div className="max-w-[220px]">
+                <p className="text-[10px] uppercase tracking-wider text-ink-subtle font-semibold flex items-center gap-1"><MapPin size={10} /> Domicilio</p>
+                <p className="text-sm text-ink-muted truncate">{[empresa.domicilio, empresa.localidad].filter(Boolean).join(', ') || '—'}</p>
+              </div>
+            </div>
           </div>
+        ) : (
+          <div className="lg:col-span-2" />
         )}
       </div>
 
