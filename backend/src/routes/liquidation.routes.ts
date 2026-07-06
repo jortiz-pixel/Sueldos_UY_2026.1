@@ -8,7 +8,8 @@ import { AppError, NotFoundError } from '../middleware/errorHandler';
 import { generarLiquidacionMensual, confirmarLiquidacion, valorJornalFalta } from '../services/liquidation.service';
 import { calcularAguinaldo, calcularAguinaldoBrutoSemestre } from '../services/aguinaldo.service';
 import { calcularLiquidacionLicencia, calcularLiquidacionFinal } from '../services/vacation.service';
-import { calcularAportesObreros, calcularAportesPatronales } from '../services/bps.service';
+import { calcularAportesObreros, calcularAportesPatronales, fonasaCargasDeSeguroSalud } from '../services/bps.service';
+import { resolverContratoEnMes } from '../services/contract.service';
 import { calcularIrpfMensual } from '../services/irpf.service';
 import { parametersService } from '../services/parameters.service';
 import { generateReciboPDF, reciboFilename } from '../services/pdf.service';
@@ -582,7 +583,14 @@ async function recalcularLiquidacion(liquidationId: string): Promise<void> {
     ? (await calcularAguinaldoBrutoSemestre(liq.employeeId, liq.year, liq.month)).bruto
     : 0n;
 
-  const obreros = calcularAportesObreros({ salarioNominal: baseGravada, hijosACargo: employee.hijosACargo, conyugeACargo: employee.conyugeACargo, params, bseRateEmpresa: bseRate, fonasaAdicionalExtraBase });
+  // Adicional FONASA según el Seguro de Salud (Tabla 8) del contrato vigente del
+  // mes; si el código no lo determina, se usan los datos del empleado.
+  const contratoMes = companyId ? await resolverContratoEnMes(liq.employeeId, liq.year, liq.month, companyId) : null;
+  const cargasFonasa = fonasaCargasDeSeguroSalud(contratoMes?.seguroSalud);
+  const fonasaHijos = cargasFonasa ? (cargasFonasa.hijos ? 1 : 0) : employee.hijosACargo;
+  const fonasaConyuge = cargasFonasa ? cargasFonasa.conyuge : employee.conyugeACargo;
+
+  const obreros = calcularAportesObreros({ salarioNominal: baseGravada, hijosACargo: fonasaHijos, conyugeACargo: fonasaConyuge, params, bseRateEmpresa: bseRate, fonasaAdicionalExtraBase });
   const patronales = calcularAportesPatronales({ salarioNominal: baseGravada, fonasaFamilia: employee.fonasaFamilia, params, bseRateEmpresa: bseRate, fonasaPatronalRate: 500 });
   const irpf = calcularIrpfMensual({
     salarioNominal: baseGravada,

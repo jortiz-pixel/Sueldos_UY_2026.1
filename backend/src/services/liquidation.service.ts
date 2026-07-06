@@ -5,7 +5,7 @@
 import { LiquidationType, LiquidationStatus, ItemType, PayrollItem, Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { salarioProporcional } from '../utils/money';
-import { calcularAportesObreros, calcularAportesPatronales, calcularHorasExtra } from './bps.service';
+import { calcularAportesObreros, calcularAportesPatronales, calcularHorasExtra, fonasaCargasDeSeguroSalud } from './bps.service';
 import { calcularIrpfMensual, calcularIrpfSimplificado } from './irpf.service';
 import { parametersService } from './parameters.service';
 import { resolverContratoEnMes, diasTrabajadosEnMes, datosLaboralesEfectivos } from './contract.service';
@@ -346,10 +346,18 @@ export async function generarLiquidacionMensual(
     ? (await calcularAguinaldoBrutoSemestre(input.employeeId, input.year, input.month)).bruto
     : 0n;
 
+  // El adicional FONASA (hijos/cónyuge) se determina por el código de Seguro de
+  // Salud (Tabla 8) del contrato vigente; si el código no lo determina, se usan
+  // los datos del empleado. Así, al cambiar el seguro de salud del contrato (o
+  // crear un contrato nuevo desde una fecha), la mensualidad toma el % correcto.
+  const cargasFonasa = fonasaCargasDeSeguroSalud(contrato?.seguroSalud);
+  const fonasaHijosACargo = cargasFonasa ? (cargasFonasa.hijos ? 1 : 0) : employee.hijosACargo;
+  const fonasaConyugeACargo = cargasFonasa ? cargasFonasa.conyuge : employee.conyugeACargo;
+
   const aportesObreros = calcularAportesObreros({
     salarioNominal: baseGravada,
-    hijosACargo: employee.hijosACargo,
-    conyugeACargo: employee.conyugeACargo,
+    hijosACargo: fonasaHijosACargo,
+    conyugeACargo: fonasaConyugeACargo,
     params,
     bseRateEmpresa: bseRate,
     fonasaAdicionalExtraBase,
@@ -395,8 +403,9 @@ export async function generarLiquidacionMensual(
         rateBp: aportesObreros.detail.fonasaAdicionalRate,
         hijosRate: aportesObreros.detail.fonasaHijosRate,
         conyugeRate: aportesObreros.detail.fonasaConyugeRate,
-        hijosACargo: employee.hijosACargo,
-        conyugeACargo: employee.conyugeACargo,
+        hijosACargo: fonasaHijosACargo,
+        conyugeACargo: fonasaConyugeACargo,
+        seguroSalud: contrato?.seguroSalud ?? null,
       } as unknown as Prisma.JsonValue,
     });
   }

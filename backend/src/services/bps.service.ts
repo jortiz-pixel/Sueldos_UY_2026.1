@@ -69,6 +69,29 @@ export interface AportesPatronales {
   };
 }
 
+// Códigos de Seguro de Salud (BPS Tabla 8) que determinan cargas FONASA.
+// Patrón: cada familia (beneficiario, rural, socio vitalicio, acumulación,
+// afiliación por otra empresa, aporte gradual) tiene 4 variantes:
+// con hijos sin cónyuge · sin hijos sin cónyuge · con hijos con cónyuge ·
+// sin hijos con cónyuge. Los códigos fuera de estas familias (sin FONASA
+// mutual, subsidios, BSE, etc.) devuelven null → se usan los datos del empleado.
+const SS_CON_HIJOS = new Set([1, 2, 5, 10, 16, 19, 21, 23, 26, 29, 31, 33, 35, 37]);
+const SS_CON_CONYUGE = new Set([16, 17, 19, 20, 23, 24, 26, 27, 29, 30, 33, 34, 37, 38]);
+const SS_DETERMINA = new Set([
+  1, 2, 5, 10, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
+  31, 32, 33, 34, 35, 36, 37, 38,
+]);
+
+/**
+ * Deriva las cargas FONASA (hijos / cónyuge a cargo) del código de Seguro de
+ * Salud del contrato. Devuelve null si el código no las determina (usar el dato
+ * del empleado como respaldo).
+ */
+export function fonasaCargasDeSeguroSalud(codigo: number | null | undefined): { hijos: boolean; conyuge: boolean } | null {
+  if (codigo == null || !SS_DETERMINA.has(codigo)) return null;
+  return { hijos: SS_CON_HIJOS.has(codigo), conyuge: SS_CON_CONYUGE.has(codigo) };
+}
+
 /**
  * Determina la tasa FONASA total (en basis points) según ingreso y cargas.
  */

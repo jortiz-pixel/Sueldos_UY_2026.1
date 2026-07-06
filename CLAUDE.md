@@ -48,6 +48,12 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
   "Adicional FONASA", el complemento según el seguro de salud (escalón >2,5 BPC
   + hijos + cónyuge). Cada parte se redondea aparte (criterio GNS). El adicional
   solo se crea si es > 0. Reportes/Excel suman ambos como "FONASA total".
+  Las cargas (hijos/cónyuge) del adicional se derivan del CÓDIGO DE SEGURO DE
+  SALUD (Tabla 8) del contrato vigente del mes (`fonasaCargasDeSeguroSalud`):
+  familias con 4 variantes hijos/cónyuge (1/15/16/17 y análogos). Si el código
+  no lo determina, se usan los datos del empleado. Cambiar el seguro de salud
+  del contrato (o crear un contrato nuevo desde una fecha) actualiza el % del
+  adicional al regenerar la liquidación de ese mes. Vale para todas las empresas.
 - **FONASA en meses con aguinaldo (junio/diciembre)**: el ADICIONAL del aguinaldo
   NO se descuenta en el aguinaldo (ahí va solo el 3%). Se traslada a la
   mensualidad del mes: su adicional se calcula sobre (nominal del mes +
