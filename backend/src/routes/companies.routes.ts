@@ -97,6 +97,12 @@ companiesRouter.post('/', authenticate, requireRole(UserRole.ADMIN), async (req:
 // PUT /api/companies/:id
 companiesRouter.put('/:id', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
   try {
+    // Anti-IDOR: un operador solo puede modificar empresas a las que tiene acceso
+    // (evita reescribir RUT/razón social/BSE de otra empresa por su id).
+    const existing = await prisma.company.findUnique({ where: { id: req.params.id } });
+    if (!existing) throw new NotFoundError('Empresa');
+    await assertCompanyAccess(req, existing.id);
+
     const data = companySchema.partial().parse(req.body);
     const company = await prisma.company.update({ where: { id: req.params.id }, data });
     res.json(company);
@@ -138,6 +144,8 @@ companiesRouter.delete('/:id', authenticate, requireRole(UserRole.ADMIN), async 
 // GET /api/companies/:id/users
 companiesRouter.get('/:id/users', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
   try {
+    // Anti-IDOR: no exponer los usuarios (emails) de una empresa ajena.
+    await assertCompanyAccess(req, req.params.id);
     const users = await prisma.user.findMany({
       where: { companyId: req.params.id },
       select: { id: true, email: true, nombre: true, apellido: true, role: true, active: true, lastLoginAt: true },
