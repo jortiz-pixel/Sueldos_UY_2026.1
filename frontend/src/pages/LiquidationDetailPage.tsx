@@ -70,16 +70,21 @@ function Section({ title, items, total, colorClass, opciones, editable, onAdd, o
   colorClass: string;
   opciones?: OpcionConcepto[];
   editable?: boolean;
-  onAdd?: (descripcion: string, monto: number) => void;
+  onAdd?: (descripcion: string, monto: number, cantidad?: number) => void;
   onEdit?: (itemId: string, data: { descripcion: string; monto: number }) => void;
   onDelete?: (id: string) => void;
 }) {
   const [sel, setSel] = useState('');
   const [desc, setDesc] = useState('');
   const [monto, setMonto] = useState(0);
+  const [cantidad, setCantidad] = useState(0);
+
+  const nombreSel = sel === 'OTRO' ? desc : (opciones?.find((x) => x.key === sel)?.nombre ?? desc);
+  const esFalta = /\bfaltas?\b/i.test(nombreSel);
 
   const onSel = (value: string) => {
     setSel(value);
+    setCantidad(0);
     if (value && value !== 'OTRO') {
       const o = opciones?.find((x) => x.key === value);
       setDesc(o?.nombre ?? '');
@@ -89,11 +94,15 @@ function Section({ title, items, total, colorClass, opciones, editable, onAdd, o
     }
   };
 
+  const reset = () => { setSel(''); setDesc(''); setMonto(0); setCantidad(0); };
+
   const agregar = () => {
-    const d = sel === 'OTRO' ? desc : (opciones?.find((x) => x.key === sel)?.nombre ?? desc);
-    if (d.trim() && monto > 0) {
-      onAdd?.(d.trim(), monto);
-      setSel(''); setDesc(''); setMonto(0);
+    const d = nombreSel;
+    if (!d.trim()) return;
+    if (esFalta) {
+      if (cantidad > 0) { onAdd?.(d.trim(), 0, cantidad); reset(); }
+    } else if (monto > 0) {
+      onAdd?.(d.trim(), monto); reset();
     }
   };
 
@@ -130,7 +139,11 @@ function Section({ title, items, total, colorClass, opciones, editable, onAdd, o
                     <option value="OTRO">Otro (escribir)</option>
                   </select>
                   {sel === 'OTRO' && <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Descripción" className="border border-gray-300 rounded-lg px-2 py-1 text-sm flex-1 min-w-[140px]" />}
-                  {sel && <input type="number" value={monto || ''} onChange={(e) => setMonto(Number(e.target.value))} placeholder="Monto $" className="border border-gray-300 rounded-lg px-2 py-1 text-sm w-28" />}
+                  {sel && esFalta && (
+                    <input type="number" step="0.01" min="0" value={cantidad || ''} onChange={(e) => setCantidad(Number(e.target.value))} placeholder="N° de faltas" className="border border-gray-300 rounded-lg px-2 py-1 text-sm w-32" />
+                  )}
+                  {sel && !esFalta && <input type="number" value={monto || ''} onChange={(e) => setMonto(Number(e.target.value))} placeholder="Monto $" className="border border-gray-300 rounded-lg px-2 py-1 text-sm w-28" />}
+                  {sel && esFalta && <span className="text-xs text-gray-500">el monto se calcula solo (básico ÷ 30 × faltas)</span>}
                   {sel && <button type="button" onClick={agregar} className="btn-primary btn-sm">Agregar</button>}
                 </div>
               </td>
@@ -194,7 +207,7 @@ export default function LiquidationDetailPage() {
   });
 
   const addItemMutation = useMutation({
-    mutationFn: (vars: { descripcion: string; monto: number; itemType: 'HABER' | 'DESCUENTO_OBRERO' }) => liquidationApi.addItem(id!, vars),
+    mutationFn: (vars: { descripcion: string; monto?: number; cantidad?: number; itemType: 'HABER' | 'DESCUENTO_OBRERO' }) => liquidationApi.addItem(id!, vars),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['liquidation', id] }),
     onError: (e: unknown) => {
       const err = e as { response?: { data?: { error?: string } } };
@@ -356,7 +369,7 @@ export default function LiquidationDetailPage() {
           colorClass="bg-green-50 text-green-800"
           opciones={haberOptions}
           editable={puedeEditar}
-          onAdd={(descripcion, monto) => addItemMutation.mutate({ descripcion, monto, itemType: 'HABER' })}
+          onAdd={(descripcion, monto, cantidad) => addItemMutation.mutate({ descripcion, ...(cantidad ? { cantidad } : { monto }), itemType: 'HABER' })}
           onEdit={(itemId, dd) => updateItemMutation.mutate({ itemId, ...dd })}
           onDelete={puedeEditar ? deleteItemMutation.mutate : undefined}
         />
@@ -367,7 +380,7 @@ export default function LiquidationDetailPage() {
           colorClass="bg-red-50 text-red-800"
           opciones={descuentoOptions}
           editable={puedeEditar}
-          onAdd={(descripcion, monto) => addItemMutation.mutate({ descripcion, monto, itemType: 'DESCUENTO_OBRERO' })}
+          onAdd={(descripcion, monto, cantidad) => addItemMutation.mutate({ descripcion, ...(cantidad ? { cantidad } : { monto }), itemType: 'DESCUENTO_OBRERO' })}
           onEdit={(itemId, dd) => updateItemMutation.mutate({ itemId, ...dd })}
           onDelete={puedeEditar ? deleteItemMutation.mutate : undefined}
         />

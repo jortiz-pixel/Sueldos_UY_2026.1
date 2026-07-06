@@ -5,7 +5,7 @@ import { prisma } from '../utils/prisma';
 import { authenticate, requireRole } from '../middleware/auth';
 import { assertCompanyAccess } from '../middleware/tenancy';
 import { AppError, NotFoundError } from '../middleware/errorHandler';
-import { generarLiquidacionMensual, confirmarLiquidacion } from '../services/liquidation.service';
+import { generarLiquidacionMensual, confirmarLiquidacion, valorJornalFalta } from '../services/liquidation.service';
 import { calcularAguinaldo } from '../services/aguinaldo.service';
 import { calcularLiquidacionLicencia, calcularLiquidacionFinal } from '../services/vacation.service';
 import { calcularAportesObreros, calcularAportesPatronales } from '../services/bps.service';
@@ -627,7 +627,8 @@ liquidationRouter.post('/:id/item', authenticate, requireRole(UserRole.ADMIN, Us
   try {
     const schema = z.object({
       descripcion: z.string().min(1),
-      monto: z.number().positive(),                 // en pesos
+      monto: z.number().positive().optional(),      // en pesos (o usar cantidad para faltas)
+      cantidad: z.number().positive().optional(),   // cantidad de faltas (días); el monto se calcula solo
       itemType: z.enum(['HABER', 'DESCUENTO_OBRERO']),
       gravado: z.boolean().optional(),              // solo aplica a HABER; por defecto gravado
     });
@@ -640,13 +641,26 @@ liquidationRouter.post('/:id/item', authenticate, requireRole(UserRole.ADMIN, Us
       throw new AppError(409, 'Solo se pueden agregar conceptos a liquidaciones en BORRADOR. Desconfirmá primero.');
     }
 
-    const centesimos = BigInt(Math.round(data.monto * 100));
-
     // FALTAS: aunque se elijan desde la columna de Descuentos, van del lado de
     // los HABERES como un haber NEGATIVO (estilo GNS). Así el "Total de Haberes"
     // sale NETO de faltas y sobre ese neto se calculan TODOS los aportes e IRPF.
     // Se detectan por la descripción (concepto FALTAS del catálogo).
     const esFalta = /\bfaltas?\b/i.test(data.descripcion);
+
+    // Importe del ítem. Para faltas con cantidad, se calcula automáticamente:
+    // valor de una falta (mensual: nominal/30 · jornalero: jornal) × cantidad.
+    let centesimos: bigint;
+    let descripcionFinal = data.descripcion;
+    if (esFalta && data.cantidad !== undefined) {
+      const jornalCent = await valorJornalFalta(liquidation.id);
+      centesimos = BigInt(Math.round(Number(jornalCent) * data.cantidad));
+      const jornalTxt = (Number(jornalCent) / 100).toFixed(2);
+      descripcionFinal = `Faltas ${data.cantidad} x ${jornalTxt}`;
+    } else if (data.monto !== undefined) {
+      centesimos = BigInt(Math.round(data.monto * 100));
+    } else {
+      throw new AppError(400, 'Indicá el monto o la cantidad de faltas.');
+    }
 
     // Un haber manual es gravado por defecto (entra al imponible). Si se marca
     // como no gravado, se etiqueta para excluirlo de la base de aportes.
@@ -657,7 +671,7 @@ liquidationRouter.post('/:id/item', authenticate, requireRole(UserRole.ADMIN, Us
         employeeId: liquidation.employeeId,
         itemType: esFalta ? ItemType.HABER : data.itemType,
         concepto: esFalta ? 'FALTAS' : (noGravado ? 'AJUSTE_NO_GRAVADO' : 'AJUSTE'),
-        descripcion: data.descripcion,
+        descripcion: descripcionFinal,
         amount: esFalta ? -centesimos : centesimos, // la falta siempre resta
       },
     });

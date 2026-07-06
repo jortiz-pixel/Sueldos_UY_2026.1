@@ -39,6 +39,23 @@ async function diasLicenciaDelMes(employeeId: string, year: number, month: numbe
 }
 
 
+// Valor de UNA falta para la liquidación dada. Mensual: sueldo básico / 30
+// (ficto 30). Jornalero: el jornal diario. Devuelve el importe en centésimos.
+export async function valorJornalFalta(liquidationId: string): Promise<bigint> {
+  const liq = await prisma.liquidation.findUnique({
+    where: { id: liquidationId },
+    include: { period: true },
+  });
+  if (!liq) throw new AppError(404, 'Liquidación no encontrada');
+  const employee = await prisma.employee.findUnique({ where: { id: liq.employeeId } });
+  if (!employee) throw new AppError(404, 'Empleado no encontrado');
+  const contrato = await resolverContratoEnMes(liq.employeeId, liq.year, liq.month, liq.period?.companyId);
+  const labor = datosLaboralesEfectivos(employee, contrato);
+  return labor.salaryType === 'MENSUAL'
+    ? salarioProporcional(labor.salarioNominal, 1, 30)
+    : (labor.jornal ?? salarioProporcional(labor.salarioNominal, 1, 30));
+}
+
 export interface LiquidacionInput {
   employeeId: string;
   periodId: string;

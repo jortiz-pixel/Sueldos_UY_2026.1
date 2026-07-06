@@ -396,7 +396,7 @@ export const liquidationApi = {
   cancel: (id: string) => api.post(`/liquidation/${id}/cancel`).then((r) => r.data),
   addAdjustment: (id: string, data: object) =>
     api.post(`/liquidation/${id}/adjustment`, data).then((r) => r.data),
-  addItem: (id: string, data: { descripcion: string; monto: number; itemType: 'HABER' | 'DESCUENTO_OBRERO' }) =>
+  addItem: (id: string, data: { descripcion: string; monto?: number; cantidad?: number; itemType: 'HABER' | 'DESCUENTO_OBRERO' }) =>
     api.post(`/liquidation/${id}/item`, data).then((r) => r.data),
   updateItem: (id: string, itemId: string, data: { descripcion?: string; monto?: number }) =>
     api.patch(`/liquidation/${id}/item/${itemId}`, data).then((r) => r.data),

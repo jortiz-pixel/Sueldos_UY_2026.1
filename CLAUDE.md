@@ -61,6 +61,9 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
   personales, patronales e IRPF). El importe siempre resta (se fuerza negativo).
   Detección por código `FALTAS`; pueden venir cargadas a mano ("otros
   descuentos") o desde el motor de conceptos. NO van en la columna de descuentos.
+  Se puede cargar la CANTIDAD de faltas y el monto se calcula solo: valor de una
+  falta (mensual = nominal/30, ficto 30; jornalero = jornal) × cantidad.
+  Descripción estilo GNS `Faltas N x jornal`.
 - **Licencias**: Ley 12.590 (20/25/30 días por antigüedad; proporcional 1er año);
   días sin domingos; anticipos permitidos con confirmación. Al liquidar (estilo
   GNS): la licencia GOZADA se paga en la MENSUALIDAD, desglosando el sueldo en
