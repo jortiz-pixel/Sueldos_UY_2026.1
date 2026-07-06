@@ -402,6 +402,26 @@ liquidationRouter.post('/:id/unconfirm', authenticate, requireRole(UserRole.ADMI
   } catch (err) { next(err); }
 });
 
+// DELETE /api/liquidation/:id — elimina una liquidación (y sus ítems/ajustes).
+// Solo en BORRADOR: si está confirmada hay que desconfirmarla primero (así la
+// nómina ya declarada no queda inconsistente).
+liquidationRouter.delete('/:id', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const liquidation = await prisma.liquidation.findUnique({ where: { id: req.params.id } });
+    if (!liquidation) throw new NotFoundError('Liquidación');
+    await assertLiquidationAccess(req, req.params.id);
+    if (liquidation.status === LiquidationStatus.CONFIRMADO) {
+      throw new AppError(409, 'La liquidación está confirmada. Desconfirmala primero para poder eliminarla.');
+    }
+    await prisma.$transaction([
+      prisma.payrollItem.deleteMany({ where: { liquidationId: req.params.id } }),
+      prisma.payrollAdjustment.deleteMany({ where: { liquidationId: req.params.id } }),
+      prisma.liquidation.delete({ where: { id: req.params.id } }),
+    ]);
+    res.json({ message: 'Liquidación eliminada' });
+  } catch (err) { next(err); }
+});
+
 // POST /api/liquidation/:id/cancel
 liquidationRouter.post('/:id/cancel', authenticate, requireRole(UserRole.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {

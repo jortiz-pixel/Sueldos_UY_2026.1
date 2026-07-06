@@ -375,6 +375,7 @@ export const liquidationApi = {
   createPeriod: (data: { companyId: string; year: number; month: number }) =>
     api.post<PayrollPeriod>('/liquidation/periods', data).then((r) => r.data),
   deletePeriod: (periodId: string) => api.delete(`/liquidation/periods/${periodId}`).then((r) => r.data),
+  deleteLiquidation: (id: string) => api.delete(`/liquidation/${id}`).then((r) => r.data),
   confirmBatch: (periodId: string) => api.post('/liquidation/confirm-batch', { periodId }).then((r) => r.data as { confirmed: number; failed: number }),
   cerrarPeriodo: (periodId: string) => api.post(`/liquidation/periods/${periodId}/cerrar`).then((r) => r.data),
   periodRoster: (periodId: string) =>

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { Plus, Play, RefreshCw, CheckCircle, Eye, Download, RotateCcw, Trash2, Building2, Landmark, MapPin, Hash } from 'lucide-react';
+import { Plus, Play, RefreshCw, CheckCircle, Eye, Download, RotateCcw, Trash2, Building2, Landmark, MapPin, Hash, X } from 'lucide-react';
 import { liquidationApi, companiesApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
@@ -97,6 +97,18 @@ export default function LiquidationPage() {
     onError: (e: unknown) => {
       const err = e as { response?: { data?: { error?: string } } };
       alert(err.response?.data?.error || 'No se pudieron confirmar');
+    },
+  });
+
+  const deleteLiquidationMutation = useMutation({
+    mutationFn: (id: string) => liquidationApi.deleteLiquidation(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['period-liquidations', selectedPeriodId] });
+      queryClient.invalidateQueries({ queryKey: ['periods', companyId, selectedYear] });
+    },
+    onError: (err: unknown) => {
+      const m = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      alert(m || 'No se pudo eliminar la liquidación.');
     },
   });
 
@@ -357,6 +369,15 @@ export default function LiquidationPage() {
                                 <button type="button" onClick={() => abrirBlobEnPestania(() => liquidationApi.recibo(l.id), `recibo_${l.id}.pdf`)} className="p-1.5 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded" title="Recibo PDF">
                                   <Download size={14} />
                                 </button>
+                                {isOperator && l.status !== 'CONFIRMADO' && (
+                                  <button
+                                    onClick={() => { if (confirm(`¿Eliminar la liquidación de ${l.employee ? `${l.employee.apellido}, ${l.employee.nombre}` : 'esta persona'}? Se borra por completo (no queda anulada).`)) deleteLiquidationMutation.mutate(l.id); }}
+                                    className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
+                                    title="Eliminar liquidación"
+                                  >
+                                    <X size={14} />
+                                  </button>
+                                )}
                               </div>
                             </td>
                           </tr>
