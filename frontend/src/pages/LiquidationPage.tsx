@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { Plus, Play, RefreshCw, CheckCircle, Eye, Download, RotateCcw, Trash2 } from 'lucide-react';
-import { liquidationApi } from '../services/api';
+import { Plus, Play, RefreshCw, CheckCircle, Eye, Download, RotateCcw, Trash2, Building2, Landmark, MapPin, Hash } from 'lucide-react';
+import { liquidationApi, companiesApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
 import { abrirBlobEnPestania } from '../utils/file';
@@ -40,6 +40,13 @@ export default function LiquidationPage() {
 
   // Al cambiar de empresa (selector global), limpiar el período seleccionado.
   useEffect(() => { setSelectedPeriodId(null); }, [companyId]);
+
+  // Datos de la empresa activa (para la tarjeta de identificación del header).
+  const { data: empresa } = useQuery({
+    queryKey: ['company', companyId],
+    queryFn: () => companiesApi.get(companyId),
+    enabled: !!companyId,
+  });
 
   const { data: periods, isLoading: periodsLoading } = useQuery({
     queryKey: ['periods', companyId, selectedYear],
@@ -153,11 +160,40 @@ export default function LiquidationPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between flex-wrap gap-2">
+      <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Liquidaciones</h1>
-          <p className="text-gray-500 text-sm mt-0.5">Períodos y liquidaciones por empresa</p>
+          <h1 className="text-2xl font-bold text-ink font-brand">Liquidaciones</h1>
+          <p className="text-ink-subtle text-sm mt-0.5">Períodos y liquidaciones por empresa</p>
         </div>
+        {empresa && (
+          <div className="card px-4 py-3 flex items-start gap-3 min-w-[280px] border-l-4 border-l-brand-600">
+            <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center shrink-0">
+              <Building2 size={20} className="text-brand-600" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-ink leading-tight truncate">
+                {empresa.nombreFantasia || empresa.razonSocial}
+              </p>
+              {empresa.nombreFantasia && empresa.razonSocial !== empresa.nombreFantasia && (
+                <p className="text-[11px] text-ink-subtle truncate">{empresa.razonSocial}</p>
+              )}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-[11px] text-ink-muted">
+                <span className="inline-flex items-center gap-1" title="RUT">
+                  <Hash size={11} className="text-ink-subtle" /> RUT <span className="figure">{empresa.rut}</span>
+                </span>
+                <span className="inline-flex items-center gap-1" title="Nº de empresa BPS">
+                  <Landmark size={11} className="text-ink-subtle" /> BPS <span className="figure">{empresa.numeroBps || '—'}</span>
+                </span>
+              </div>
+              {empresa.domicilio && (
+                <p className="inline-flex items-center gap-1 mt-0.5 text-[11px] text-ink-muted">
+                  <MapPin size={11} className="text-ink-subtle shrink-0" />
+                  <span className="truncate">{[empresa.domicilio, empresa.localidad].filter(Boolean).join(', ')}</span>
+                </p>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
