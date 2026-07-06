@@ -109,7 +109,7 @@ export default function ContractsPage() {
         companyId,
         vigenciaDesde: data.vigenciaDesde,
         fechaIngreso: data.fechaIngreso,
-        fechaFin: data.fechaFin || undefined,
+        fechaFin: data.fechaFin || null, // null = quitar la fecha de egreso (cancelar baja)
         tipoContrato: data.tipoContrato || undefined,
         cargo: data.cargo || undefined,
         categoria: data.categoria || undefined,

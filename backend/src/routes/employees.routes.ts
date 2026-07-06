@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import { UserRole, SalaryType, EstadoCivil, Contrato } from '@prisma/client';
+import { UserRole, SalaryType, EstadoCivil, Contrato, Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { generateContratoPDF, contratoFilename } from '../services/pdf.service';
 import { authenticate, requireRole } from '../middleware/auth';
@@ -41,7 +41,7 @@ const personFields = {
 const contratoFields = {
   companyId: z.string().cuid(),
   vigenciaDesde: z.string().optional(),
-  fechaFin: z.string().optional(),
+  fechaFin: z.string().nullable().optional(), // null = quitar la fecha de egreso (cancelar baja)
   fechaIngreso: z.string(),
   tipoContrato: z.string().optional(),
   cargo: z.string().optional(),
@@ -474,15 +474,41 @@ employeesRouter.put('/:id/contracts/:contractId', authenticate, requireRole(User
     if (!employee) throw new NotFoundError('Empleado');
     await assertPersonaAccess(req, employee.id, employee.companyId);
 
+    const existing = await prisma.contrato.findUnique({ where: { id: req.params.contractId } });
+    if (!existing || existing.employeeId !== req.params.id) throw new NotFoundError('Contrato');
+    await assertCompanyAccess(req, existing.companyId);
+
     const data = contractSchema.partial().parse(req.body);
+    const { fechaFin, vigenciaDesde, fechaIngreso, grupoActividadNum, ...rest } = data;
+
+    // Fecha de egreso / baja:
+    // - Vaciarla en un contrato que tenía egreso = CANCELAR la baja: se limpia la
+    //   fecha de egreso, la vigencia y la causal, y el contrato vuelve a ser vigente.
+    // - Cambiarla = mover el egreso (y sincronizar la vigencia si estaba dado de baja).
+    // - No tocar la vigencia de un contrato histórico por sucesión (fechaFin ya nula).
+    const bajaUpdate: Prisma.ContratoUpdateInput = {};
+    const vaciarFechaFin = fechaFin === null || fechaFin === '';
+    if (vaciarFechaFin && existing.fechaFin) {
+      bajaUpdate.fechaFin = null;
+      bajaUpdate.vigenciaHasta = null;
+      bajaUpdate.causalEgresoCod = null;
+      bajaUpdate.activo = true;
+    } else if (vaciarFechaFin) {
+      bajaUpdate.fechaFin = null;
+    } else if (fechaFin) {
+      const nueva = new Date(fechaFin);
+      bajaUpdate.fechaFin = nueva;
+      if (existing.vigenciaHasta) bajaUpdate.vigenciaHasta = nueva;
+    }
+
     const contrato = await prisma.contrato.update({
       where: { id: req.params.contractId },
       data: {
-        ...data,
-        vigenciaDesde: data.vigenciaDesde ? new Date(data.vigenciaDesde) : undefined,
-        fechaFin: data.fechaFin ? new Date(data.fechaFin) : undefined,
-        fechaIngreso: data.fechaIngreso ? new Date(data.fechaIngreso) : undefined,
-        grupoActividadNum: data.grupoActividadNum ?? undefined,
+        ...rest,
+        ...(vigenciaDesde ? { vigenciaDesde: new Date(vigenciaDesde) } : {}),
+        ...(fechaIngreso ? { fechaIngreso: new Date(fechaIngreso) } : {}),
+        ...(grupoActividadNum !== undefined ? { grupoActividadNum: grupoActividadNum ?? undefined } : {}),
+        ...bajaUpdate,
       },
     });
     res.json(serializeContrato(contrato));
