@@ -342,6 +342,7 @@ liquidationRouter.post('/licencia', authenticate, requireRole(UserRole.ADMIN, Us
       year: z.number().int(),
       month: z.number().int().min(1).max(12),
       diasHabilesTomar: z.number().int().min(1).max(30),
+      anticipar: z.boolean().optional(),
     });
     const input = schema.parse(req.body);
     const result = await calcularLiquidacionLicencia(input);

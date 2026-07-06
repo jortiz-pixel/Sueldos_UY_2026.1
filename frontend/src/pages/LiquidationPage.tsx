@@ -156,13 +156,14 @@ export default function LiquidationPage() {
   const [espEmpId, setEspEmpId] = useState('');
   const [espTipo, setEspTipo] = useState<'AGUINALDO' | 'LICENCIA' | 'EGRESO'>('AGUINALDO');
   const [espDias, setEspDias] = useState(10);
+  const [espAnticipar, setEspAnticipar] = useState(false);
   const [espFecha, setEspFecha] = useState('');
 
   const especialMutation = useMutation({
     mutationFn: () => {
       const base = { employeeId: espEmpId, periodId: selectedPeriodId, year: selectedYear, month: selectedPeriod?.month };
       if (espTipo === 'AGUINALDO') return liquidationApi.generateAguinaldo(base);
-      if (espTipo === 'LICENCIA') return liquidationApi.generateLicencia({ ...base, diasHabilesTomar: espDias });
+      if (espTipo === 'LICENCIA') return liquidationApi.generateLicencia({ ...base, diasHabilesTomar: espDias, anticipar: espAnticipar });
       return liquidationApi.generateFinal({ employeeId: espEmpId, periodId: selectedPeriodId, fechaEgreso: new Date(espFecha + 'T00:00:00').toISOString() });
     },
     onSuccess: () => {
@@ -475,6 +476,10 @@ export default function LiquidationPage() {
               <div>
                 <label className="form-label">Días hábiles de licencia a tomar</label>
                 <input type="number" min={1} max={30} value={espDias} onChange={(e) => setEspDias(Number(e.target.value))} className="form-input" />
+                <label className="flex items-center gap-2 mt-2 text-sm text-gray-600">
+                  <input type="checkbox" checked={espAnticipar} onChange={(e) => setEspAnticipar(e.target.checked)} className="rounded" />
+                  Anticipar (permitir tomar más días que los disponibles)
+                </label>
               </div>
             )}
             {espTipo === 'EGRESO' && (

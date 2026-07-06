@@ -23,6 +23,7 @@ export interface LicenciaInput {
   year: number;
   month: number;
   diasHabilesTomar: number;
+  anticipar?: boolean; // permite tomar más días que los disponibles (anticipo)
 }
 
 export async function calcularLiquidacionLicencia(input: LicenciaInput) {
@@ -46,8 +47,10 @@ export async function calcularLiquidacionLicencia(input: LicenciaInput) {
     ? accrual.diasCorresponden - accrual.diasTomados
     : diasCorresponden;
 
-  if (input.diasHabilesTomar > diasDisponibles) {
-    throw new AppError(400, `Días insuficientes. Disponibles: ${diasDisponibles}, solicitados: ${input.diasHabilesTomar}`);
+  // Sin saldo suficiente se bloquea, salvo que se pida explícitamente como
+  // anticipo (el saldo puede quedar negativo, igual que en el calendario).
+  if (input.diasHabilesTomar > diasDisponibles && !input.anticipar) {
+    throw new AppError(400, `Días insuficientes. Disponibles: ${diasDisponibles}, solicitados: ${input.diasHabilesTomar}. Marcá "anticipar" para tomarlos igual.`);
   }
 
   // Base de licencia = promedio mensual de los haberes reales de los últimos 12 meses
