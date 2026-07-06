@@ -486,7 +486,7 @@ employeesRouter.put('/:id/contracts/:contractId', authenticate, requireRole(User
     //   fecha de egreso, la vigencia y la causal, y el contrato vuelve a ser vigente.
     // - Cambiarla = mover el egreso (y sincronizar la vigencia si estaba dado de baja).
     // - No tocar la vigencia de un contrato histórico por sucesión (fechaFin ya nula).
-    const bajaUpdate: Prisma.ContratoUpdateInput = {};
+    const bajaUpdate: Prisma.ContratoUncheckedUpdateInput = {};
     const vaciarFechaFin = fechaFin === null || fechaFin === '';
     if (vaciarFechaFin && existing.fechaFin) {
       bajaUpdate.fechaFin = null;
@@ -665,6 +665,7 @@ employeesRouter.post('/:id/contracts/:contractId/reactivar', authenticate, requi
     await assertCompanyAccess(req, contrato.companyId);
 
     const fechaEgreso = contrato.fechaFin ?? contrato.vigenciaHasta;
+    const companyId = contrato.companyId;
 
     // 1) Limpiar la baja del contrato → vuelve a ser vigente.
     const updated = await prisma.contrato.update({
@@ -681,7 +682,7 @@ employeesRouter.post('/:id/contracts/:contractId/reactivar', authenticate, requi
     // 3) Eliminar la liquidación FINAL en BORRADOR generada por la baja (misma
     //    empresa y mes del egreso). Solo si sigue en borrador (no confirmada).
     let finalesEliminadas = 0;
-    if (fechaEgreso && contrato.companyId) {
+    if (fechaEgreso && companyId) {
       const del = await prisma.liquidation.deleteMany({
         where: {
           employeeId: employee.id,
@@ -689,7 +690,7 @@ employeesRouter.post('/:id/contracts/:contractId/reactivar', authenticate, requi
           status: LiquidationStatus.BORRADOR,
           year: fechaEgreso.getFullYear(),
           month: fechaEgreso.getMonth() + 1,
-          period: { companyId: contrato.companyId },
+          period: { companyId },
         },
       });
       finalesEliminadas = del.count;
