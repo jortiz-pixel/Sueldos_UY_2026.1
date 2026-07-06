@@ -475,7 +475,8 @@ export default function LiquidationPage() {
             {espTipo === 'LICENCIA' && (
               <div>
                 <label className="form-label">Días hábiles de licencia a tomar</label>
-                <input type="number" min={1} max={30} value={espDias} onChange={(e) => setEspDias(Number(e.target.value))} className="form-input" />
+                <input type="number" min={0.01} max={31} step={0.01} value={espDias} onChange={(e) => setEspDias(Number(e.target.value))} className="form-input" />
+                <p className="text-[11px] text-gray-400 mt-1">Admite días fraccionados (ej. 8,33).</p>
                 <label className="flex items-center gap-2 mt-2 text-sm text-gray-600">
                   <input type="checkbox" checked={espAnticipar} onChange={(e) => setEspAnticipar(e.target.checked)} className="rounded" />
                   Anticipar (permitir tomar más días que los disponibles)

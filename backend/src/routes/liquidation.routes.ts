@@ -341,7 +341,7 @@ liquidationRouter.post('/licencia', authenticate, requireRole(UserRole.ADMIN, Us
       periodId: z.string().cuid(),
       year: z.number().int(),
       month: z.number().int().min(1).max(12),
-      diasHabilesTomar: z.number().int().min(1).max(30),
+      diasHabilesTomar: z.number().min(0.01).max(31), // admite días fraccionados (ej. 8,33)
       anticipar: z.boolean().optional(),
     });
     const input = schema.parse(req.body);

@@ -79,7 +79,9 @@ export async function calcularLiquidacionLicencia(input: LicenciaInput) {
     bseRateEmpresa: bseRate,
   });
   const jornalLiquido = multiplyFraction(maxBigInt(0n, baseLicencia - aportesMes.total), 1, 30);
-  const salarioVacacional = jornalLiquido * BigInt(input.diasHabilesTomar);
+  // Días pueden ser fraccionados (ej. 8,33): se multiplica el jornal líquido por
+  // la cantidad de días y se redondea al centésimo.
+  const salarioVacacional = BigInt(Math.round(Number(jornalLiquido) * input.diasHabilesTomar));
   const jornalLiquidoTxt = (Number(jornalLiquido) / 100).toFixed(2);
 
   const totalBruto = salarioVacacional;

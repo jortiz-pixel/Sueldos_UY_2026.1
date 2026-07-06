@@ -624,8 +624,8 @@ model Liquidation {
 
   year            Int
   month           Int
-  diasTrabajados  Int               @default(30)
-  diasHabiles     Int               @default(22)
+  diasTrabajados  Float             @default(30)
+  diasHabiles     Float             @default(22)
 
   totalHaberes    BigInt            @default(0)
   totalDescuentos BigInt            @default(0)
@@ -698,9 +698,9 @@ model VacationAccrual {
   id             String   @id @default(cuid())
   employeeId     String
   year           Int
-  diasCorresponden Int
-  diasTomados    Int      @default(0)
-  diasPendientes Int      @default(0)
+  diasCorresponden Float
+  diasTomados    Float    @default(0)
+  diasPendientes Float    @default(0)
   updatedAt      DateTime @updatedAt
   createdAt      DateTime @default(now())
 

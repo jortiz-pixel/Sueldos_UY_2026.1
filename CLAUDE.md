@@ -87,7 +87,8 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
   va en una liquidación especial aparte (tipo LICENCIA): jornal LÍQUIDO ((básico
   − aportes personales)/30) × días, EXENTO (sin descuentos). El líquido de la
   licencia gozada (jornal nominal − descuentos) y el del salario vacacional
-  (jornal líquido) coinciden por día.
+  (jornal líquido) coinciden por día. Admite días FRACCIONADOS (ej. 8,33): las
+  columnas de días (liquidación y saldo de vacaciones) son Float.
 - **Nómina BPS (ATYR v3.0)**: generador validado byte a byte contra archivo real
   de GNS (`N_0626_AMIG_8269951`). Registros 1/4/5/6/7/12; en nóminas el mes de
   cargo va NULO en 6/7 (en rectificativas va lleno y el reg. 4 sin mes).

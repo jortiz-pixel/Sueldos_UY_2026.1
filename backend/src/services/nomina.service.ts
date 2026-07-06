@@ -450,7 +450,7 @@ export async function importarNominaAtyr(contenido: string, commit: boolean): Pr
     // Salario nominal estimado desde el imponible del mes (base ficto 30).
     let salarioNominal = p.montoImponible;
     if (p.diasTrabajados > 0 && p.diasTrabajados < 30 && p.tipoRemuneracion === 1) {
-      salarioNominal = (p.montoImponible * 30n) / BigInt(p.diasTrabajados);
+      salarioNominal = (p.montoImponible * 30n) / BigInt(Math.round(p.diasTrabajados));
       detalles.push(`nominal estimado desde ${p.diasTrabajados} días`);
     }
     if (p.montoImponible === 0n) {
