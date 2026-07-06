@@ -499,6 +499,33 @@ employeesRouter.delete('/:id/contracts/:contractId', authenticate, requireRole(U
   } catch (err) { next(err); }
 });
 
+// DELETE /:id/contracts/:contractId/eliminar → ELIMINA el contrato (hard delete).
+// Para borrar contratos cargados por error. Solo si no fue usado en ninguna
+// liquidación (para no dejar huérfano el historial de sueldos).
+employeesRouter.delete('/:id/contracts/:contractId/eliminar', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const employee = await prisma.employee.findUnique({ where: { id: req.params.id } });
+    if (!employee) throw new NotFoundError('Empleado');
+    await assertPersonaAccess(req, employee.id, employee.companyId);
+
+    const contrato = await prisma.contrato.findUnique({ where: { id: req.params.contractId } });
+    if (!contrato || contrato.employeeId !== req.params.id) throw new NotFoundError('Contrato');
+    await assertCompanyAccess(req, contrato.companyId);
+
+    // No permitir borrar un contrato que ya se usó para liquidar (el snapshot de
+    // la liquidación guarda su contratoId).
+    const usadoEn = await prisma.liquidation.count({
+      where: { employeeId: employee.id, parametersSnapshot: { path: ['contratoId'], equals: req.params.contractId } },
+    });
+    if (usadoEn > 0) {
+      throw new AppError(409, `No se puede eliminar: el contrato tiene ${usadoEn} liquidación(es) asociada(s). Anulá esas liquidaciones o dá de baja el contrato en vez de eliminarlo.`);
+    }
+
+    await prisma.contrato.delete({ where: { id: req.params.contractId } });
+    res.json({ message: 'Contrato eliminado' });
+  } catch (err) { next(err); }
+});
+
 // GET /:id/contracts/:contractId/documento → contrato de trabajo en PDF (para firmar)
 employeesRouter.get('/:id/contracts/:contractId/documento', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {

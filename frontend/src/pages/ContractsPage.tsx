@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { Link } from 'react-router-dom';
-import { Eye, Plus, X, AlertCircle, Pencil, Printer } from 'lucide-react';
+import { Eye, Plus, X, AlertCircle, Pencil, Printer, Trash2 } from 'lucide-react';
 import { contractsApi, catalogsApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
@@ -140,6 +140,18 @@ export default function ContractsPage() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: (c: ContratoRow) => contractsApi.remove(c.employee.id, c.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['contracts-company', companyId] });
+      queryClient.invalidateQueries({ queryKey: ['nomina-checklist'] });
+    },
+    onError: (err: unknown) => {
+      const message = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      alert(message || 'No se pudo eliminar el contrato.');
+    },
+  });
+
   const fmt = (s?: string | null) => s ? new Date(s).toLocaleDateString('es-UY') : 'Vigente';
 
   return (
@@ -222,6 +234,20 @@ export default function ContractsPage() {
                         <Printer size={15} />
                       </button>
                       <Link to={`/employees/${c.employee.id}`} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg inline-flex" title="Ver persona"><Eye size={15} /></Link>
+                      {isOperator && (
+                        <button
+                          onClick={() => {
+                            if (confirm(`¿Eliminar el contrato N° ${c.numero} de ${c.employee.apellido}, ${c.employee.nombre}? Esta acción no se puede deshacer.`)) {
+                              deleteMutation.mutate(c as ContratoRow);
+                            }
+                          }}
+                          disabled={deleteMutation.isPending}
+                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg inline-flex"
+                          title="Eliminar contrato (solo si no tiene liquidaciones)"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

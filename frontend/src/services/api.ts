@@ -364,6 +364,7 @@ export const contractsApi = {
       `/employees/${employeeId}/contracts/${contractId}/baja`, { fechaEgreso, motivo, causalEgresoCod },
     ).then((r) => r.data),
   delete: (employeeId: string, contractId: string) => api.delete(`/employees/${employeeId}/contracts/${contractId}`).then((r) => r.data),
+  remove: (employeeId: string, contractId: string) => api.delete(`/employees/${employeeId}/contracts/${contractId}/eliminar`).then((r) => r.data),
   listByCompany: (companyId: string) =>
     api.get('/contracts', { params: { companyId } }).then((r) => r.data as Array<Contrato & { employee: { id: string; ci: string; nombre: string; apellido: string } }>),
   persons: () => api.get('/contracts/persons').then((r) => r.data as Array<{ id: string; ci: string; nombre: string; apellido: string }>),
