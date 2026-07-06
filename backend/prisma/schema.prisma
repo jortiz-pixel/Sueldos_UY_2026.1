@@ -121,6 +121,21 @@ model NominaDeclaracion {
   @@map("nomina_declaraciones")
 }
 
+// Persona excluida de un período (contrato vigente que NO se liquida ese mes:
+// subsidio, licencia sin goce, etc.). Reversible.
+model PeriodExclusion {
+  id         String   @id @default(cuid())
+  periodId   String
+  employeeId String
+  createdBy  String?
+  createdAt  DateTime @default(now())
+
+  period     PayrollPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@unique([periodId, employeeId])
+  @@map("period_exclusions")
+}
+
 // Datos del estudio contable (registro 12 de la declaración nominada BPS).
 model GestoriaConfig {
   id        String  @id @default("default")
@@ -594,6 +609,7 @@ model PayrollPeriod {
 
   company     Company      @relation(fields: [companyId], references: [id])
   liquidations Liquidation[]
+  exclusions  PeriodExclusion[]
 
   @@unique([companyId, year, month])
   @@map("payroll_periods")

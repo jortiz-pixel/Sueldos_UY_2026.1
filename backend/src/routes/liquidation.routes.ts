@@ -144,7 +144,42 @@ liquidationRouter.get('/period/:id/roster', authenticate, async (req: Request, r
       orderBy: [{ apellido: 'asc' }, { nombre: 'asc' }],
       select: { id: true, ci: true, employeeNumber: true, nombre: true, apellido: true, active: true, cargo: true, salarioNominal: true, fechaIngreso: true },
     });
-    res.json(employees.map((e) => ({ ...e, salarioNominal: e.salarioNominal.toString() })));
+    const excluidas = new Set(
+      (await prisma.periodExclusion.findMany({ where: { periodId: period.id }, select: { employeeId: true } }))
+        .map((x) => x.employeeId),
+    );
+    res.json(employees.map((e) => ({ ...e, salarioNominal: e.salarioNominal.toString(), excluido: excluidas.has(e.id) })));
+  } catch (err) { next(err); }
+});
+
+// POST /api/liquidation/period/:id/exclude { employeeId } — excluir a una persona
+// de la liquidación de ESTE período (no se liquida ni se incluye en 'Generar
+// todos'). Reversible. Bloquea si la persona ya tiene una liquidación en el mes.
+liquidationRouter.post('/period/:id/exclude', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { employeeId } = z.object({ employeeId: z.string().cuid() }).parse(req.body);
+    const period = await prisma.payrollPeriod.findUnique({ where: { id: req.params.id } });
+    if (!period) throw new NotFoundError('Período');
+    await assertCompanyAccess(req, period.companyId);
+    const yaLiquidada = await prisma.liquidation.findFirst({ where: { periodId: period.id, employeeId } });
+    if (yaLiquidada) throw new AppError(409, 'La persona ya tiene una liquidación en este período. Eliminá la liquidación primero.');
+    await prisma.periodExclusion.upsert({
+      where: { periodId_employeeId: { periodId: period.id, employeeId } },
+      create: { periodId: period.id, employeeId, createdBy: req.user!.userId },
+      update: {},
+    });
+    res.json({ message: 'Persona excluida del período' });
+  } catch (err) { next(err); }
+});
+
+// DELETE /api/liquidation/period/:id/exclude/:employeeId — volver a incluir.
+liquidationRouter.delete('/period/:id/exclude/:employeeId', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const period = await prisma.payrollPeriod.findUnique({ where: { id: req.params.id } });
+    if (!period) throw new NotFoundError('Período');
+    await assertCompanyAccess(req, period.companyId);
+    await prisma.periodExclusion.deleteMany({ where: { periodId: period.id, employeeId: req.params.employeeId } });
+    res.json({ message: 'Persona reincluida' });
   } catch (err) { next(err); }
 });
 
@@ -244,10 +279,17 @@ liquidationRouter.post('/generate-batch', authenticate, requireRole(UserRole.ADM
       distinct: ['employeeId'],
     });
 
+    // Saltar las personas excluidas del período (no se liquidan este mes).
+    const excluidas = new Set(
+      (await prisma.periodExclusion.findMany({ where: { periodId }, select: { employeeId: true } }))
+        .map((x) => x.employeeId),
+    );
+
     const results = [];
     const errors = [];
 
     for (const c of contratos) {
+      if (excluidas.has(c.employeeId)) continue;
       try {
         const result = await generarLiquidacionMensual({
           employeeId: c.employeeId,

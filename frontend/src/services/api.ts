@@ -379,7 +379,11 @@ export const liquidationApi = {
   confirmBatch: (periodId: string) => api.post('/liquidation/confirm-batch', { periodId }).then((r) => r.data as { confirmed: number; failed: number }),
   cerrarPeriodo: (periodId: string) => api.post(`/liquidation/periods/${periodId}/cerrar`).then((r) => r.data),
   periodRoster: (periodId: string) =>
-    api.get(`/liquidation/period/${periodId}/roster`).then((r) => r.data as Array<{ id: string; ci: string; employeeNumber?: number | null; nombre: string; apellido: string; active: boolean; cargo?: string | null; salarioNominal: string; fechaIngreso: string }>),
+    api.get(`/liquidation/period/${periodId}/roster`).then((r) => r.data as Array<{ id: string; ci: string; employeeNumber?: number | null; nombre: string; apellido: string; active: boolean; cargo?: string | null; salarioNominal: string; fechaIngreso: string; excluido: boolean }>),
+  excludeFromPeriod: (periodId: string, employeeId: string) =>
+    api.post(`/liquidation/period/${periodId}/exclude`, { employeeId }).then((r) => r.data),
+  includeInPeriod: (periodId: string, employeeId: string) =>
+    api.delete(`/liquidation/period/${periodId}/exclude/${employeeId}`).then((r) => r.data),
   generate: (data: object) => api.post('/liquidation/generate', data).then((r) => r.data),
   generateBatch: (data: object) => api.post('/liquidation/generate-batch', data).then((r) => r.data),
   generateAguinaldo: (data: object) => api.post('/liquidation/aguinaldo', data).then((r) => r.data),

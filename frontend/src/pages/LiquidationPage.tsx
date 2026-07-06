@@ -112,6 +112,18 @@ export default function LiquidationPage() {
     },
   });
 
+  const excludeMutation = useMutation({
+    mutationFn: ({ employeeId, incluir }: { employeeId: string; incluir?: boolean }) =>
+      incluir
+        ? liquidationApi.includeInPeriod(selectedPeriodId!, employeeId)
+        : liquidationApi.excludeFromPeriod(selectedPeriodId!, employeeId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['period-roster', selectedPeriodId] }),
+    onError: (err: unknown) => {
+      const m = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      alert(m || 'No se pudo actualizar la exclusión.');
+    },
+  });
+
   const selectedPeriod = periods?.find((p: PayrollPeriod) => p.id === selectedPeriodId);
 
   const batchMutation = useMutation({
@@ -167,7 +179,9 @@ export default function LiquidationPage() {
   const roster = rosterData ?? [];
   const hayBorradores = liquidaciones.some((l) => l.status === 'BORRADOR');
   const empConMensual = new Set(liquidaciones.filter((l) => l.type === 'MENSUAL').map((l) => l.employeeId));
-  const pendientes = roster.filter((emp) => !empConMensual.has(emp.id));
+  const sinLiquidar = roster.filter((emp) => !empConMensual.has(emp.id));
+  const pendientes = sinLiquidar.filter((emp) => !emp.excluido);
+  const excluidas = sinLiquidar.filter((emp) => emp.excluido);
   const liquidados = empConMensual.size;
 
   return (
@@ -390,9 +404,40 @@ export default function LiquidationPage() {
                             <td className="px-4 py-2.5 text-right font-mono text-xs">—</td>
                             <td className="px-4 py-2.5"><span className="badge-gray badge">Pendiente</span></td>
                             <td className="px-4 py-2.5">
+                              <div className="flex items-center gap-1">
+                                {isOperator && (
+                                  <button onClick={() => genOneMutation.mutate(emp.id)} disabled={genOneMutation.isPending} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded" title="Generar mensual">
+                                    <Play size={14} />
+                                  </button>
+                                )}
+                                {isOperator && (
+                                  <button
+                                    onClick={() => { if (confirm(`¿Excluir a ${emp.apellido}, ${emp.nombre} de la liquidación de este mes?\n\nNo se liquida ni se incluye en 'Generar todos'. Podés volver a incluirla cuando quieras.`)) excludeMutation.mutate({ employeeId: emp.id }); }}
+                                    className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
+                                    title="Excluir de la liquidación de este mes"
+                                  >
+                                    <X size={14} />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                        {excluidas.map((emp) => (
+                          <tr key={emp.id} className="bg-gray-50/60 opacity-70">
+                            <td className="px-4 py-2.5 text-sm text-gray-500 font-medium line-through">{emp.apellido}, {emp.nombre}</td>
+                            <td className="px-4 py-2.5 text-right font-mono text-xs">—</td>
+                            <td className="px-4 py-2.5 text-right font-mono text-xs">—</td>
+                            <td className="px-4 py-2.5 text-right font-mono text-xs">—</td>
+                            <td className="px-4 py-2.5"><span className="badge-gray badge">Excluida del mes</span></td>
+                            <td className="px-4 py-2.5">
                               {isOperator && (
-                                <button onClick={() => genOneMutation.mutate(emp.id)} disabled={genOneMutation.isPending} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded" title="Generar mensual">
-                                  <Play size={14} />
+                                <button
+                                  onClick={() => excludeMutation.mutate({ employeeId: emp.id, incluir: true })}
+                                  className="inline-flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 hover:bg-brand-50 px-2 py-1 rounded"
+                                  title="Volver a incluir en la liquidación de este mes"
+                                >
+                                  <RotateCcw size={13} /> Reincluir
                                 </button>
                               )}
                             </td>
