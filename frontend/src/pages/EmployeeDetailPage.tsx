@@ -51,6 +51,11 @@ export default function EmployeeDetailPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingContract, setEditingContract] = useState<Contrato | null>(null);
   const [formError, setFormError] = useState('');
+  // Modal de baja: contrato a dar de baja + fecha de egreso + causal (Tabla 9) + motivo.
+  const [bajaContract, setBajaContract] = useState<Contrato | null>(null);
+  const [bajaFecha, setBajaFecha] = useState('');
+  const [bajaCausal, setBajaCausal] = useState('');
+  const [bajaMotivo, setBajaMotivo] = useState('');
 
   const { data: employee, isLoading } = useQuery({
     queryKey: ['employee', id],
@@ -63,6 +68,7 @@ export default function EmployeeDetailPage() {
   const { data: segurosSalud } = useQuery({ queryKey: ['cat-seguros-salud'], queryFn: () => catalogsApi.segurosSalud(), staleTime: Infinity });
   const { data: computos } = useQuery({ queryKey: ['cat-computos'], queryFn: () => catalogsApi.computosEspeciales(), staleTime: Infinity });
   const { data: exoneraciones } = useQuery({ queryKey: ['cat-exoneraciones'], queryFn: () => catalogsApi.exoneracionesAporte(), staleTime: Infinity });
+  const { data: causales } = useQuery({ queryKey: ['cat-causales-egreso'], queryFn: () => catalogsApi.causalesEgreso(), staleTime: Infinity });
 
   const { data: contratos } = useQuery({
     queryKey: ['employee-contracts', id],
@@ -204,20 +210,25 @@ export default function EmployeeDetailPage() {
   };
 
   const handleBaja = (c: Contrato) => {
-    if (!confirm('Dar de baja cierra el contrato y genera la liquidación final (egreso) a la fecha indicada. ¿Continuar?')) return;
-    const fecha = prompt('Fecha de egreso / baja (AAAA-MM-DD):', new Date().toISOString().slice(0, 10));
-    if (!fecha) return;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) { alert('Fecha inválida. Usá el formato AAAA-MM-DD.'); return; }
-    // Causal de egreso BPS (Tabla 9 del codificador) — opcional.
-    const causalRaw = prompt(
-      'Causal de egreso (BPS Tabla 9) — código:\n'
-      + '1 Voluntario · 2 Despido · 3 Fallecimiento · 4 Término de Contrato · 5 Jubilación · 50 Otros motivos\n'
-      + '(dejar vacío si no corresponde)',
-      '1',
+    setBajaContract(c);
+    setBajaFecha(new Date().toISOString().slice(0, 10));
+    setBajaCausal('');
+    setBajaMotivo('');
+  };
+
+  const confirmarBaja = () => {
+    if (!bajaContract) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(bajaFecha)) { alert('Indicá la fecha de egreso.'); return; }
+    if (!bajaCausal) { alert('Seleccioná la causal de egreso.'); return; }
+    bajaMutation.mutate(
+      {
+        contractId: bajaContract.id,
+        fechaEgreso: bajaFecha,
+        causalEgresoCod: Number(bajaCausal),
+        motivo: bajaMotivo.trim() || undefined,
+      },
+      { onSuccess: () => setBajaContract(null) },
     );
-    const causalEgresoCod = causalRaw && /^\d+$/.test(causalRaw.trim()) ? Number(causalRaw.trim()) : undefined;
-    const motivo = prompt('Motivo de la baja (opcional):') || undefined;
-    bajaMutation.mutate({ contractId: c.id, fechaEgreso: fecha, motivo, causalEgresoCod });
   };
 
   const openNew = () => {
@@ -599,6 +610,45 @@ export default function EmployeeDetailPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de baja: fecha de egreso + causal (BPS Tabla 9) + motivo */}
+      {bajaContract && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <h2 className="text-lg font-bold text-gray-900">Dar de baja — {employee?.nombre} {employee?.apellido}</h2>
+              <button onClick={() => setBajaContract(null)} className="p-1 text-gray-400 hover:text-gray-700"><X size={20} /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
+                <AlertCircle size={15} className="flex-shrink-0 mt-0.5" />
+                Cierra el contrato a la fecha de egreso y genera la liquidación final (egreso) en BORRADOR.
+              </div>
+              <div>
+                <label className="form-label">Fecha de egreso *</label>
+                <input type="date" value={bajaFecha} onChange={(e) => setBajaFecha(e.target.value)} className="form-input" />
+              </div>
+              <div>
+                <label className="form-label">Causal de egreso (BPS Tabla 9) *</label>
+                <select value={bajaCausal} onChange={(e) => setBajaCausal(e.target.value)} className="form-input">
+                  <option value="">— Seleccionar causal —</option>
+                  {causales?.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} — {c.nombre}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="form-label">Motivo (opcional)</label>
+                <input value={bajaMotivo} onChange={(e) => setBajaMotivo(e.target.value)} className="form-input" placeholder="Detalle interno" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 px-6 py-4 border-t border-gray-100">
+              <button type="button" onClick={() => setBajaContract(null)} className="btn-secondary">Cancelar</button>
+              <button type="button" onClick={confirmarBaja} disabled={bajaMutation.isPending} className="btn-danger">
+                {bajaMutation.isPending ? 'Procesando...' : 'Dar de baja'}
+              </button>
+            </div>
           </div>
         </div>
       )}
