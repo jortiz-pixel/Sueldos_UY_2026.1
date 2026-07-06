@@ -55,6 +55,11 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
   proporcionales, ficto 30). Baja = cierra contrato + causal BPS (Tabla 9) +
   liquidación final automática (aguinaldo/licencia/vacacional proporcionales; IPD).
 - **Contrato a prueba** = modalidad de 90 días rescindible sin IPD (no es un borrador).
+- **FALTAS**: reducen el nominal imponible. Se procesan ANTES de los aportes:
+  su monto se resta del total de haberes gravados y BPS/FONASA/FRL/IRPF se
+  calculan sobre la base ya reducida (aporta sobre lo efectivamente ganado). La
+  línea sigue figurando como descuento obrero (netea el líquido) pero no se
+  duplica en los descuentos genéricos. Detección por código `FALTAS`.
 - **Licencias**: Ley 12.590 (20/25/30 días por antigüedad; proporcional 1er año);
   días sin domingos; anticipos permitidos con confirmación. Al liquidar (estilo
   GNS): la licencia GOZADA se paga en la MENSUALIDAD, desglosando el sueldo en
