@@ -5,7 +5,7 @@
 import { LiquidationType, LiquidationStatus, ItemType, Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { multiplyFraction, maxBigInt } from '../utils/money';
-import { calcularAportesObreros, calcularAportesPatronales } from './bps.service';
+import { calcularAportesObreros, calcularAportesPatronales, fonasaCargasDeSeguroSalud } from './bps.service';
 import { calcularIrpfMensual } from './irpf.service';
 import { parametersService } from './parameters.service';
 import {
@@ -200,49 +200,88 @@ export async function calcularLiquidacionFinal(
   const year = fechaEgreso.getFullYear();
   const month = fechaEgreso.getMonth() + 1;
 
+  // Jornal nominal (básico / 30): base de la licencia no gozada y del salario
+  // vacacional por egreso (ambos EXENTOS en la liquidación final).
+  const jornalNominal = multiplyFraction(salarioBase, 1, 30);
+  const jornalTxt = (Number(jornalNominal) / 100).toFixed(2);
+
+  // Causal de egreso (Tabla 9): solo el DESPIDO (2) genera indemnización (IPD) y
+  // preaviso. El retiro voluntario, término de contrato, etc. no.
+  const causal = contrato?.causalEgresoCod ?? null;
+  const generaIndemnizacion = causal === 2;
+
   const antiguedadMeses = calcularAntiguedadMeses(employee.fechaIngreso, fechaEgreso);
   const antiguedadAnios = Math.floor(antiguedadMeses / 12);
 
-  const mesesIndemnizacion = Math.min(antiguedadAnios, 6);
+  const mesesIndemnizacion = generaIndemnizacion ? Math.min(antiguedadAnios, 6) : 0;
   const indemnizacion = salarioBase * BigInt(mesesIndemnizacion);
 
-  const diasPraveiso = diasPreavisoCorrespondientes(antiguedadMeses);
-  const salarioDiario = multiplyFraction(salarioBase, 1, 30);
-  const preaviso = salarioDiario * BigInt(diasPraveiso);
+  const diasPraveiso = generaIndemnizacion ? diasPreavisoCorrespondientes(antiguedadMeses) : 0;
+  const preaviso = jornalNominal * BigInt(diasPraveiso);
 
-  const mesInicioSemestre = month <= 6 ? 1 : 7;
-  const mesesEnSemestre = month - mesInicioSemestre + 1;
-  const aguinaldoProporcional = multiplyFraction(
-    salarioBase * BigInt(mesesEnSemestre),
-    1, 12,
-  );
-
+  // Días de licencia NO GOZADA: proporcional al tiempo trabajado en el año del
+  // egreso (días de licencia/año × días trabajados / 360), menos los ya tomados.
   const diasLicenciaAnuales = diasLicenciaCorrespondientes(antiguedadAnios);
+  const inicioAnio = new Date(year, 0, 1);
+  const desdeLic = employee.fechaIngreso > inicioAnio ? employee.fechaIngreso : inicioAnio;
+  const diasTrabajadosAnio = Math.max(0, Math.round((fechaEgreso.getTime() - desdeLic.getTime()) / 86400000));
   const accrual = await prisma.vacationAccrual.findUnique({
     where: { employeeId_year: { employeeId, year } },
   });
   const diasTomados = accrual?.diasTomados ?? 0;
-  const mesesTrabajadosAnio = month;
-  const diasLicenciaProporcional = Math.round(diasLicenciaAnuales * mesesTrabajadosAnio / 12);
-  const diasLicenciaPendientes = Math.max(0, diasLicenciaProporcional - diasTomados);
-  const licenciaPendiente = multiplyFraction(salarioBase, diasLicenciaPendientes, 25);
-  const salarioVacacionalPendiente = licenciaPendiente;
+  // Se redondea a 2 decimales (criterio GNS: los días redondeados se multiplican
+  // por el jornal, ej. 4,72 × 1036,48).
+  const diasNoGozadas = Math.max(0, Math.round(((diasLicenciaAnuales * diasTrabajadosAnio) / 360 - diasTomados) * 100) / 100);
+  const diasNoGozadasTxt = diasNoGozadas.toFixed(2);
+  const licenciaNoGozada = BigInt(Math.round(Number(jornalNominal) * diasNoGozadas));
+  const salarioVacacionalEgreso = licenciaNoGozada; // por egreso: mismo importe, exento
 
-  const totalBruto = indemnizacion + preaviso + aguinaldoProporcional
-    + licenciaPendiente + salarioVacacionalPendiente;
+  // Aguinaldo por egreso: 1/12 de los haberes de las mensuales del semestre EN
+  // CURSO (aún no aguinaldado) hasta el mes de egreso. El aguinaldo del semestre
+  // ya cerrado se pagó en su mes (junio/diciembre) y no se vuelve a incluir.
+  const mesesAg: { year: number; month: number }[] = [];
+  if (month >= 6 && month <= 11) {
+    for (let m = 6; m <= month; m++) mesesAg.push({ year, month: m });
+  } else if (month === 12) {
+    mesesAg.push({ year, month: 12 });
+  } else {
+    mesesAg.push({ year: year - 1, month: 12 });
+    for (let m = 1; m <= month; m++) mesesAg.push({ year, month: m });
+  }
+  const liqsSemestre = await prisma.liquidation.findMany({
+    where: {
+      employeeId, type: LiquidationType.MENSUAL,
+      status: { in: [LiquidationStatus.BORRADOR, LiquidationStatus.CONFIRMADO] },
+      OR: mesesAg,
+    },
+    select: { totalHaberes: true },
+  });
+  const haberesSemestre = liqsSemestre.reduce((s, l) => s + l.totalHaberes, 0n);
+  const aguinaldoEgreso = multiplyFraction(haberesSemestre, 1, 12);
 
-  const baseBpsIrpf = aguinaldoProporcional + licenciaPendiente + salarioVacacionalPendiente;
+  const totalBruto = indemnizacion + preaviso + aguinaldoEgreso
+    + licenciaNoGozada + salarioVacacionalEgreso;
+
+  // Solo el aguinaldo integra la base de aportes/IRPF. La indemnización, el
+  // preaviso, la licencia no gozada y el salario vacacional van EXENTOS.
+  const baseBpsIrpf = aguinaldoEgreso;
+
+  // FONASA adicional según el seguro de salud del contrato (respaldo: empleado).
+  const cargasFonasa = fonasaCargasDeSeguroSalud(contrato?.seguroSalud);
+  const fonasaHijos = cargasFonasa ? (cargasFonasa.hijos ? 1 : 0) : employee.hijosACargo;
+  const fonasaConyuge = cargasFonasa ? cargasFonasa.conyuge : employee.conyugeACargo;
+
   const aportesObreros = calcularAportesObreros({
     salarioNominal: baseBpsIrpf,
-    hijosACargo: employee.hijosACargo,
-    conyugeACargo: employee.conyugeACargo,
+    hijosACargo: fonasaHijos,
+    conyugeACargo: fonasaConyuge,
     params,
     bseRateEmpresa: bseRate,
   });
   const aportesPatronales = calcularAportesPatronales({
     salarioNominal: baseBpsIrpf,
-    hijosACargo: employee.hijosACargo,
-    conyugeACargo: employee.conyugeACargo,
+    hijosACargo: fonasaHijos,
+    conyugeACargo: fonasaConyuge,
     params,
     bseRateEmpresa: bseRate,
   });
@@ -281,7 +320,7 @@ export async function calcularLiquidacionFinal(
       status: LiquidationStatus.BORRADOR,
       year,
       month,
-      diasTrabajados: mesesTrabajadosAnio * 30,
+      diasTrabajados: diasTrabajadosAnio,
       totalHaberes: totalBruto,
       totalDescuentos,
       totalPatronal: aportesPatronales.total,
@@ -300,66 +339,72 @@ export async function calcularLiquidacionFinal(
   await prisma.payrollItem.deleteMany({ where: { liquidationId: liquidacion.id } });
   await prisma.payrollItem.createMany({
     data: [
-      {
+      // HABERES. Indemnización y preaviso solo por despido; ambos EXENTOS.
+      ...(indemnizacion > 0n ? [{
         liquidationId: liquidacion.id, employeeId, itemType: ItemType.HABER,
         concepto: 'INDEMNIZACION', descripcion: `Indemnización por despido (${mesesIndemnizacion} meses)`,
         baseCalculo: salarioBase, rate: null, amount: indemnizacion,
         calculationDetail: { mesesIndemnizacion, antiguedadAnios } as unknown as Prisma.InputJsonValue,
-      },
-      {
+      }] : []),
+      ...(preaviso > 0n ? [{
         liquidationId: liquidacion.id, employeeId, itemType: ItemType.HABER,
         concepto: 'PREAVISO', descripcion: `Preaviso (${diasPraveiso} días)`,
-        baseCalculo: salarioDiario, rate: null, amount: preaviso,
+        baseCalculo: jornalNominal, rate: null, amount: preaviso,
         calculationDetail: { diasPraveiso } as unknown as Prisma.InputJsonValue,
-      },
-      {
-        liquidationId: liquidacion.id, employeeId, itemType: ItemType.HABER,
-        concepto: 'AGUINALDO_PROPORCIONAL', descripcion: `Proporcional aguinaldo (${mesesEnSemestre} meses)`,
-        baseCalculo: salarioBase, rate: null, amount: aguinaldoProporcional,
-        calculationDetail: { mesesEnSemestre } as unknown as Prisma.InputJsonValue,
-      },
-      {
-        liquidationId: liquidacion.id, employeeId, itemType: ItemType.HABER,
-        concepto: 'LICENCIA_PENDIENTE', descripcion: `Licencia pendiente (${diasLicenciaPendientes} días)`,
-        baseCalculo: salarioBase, rate: null, amount: licenciaPendiente,
-        calculationDetail: { diasLicenciaPendientes, diasTomados } as unknown as Prisma.InputJsonValue,
-      },
-      {
-        liquidationId: liquidacion.id, employeeId, itemType: ItemType.HABER,
-        concepto: 'SALARIO_VACACIONAL', descripcion: 'Salario vacacional sobre licencia pendiente',
-        baseCalculo: licenciaPendiente, rate: 10000, amount: salarioVacacionalPendiente,
-        calculationDetail: Prisma.DbNull,
-      },
-      {
-        liquidationId: liquidacion.id, employeeId, itemType: ItemType.DESCUENTO_OBRERO,
-        concepto: 'BPS_JUBILATORIO', descripcion: 'BPS Jubilatorio',
-        baseCalculo: baseBpsIrpf, rate: params.bpsJubilatorioRate, amount: aportesObreros.jubilatorio,
-        calculationDetail: Prisma.DbNull,
-      },
-      {
-        liquidationId: liquidacion.id, employeeId, itemType: ItemType.DESCUENTO_OBRERO,
-        concepto: 'FONASA', descripcion: 'FONASA (Seguro por Enfermedad)',
-        baseCalculo: baseBpsIrpf, rate: aportesObreros.detail.fonasaSeguroRate, amount: aportesObreros.fonasaBasico,
-        calculationDetail: Prisma.DbNull,
-      },
-      ...(aportesObreros.fonasaFamilia > 0n ? [{
-        liquidationId: liquidacion.id, employeeId, itemType: ItemType.DESCUENTO_OBRERO,
-        concepto: 'FONASA_ADICIONAL', descripcion: 'Adicional FONASA',
-        baseCalculo: baseBpsIrpf, rate: aportesObreros.detail.fonasaAdicionalRate, amount: aportesObreros.fonasaFamilia,
-        calculationDetail: Prisma.DbNull,
       }] : []),
-      {
-        liquidationId: liquidacion.id, employeeId, itemType: ItemType.DESCUENTO_OBRERO,
-        concepto: 'FRL', descripcion: 'Fondo de Reconversión Laboral',
-        baseCalculo: baseBpsIrpf, rate: params.frlObreroRate, amount: aportesObreros.frl,
-        calculationDetail: Prisma.DbNull,
-      },
-      ...(irpfResult.retencionMensual > 0n ? [{
-        liquidationId: liquidacion.id, employeeId, itemType: ItemType.DESCUENTO_OBRERO,
-        concepto: 'IRPF', descripcion: 'IRPF',
-        baseCalculo: baseBpsIrpf, rate: null, amount: irpfResult.retencionMensual,
-        calculationDetail: Prisma.DbNull,
+      // Licencia no gozada + salario vacacional por egreso: días × jornal nominal, EXENTOS.
+      ...(licenciaNoGozada > 0n ? [{
+        liquidationId: liquidacion.id, employeeId, itemType: ItemType.HABER,
+        concepto: 'LICENCIA_NO_GOZADA', descripcion: `Lic. No Gozada ${diasNoGozadasTxt} x ${jornalTxt}`,
+        baseCalculo: jornalNominal, rate: null, amount: licenciaNoGozada,
+        calculationDetail: { diasNoGozadas, diasTomados, exento: true } as unknown as Prisma.InputJsonValue,
       }] : []),
+      ...(salarioVacacionalEgreso > 0n ? [{
+        liquidationId: liquidacion.id, employeeId, itemType: ItemType.HABER,
+        concepto: 'SALARIO_VACACIONAL', descripcion: `Salario Vacacional x Egreso ${diasNoGozadasTxt} x ${jornalTxt}`,
+        baseCalculo: jornalNominal, rate: null, amount: salarioVacacionalEgreso,
+        calculationDetail: { diasNoGozadas, exento: true } as unknown as Prisma.InputJsonValue,
+      }] : []),
+      // Aguinaldo por egreso (GRAVADO): 1/12 de los haberes del semestre en curso.
+      ...(aguinaldoEgreso > 0n ? [{
+        liquidationId: liquidacion.id, employeeId, itemType: ItemType.HABER,
+        concepto: 'AGUINALDO', descripcion: 'Aguinaldo',
+        baseCalculo: null, rate: null, amount: aguinaldoEgreso,
+        calculationDetail: { haberesSemestre: haberesSemestre.toString(), formula: 'haberes_semestre_en_curso/12' } as unknown as Prisma.InputJsonValue,
+      }] : []),
+      // DESCUENTOS: solo sobre el aguinaldo (única partida gravada de la final).
+      ...(aguinaldoEgreso > 0n ? [
+        {
+          liquidationId: liquidacion.id, employeeId, itemType: ItemType.DESCUENTO_OBRERO,
+          concepto: 'BPS_JUBILATORIO', descripcion: 'BPS Jubilatorio',
+          baseCalculo: baseBpsIrpf, rate: params.bpsJubilatorioRate, amount: aportesObreros.jubilatorio,
+          calculationDetail: Prisma.DbNull,
+        },
+        {
+          liquidationId: liquidacion.id, employeeId, itemType: ItemType.DESCUENTO_OBRERO,
+          concepto: 'FONASA', descripcion: 'FONASA (Seguro por Enfermedad)',
+          baseCalculo: baseBpsIrpf, rate: aportesObreros.detail.fonasaSeguroRate, amount: aportesObreros.fonasaBasico,
+          calculationDetail: Prisma.DbNull,
+        },
+        ...(aportesObreros.fonasaFamilia > 0n ? [{
+          liquidationId: liquidacion.id, employeeId, itemType: ItemType.DESCUENTO_OBRERO,
+          concepto: 'FONASA_ADICIONAL', descripcion: 'Adicional FONASA',
+          baseCalculo: baseBpsIrpf, rate: aportesObreros.detail.fonasaAdicionalRate, amount: aportesObreros.fonasaFamilia,
+          calculationDetail: Prisma.DbNull,
+        }] : []),
+        {
+          liquidationId: liquidacion.id, employeeId, itemType: ItemType.DESCUENTO_OBRERO,
+          concepto: 'FRL', descripcion: 'Fondo de Reconversión Laboral',
+          baseCalculo: baseBpsIrpf, rate: params.frlObreroRate, amount: aportesObreros.frl,
+          calculationDetail: Prisma.DbNull,
+        },
+        ...(irpfResult.retencionMensual > 0n ? [{
+          liquidationId: liquidacion.id, employeeId, itemType: ItemType.DESCUENTO_OBRERO,
+          concepto: 'IRPF', descripcion: 'IRPF',
+          baseCalculo: baseBpsIrpf, rate: null, amount: irpfResult.retencionMensual,
+          calculationDetail: Prisma.DbNull,
+        }] : []),
+      ] : []),
     ],
   });
 
@@ -370,9 +415,10 @@ export async function calcularLiquidacionFinal(
     liquidacionId: liquidacion.id,
     indemnizacion,
     preaviso,
-    aguinaldoProporcional,
-    licenciaPendiente,
-    salarioVacacionalPendiente,
+    aguinaldoEgreso,
+    licenciaNoGozada,
+    salarioVacacionalEgreso,
+    diasNoGozadas,
     totalBruto,
     totalDescuentos,
     liquidoPercibir,

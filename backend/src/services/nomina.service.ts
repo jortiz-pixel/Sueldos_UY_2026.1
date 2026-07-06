@@ -41,7 +41,7 @@ function nombreBps(s: string | null | undefined): string {
 function codigoConceptoBps(concepto: string, codBpsConfigurado?: number | null): number | null {
   if (concepto.startsWith('AGUINALDO')) return 2;
   if (concepto === 'SALARIO_VACACIONAL') return 41;
-  if (concepto === 'LICENCIA_PENDIENTE') return 5; // licencia no gozada: gravada IRPF, no CESS
+  if (concepto === 'LICENCIA_NO_GOZADA' || concepto === 'LICENCIA_PENDIENTE') return 5; // licencia no gozada: gravada IRPF, no CESS
   if (concepto === 'INDEMNIZACION' || concepto === 'PREAVISO') return null;
   return codBpsConfigurado ?? 1; // monto imponible mensual
 }

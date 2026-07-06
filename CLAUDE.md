@@ -72,7 +72,14 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
   empresas); legajo (`employeeNumber`) único por empresa. La liquidación es POR
   CONTRATO: contrato que SOLAPA el mes (altas/bajas a mitad de mes → días
   proporcionales, ficto 30). Baja = cierra contrato + causal BPS (Tabla 9) +
-  liquidación final automática (aguinaldo/licencia/vacacional proporcionales; IPD).
+  liquidación final automática. En la FINAL (validada contra recibo GNS Agustín
+  Araujo, Amigo Fiel, egreso 9/6 voluntario): licencia NO gozada y salario
+  vacacional por egreso = días × jornal nominal (básico/30), EXENTOS; días =
+  días_licencia_año × días_trabajados_año/360 − tomados (redondeo 2 decimales).
+  Aguinaldo por egreso = 1/12 de los haberes de las mensuales del semestre EN
+  CURSO hasta el egreso (el semestre ya cerrado se pagó en junio/diciembre, no
+  se re-incluye) — es la ÚNICA partida gravada. Indemnización (IPD) y preaviso
+  SOLO por despido (causal 2); voluntario/término de contrato no llevan.
 - **Contrato a prueba** = modalidad de 90 días rescindible sin IPD (no es un borrador).
 - **FALTAS** (estilo GNS, recibo Belén Martínez): figuran del lado de los
   HABERES como un haber NEGATIVO (días × jornal). Así el "Total de Haberes" ya
