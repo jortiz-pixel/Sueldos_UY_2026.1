@@ -152,7 +152,10 @@ nómina, BPS, IRPF) · Accesos · Auditoría (solo ADMIN) · Parámetros.
 
 1. Consolidado multi-empresa (fin de mes del estudio en una pantalla).
 2. Email de recibos a empleados.
-3. Planilla de pagos al banco (y formatos BROU/Abitab).
+3. ~~Planilla de pagos al banco~~ HECHA (Reportes → "Pagos al banco": Excel
+   genérico + TXT multipago BROU + CSV; datos bancarios en la ficha de la
+   persona; si un banco exige layout exacto, pedir plantilla y replicar).
+   También HECHO el asiento contable del mes (Reportes → "Asiento contable").
 4. Multi-aportación por RUT (un RUT con varias aportaciones/números BPS) — hacer
    cuando aparezca el cliente que lo necesite.
 5. Archivo D de BPS (deducciones) — completa la familia N/R/D.

@@ -468,7 +468,43 @@ export const reportsApi = {
     api.get<CostoPersonalReport>('/reports/costo-personal', { params }).then((r) => r.data),
   acumuladoAnual: (companyId: string, year: number) =>
     api.get<AcumuladoAnual>('/reports/acumulado-anual', { params: { companyId, year } }).then((r) => r.data),
+  pagosBanco: (params: { companyId?: string; year: number; month: number }) =>
+    api.get<PagosBancoReport>('/reports/pagos-banco', { params }).then((r) => r.data),
+  pagosBancoArchivo: (companyId: string, year: number, month: number, formato: 'xlsx' | 'brou' | 'csv') =>
+    api.get(`/reports/pagos-banco/archivo`, { params: { companyId, year, month, formato }, responseType: 'blob' }).then((r) => r.data as Blob),
+  asiento: (params: { companyId?: string; year: number; month: number }) =>
+    api.get<AsientoReport>('/reports/asiento', { params }).then((r) => r.data),
+  asientoExcel: (companyId: string, year: number, month: number) =>
+    api.get('/reports/asiento/excel', { params: { companyId, year, month }, responseType: 'blob' }).then((r) => r.data as Blob),
 };
+
+export interface FilaPagoBanco {
+  employeeId: string;
+  legajo: number | null;
+  ci: string;
+  nombre: string;
+  banco: string;
+  sucursal: string;
+  cuenta: string;
+  moneda: string;
+  liquidoPesos: number;
+  liquidaciones: number;
+  sinCuenta: boolean;
+}
+export interface PagosBancoReport {
+  filas: FilaPagoBanco[];
+  totalPesos: number;
+  confirmadas: number;
+  avisos: string[];
+}
+export interface LineaAsiento { cuenta: string; debe: string; haber: string }
+export interface AsientoReport {
+  lineas: LineaAsiento[];
+  totalDebe: string;
+  totalHaber: string;
+  balanceado: boolean;
+  liquidaciones: number;
+}
 
 export interface AcumuladoAnual extends ResumenPagos {
   year: number;

@@ -98,6 +98,10 @@ export interface Employee {
   hijosDiscapacitados: number;
   irpfMetodo: 'PROYECCION' | 'SIMPLIFICADO';
   fonasaFamilia: boolean;
+  banco?: string | null;
+  bancoSucursal?: string | null;
+  bancoCuenta?: string | null;
+  bancoMoneda?: string | null;
   observaciones?: string;
   active: boolean;
   antiguedadAnios?: number;

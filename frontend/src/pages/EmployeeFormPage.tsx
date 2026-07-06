@@ -31,6 +31,10 @@ interface EmployeeForm {
   hijosDiscapacitados: number;
   irpfMetodo: 'PROYECCION' | 'SIMPLIFICADO';
   fonasaFamilia: boolean;
+  banco?: string;
+  bancoSucursal?: string;
+  bancoCuenta?: string;
+  bancoMoneda?: 'UYU' | 'USD';
   observaciones?: string;
   // Contrato (solo alta)
   companyId: string;
@@ -51,7 +55,7 @@ const emptyForm: EmployeeForm = {
   ci: '', nombre: '', nombre2: '', apellido: '', apellido2: '', fechaNacimiento: '', sexo: '', nacionalidad: 1, estadoCivil: 'SOLTERO',
   email: '', telefono: '', domicilio: '', localidad: '', departamento: '',
   conyugeACargo: false, hijosACargo: 0, hijosDiscapacitados: 0,
-  irpfMetodo: 'PROYECCION', fonasaFamilia: false, observaciones: '',
+  irpfMetodo: 'PROYECCION', fonasaFamilia: false, banco: '', bancoSucursal: '', bancoCuenta: '', bancoMoneda: 'UYU', observaciones: '',
   companyId: '', fechaIngreso: '', cargo: '', categoria: '', nivel: '',
   salaryType: 'MENSUAL', salarioNominalPesos: 0, jornalPesos: 0,
   vinculoFuncional: '12', seguroSalud: '', horasSemanales: 44,
@@ -99,6 +103,8 @@ export default function EmployeeFormPage() {
         conyugeACargo: employee.conyugeACargo, hijosACargo: employee.hijosACargo,
         hijosDiscapacitados: employee.hijosDiscapacitados,
         irpfMetodo: employee.irpfMetodo, fonasaFamilia: employee.fonasaFamilia,
+        banco: employee.banco ?? '', bancoSucursal: employee.bancoSucursal ?? '',
+        bancoCuenta: employee.bancoCuenta ?? '', bancoMoneda: (employee.bancoMoneda as 'UYU' | 'USD') ?? 'UYU',
         observaciones: employee.observaciones ?? '',
       });
     }
@@ -120,6 +126,8 @@ export default function EmployeeFormPage() {
         conyugeACargo: data.conyugeACargo, hijosACargo: Number(data.hijosACargo),
         hijosDiscapacitados: Number(data.hijosDiscapacitados),
         irpfMetodo: data.irpfMetodo, fonasaFamilia: data.fonasaFamilia,
+        banco: data.banco || undefined, bancoSucursal: data.bancoSucursal || undefined,
+        bancoCuenta: data.bancoCuenta || undefined, bancoMoneda: data.bancoMoneda || undefined,
         observaciones: data.observaciones || undefined,
       };
       if (isEdit) {
@@ -304,6 +312,34 @@ export default function EmployeeFormPage() {
                 <input {...register('fonasaFamilia')} type="checkbox" className="rounded" />
                 Hijos en FONASA (+1.5%)
               </label>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-2">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400">Pago de sueldo (planilla al banco)</h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div>
+              <label className="form-label">Banco</label>
+              <select {...register('banco')} className="form-input">
+                <option value="">—</option>
+                {['BROU', 'Santander', 'Itaú', 'BBVA', 'Scotiabank', 'HSBC', 'Bandes', 'Prex', 'Mi Dinero', 'Otro'].map((b) => <option key={b} value={b}>{b}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="form-label">Sucursal</label>
+              <input {...register('bancoSucursal')} className="form-input" placeholder="Ej. eBrou / 19" />
+            </div>
+            <div>
+              <label className="form-label">Nº de cuenta</label>
+              <input {...register('bancoCuenta')} className="form-input" placeholder="Cuenta para acreditar" />
+            </div>
+            <div>
+              <label className="form-label">Moneda</label>
+              <select {...register('bancoMoneda')} className="form-input">
+                <option value="UYU">UYU — Pesos</option>
+                <option value="USD">USD — Dólares</option>
+              </select>
             </div>
           </div>
         </section>

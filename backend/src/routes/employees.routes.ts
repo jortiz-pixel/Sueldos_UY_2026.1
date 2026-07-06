@@ -36,6 +36,11 @@ const personFields = {
   irpfFicto: z.string().transform((v) => BigInt(v)).optional(),
   bpsNumero: z.string().optional(),
   fonasaFamilia: z.boolean().default(false),
+  // Pago de sueldo (planilla de pagos al banco)
+  banco: z.string().optional(),
+  bancoSucursal: z.string().optional(),
+  bancoCuenta: z.string().optional(),
+  bancoMoneda: z.enum(['UYU', 'USD']).optional(),
   observaciones: z.string().optional(),
 };
 
@@ -272,6 +277,10 @@ employeesRouter.post('/', authenticate, requireRole(UserRole.ADMIN, UserRole.OPE
         irpfFicto: data.irpfFicto,
         bpsNumero: data.bpsNumero,
         fonasaFamilia: data.fonasaFamilia,
+        banco: data.banco,
+        bancoSucursal: data.bancoSucursal,
+        bancoCuenta: data.bancoCuenta,
+        bancoMoneda: data.bancoMoneda ?? 'UYU',
         observaciones: data.observaciones,
         companyId: c.companyId,
         fechaIngreso,

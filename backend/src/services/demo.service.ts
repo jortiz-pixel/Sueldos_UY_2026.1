@@ -117,6 +117,11 @@ export async function seedDemoData(userId: string): Promise<{
           cargo: p.cargo,
           hijosACargo: p.hijosACargo,
           conyugeACargo: p.conyugeACargo,
+          // Datos bancarios de ejemplo para la planilla de pagos.
+          banco: 'BROU',
+          bancoSucursal: 'eBrou',
+          bancoCuenta: `00170${p.ci.replace(/[^0-9]/g, '').slice(0, 6)}-00001`,
+          bancoMoneda: 'UYU',
           active: true,
         },
       });

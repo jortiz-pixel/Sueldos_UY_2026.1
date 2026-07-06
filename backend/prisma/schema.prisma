@@ -446,6 +446,12 @@ model Employee {
   fondoSolidario   Boolean     @default(false)
   fonasaFamilia    Boolean     @default(false)
 
+  // Pago de sueldo (planilla de pagos al banco)
+  banco            String?     // ej. BROU, Santander, Itaú
+  bancoSucursal    String?
+  bancoCuenta      String?
+  bancoMoneda      String      @default("UYU")
+
   observaciones    String?
 
   active           Boolean     @default(true)

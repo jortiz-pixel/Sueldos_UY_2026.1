@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Download, BarChart2, FileText, Shield, Wallet, Users2, TrendingUp, TrendingDown } from 'lucide-react';
-import { reportsApi } from '../services/api';
+import { Download, BarChart2, FileText, Shield, Wallet, Users2, TrendingUp, TrendingDown, Landmark, BookOpen, AlertCircle } from 'lucide-react';
+import { reportsApi, PagosBancoReport, AsientoReport } from '../services/api';
 import { useCompany } from '../hooks/useCompany';
 import { formatPesos, MESES, NominaItem } from '../types';
 
@@ -10,7 +10,7 @@ export default function ReportsPage() {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
-  const [activeReport, setActiveReport] = useState<'pagos' | 'costo' | 'nomina' | 'bps' | 'irpf'>('pagos');
+  const [activeReport, setActiveReport] = useState<'pagos' | 'costo' | 'nomina' | 'bps' | 'irpf' | 'banco' | 'asiento'>('pagos');
 
   const { data: pagos, isLoading: pagosLoading } = useQuery({
     queryKey: ['pagos-mes', companyId, year, month],
@@ -40,6 +40,20 @@ export default function ReportsPage() {
     queryKey: ['irpf-report', companyId, year],
     queryFn: () => reportsApi.irpfSummary({ companyId, year }),
     enabled: !!companyId && activeReport === 'irpf',
+  });
+
+  const { data: banco, isLoading: bancoLoading } = useQuery({
+    queryKey: ['pagos-banco', companyId, year, month],
+    queryFn: () => reportsApi.pagosBanco({ companyId, year, month }),
+    enabled: !!companyId && activeReport === 'banco',
+    retry: false,
+  });
+
+  const { data: asiento, isLoading: asientoLoading } = useQuery({
+    queryKey: ['asiento', companyId, year, month],
+    queryFn: () => reportsApi.asiento({ companyId, year, month }),
+    enabled: !!companyId && activeReport === 'asiento',
+    retry: false,
   });
 
   const summary = nomina?.summary as Record<string, string> | undefined;
@@ -88,6 +102,8 @@ export default function ReportsPage() {
           { key: 'nomina', label: 'Nómina Mensual', icon: FileText },
           { key: 'bps', label: 'BPS (C1)', icon: Shield },
           { key: 'irpf', label: 'IRPF Anual', icon: BarChart2 },
+          { key: 'banco', label: 'Pagos al banco', icon: Landmark },
+          { key: 'asiento', label: 'Asiento contable', icon: BookOpen },
         ].map(({ key, label, icon: Icon }) => (
           <button
             key={key}
@@ -105,6 +121,16 @@ export default function ReportsPage() {
       {/* Pagos del mes */}
       {activeReport === 'pagos' && (
         <PagosDelMes data={pagos} loading={pagosLoading} year={year} month={month} />
+      )}
+
+      {/* Planilla de pagos al banco */}
+      {activeReport === 'banco' && (
+        <PagosBanco data={banco} loading={bancoLoading} companyId={companyId} year={year} month={month} />
+      )}
+
+      {/* Asiento contable */}
+      {activeReport === 'asiento' && (
+        <AsientoContable data={asiento} loading={asientoLoading} companyId={companyId} year={year} month={month} />
       )}
 
       {/* Costo de personal */}
@@ -425,6 +451,149 @@ function CostoPersonal({ data, loading, year, month }: {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+// Descarga un blob como archivo.
+function descargarBlob(blob: Blob, nombre: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = nombre;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// ── Planilla de pagos al banco ─────────────────────────────────────────
+function PagosBanco({ data, loading, companyId, year, month }: {
+  data?: PagosBancoReport; loading: boolean; companyId: string; year: number; month: number;
+}) {
+  const mm = String(month).padStart(2, '0');
+  const bajar = async (formato: 'xlsx' | 'brou' | 'csv') => {
+    try {
+      const blob = await reportsApi.pagosBancoArchivo(companyId, year, month, formato);
+      const ext = formato === 'xlsx' ? 'xlsx' : formato === 'brou' ? 'txt' : 'csv';
+      descargarBlob(blob, `pagos_${formato}_${mm}${year}.${ext}`);
+    } catch {
+      alert('No se pudo generar el archivo. ¿El período tiene liquidaciones confirmadas?');
+    }
+  };
+  if (loading) return <div className="text-center py-12 text-gray-400">Cargando...</div>;
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 flex-wrap">
+        <button onClick={() => bajar('xlsx')} className="btn-primary btn-sm"><Download size={14} /> Excel (planilla genérica)</button>
+        <button onClick={() => bajar('brou')} className="btn-secondary btn-sm"><Download size={14} /> TXT multipago BROU</button>
+        <button onClick={() => bajar('csv')} className="btn-secondary btn-sm"><Download size={14} /> CSV genérico</button>
+        <span className="text-xs text-gray-400">Si tu banco exige un layout exacto, mandanos su plantilla y la replicamos (como la nómina BPS).</span>
+      </div>
+      {data?.avisos?.map((a, i) => (
+        <div key={i} className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
+          <AlertCircle size={15} className="flex-shrink-0" /> {a}
+        </div>
+      ))}
+      <div className="card overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="table-header">
+                <th className="px-4 py-3 text-left">Persona</th>
+                <th className="px-4 py-3 text-left">CI</th>
+                <th className="px-4 py-3 text-left">Banco</th>
+                <th className="px-4 py-3 text-left">Sucursal</th>
+                <th className="px-4 py-3 text-left">Cuenta</th>
+                <th className="px-4 py-3 text-left">Moneda</th>
+                <th className="px-4 py-3 text-right">Importe</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {!data?.filas?.length ? (
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-400">Sin liquidaciones confirmadas en el período</td></tr>
+              ) : data.filas.map((f) => (
+                <tr key={f.employeeId} className={`hover:bg-gray-50 ${f.sinCuenta ? 'bg-amber-50/40' : ''}`}>
+                  <td className="px-4 py-2.5 text-sm text-gray-800">{f.nombre}</td>
+                  <td className="px-4 py-2.5 text-xs font-mono">{f.ci}</td>
+                  <td className="px-4 py-2.5 text-xs">{f.banco || <span className="text-amber-600">sin banco</span>}</td>
+                  <td className="px-4 py-2.5 text-xs">{f.sucursal || '—'}</td>
+                  <td className="px-4 py-2.5 text-xs font-mono">{f.cuenta || <span className="text-amber-600">sin cuenta</span>}</td>
+                  <td className="px-4 py-2.5 text-xs">{f.moneda}</td>
+                  <td className="px-4 py-2.5 text-right font-mono text-sm">{f.liquidoPesos.toLocaleString('es-UY')}</td>
+                </tr>
+              ))}
+              {!!data?.filas?.length && (
+                <tr className="bg-gray-50 font-semibold">
+                  <td className="px-4 py-2.5 text-sm" colSpan={6}>TOTAL a acreditar ({data.filas.length} personas · {data.confirmadas} liquidaciones)</td>
+                  <td className="px-4 py-2.5 text-right font-mono text-sm">{data.totalPesos.toLocaleString('es-UY')}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <p className="text-xs text-gray-400">Importes = líquido a cobrar del período (liquidaciones confirmadas: mensualidad + aguinaldo + licencia + final), redondeados al peso como el recibo.</p>
+    </div>
+  );
+}
+
+// ── Asiento contable del mes ───────────────────────────────────────────
+function AsientoContable({ data, loading, companyId, year, month }: {
+  data?: AsientoReport; loading: boolean; companyId: string; year: number; month: number;
+}) {
+  const bajar = async () => {
+    try {
+      const blob = await reportsApi.asientoExcel(companyId, year, month);
+      descargarBlob(blob, `asiento_sueldos_${String(month).padStart(2, '0')}${year}.xlsx`);
+    } catch {
+      alert('No se pudo generar el asiento. ¿El período tiene liquidaciones confirmadas?');
+    }
+  };
+  if (loading) return <div className="text-center py-12 text-gray-400">Cargando...</div>;
+  const p = (v?: string) => (v && v !== '0' ? formatPesos(v) : '');
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <button onClick={bajar} className="btn-primary btn-sm"><Download size={14} /> Exportar a Excel</button>
+        {data && !data.balanceado && (
+          <span className="text-sm text-red-600 font-medium">⚠ El asiento no balancea — revisá las liquidaciones del período.</span>
+        )}
+      </div>
+      <div className="card overflow-hidden">
+        <table className="w-full">
+          <thead>
+            <tr className="table-header">
+              <th className="px-4 py-3 text-left">Cuenta</th>
+              <th className="px-4 py-3 text-right">Debe</th>
+              <th className="px-4 py-3 text-right">Haber</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {!data?.lineas?.length ? (
+              <tr><td colSpan={3} className="px-4 py-8 text-center text-sm text-gray-400">Sin liquidaciones confirmadas en el período</td></tr>
+            ) : (
+              <>
+                {data.lineas.map((l, i) => (
+                  <tr key={i} className="hover:bg-gray-50">
+                    <td className={`px-4 py-2.5 text-sm ${l.haber !== '0' ? 'pl-10 text-gray-600' : 'text-gray-800'}`}>{l.cuenta}</td>
+                    <td className="px-4 py-2.5 text-right font-mono text-sm">{p(l.debe)}</td>
+                    <td className="px-4 py-2.5 text-right font-mono text-sm">{p(l.haber)}</td>
+                  </tr>
+                ))}
+                <tr className="bg-gray-50 font-semibold">
+                  <td className="px-4 py-2.5 text-sm">TOTALES {data.balanceado ? '✓ balanceado' : ''}</td>
+                  <td className="px-4 py-2.5 text-right font-mono text-sm">{formatPesos(data.totalDebe)}</td>
+                  <td className="px-4 py-2.5 text-right font-mono text-sm">{formatPesos(data.totalHaber)}</td>
+                </tr>
+              </>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-gray-400">
+        Devengamiento del período sobre liquidaciones confirmadas: al Debe las retribuciones (sueldos, aguinaldo, licencias/salario
+        vacacional, IPD) y las cargas patronales; al Haber las remuneraciones a pagar (líquidos), BPS obrero y patronal, IRPF, BSE y
+        otras retenciones. Las faltas ya restan de "Sueldos y jornales".
+      </p>
     </div>
   );
 }

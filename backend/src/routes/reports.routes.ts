@@ -3,6 +3,7 @@ import { ItemType, LiquidationType, LiquidationStatus } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { authenticate } from '../middleware/auth';
 import { assertCompanyAccess } from '../middleware/tenancy';
+import { planillaPagos, planillaPagosXlsx, planillaPagosBrou, planillaPagosCsv, asientoContable, asientoXlsx } from '../services/pagos.service';
 import { AppError } from '../middleware/errorHandler';
 import { toPesos } from '../utils/money';
 import { generateNominaExcel } from '../services/excel.service';
@@ -404,5 +405,92 @@ reportsRouter.get('/acumulado-anual', authenticate, async (req: Request, res: Re
       haberes: haberes.toString(),
       ...resumen,
     });
+  } catch (err) { next(err); }
+});
+
+// ───────────────── Planilla de pagos al banco ─────────────────
+
+// GET /api/reports/pagos-banco?companyId=&year=&month= → vista previa (JSON)
+reportsRouter.get('/pagos-banco', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const companyId = (req.query.companyId as string) || req.user!.companyId;
+    if (!companyId) throw new AppError(400, 'companyId requerido');
+    await assertCompanyAccess(req, companyId);
+    const year = parseInt(req.query.year as string);
+    const month = parseInt(req.query.month as string);
+    if (isNaN(year) || isNaN(month)) throw new AppError(400, 'year y month requeridos');
+
+    const r = await planillaPagos(companyId, year, month);
+    res.json(r);
+  } catch (err) { next(err); }
+});
+
+// GET /api/reports/pagos-banco/archivo?companyId=&year=&month=&formato=xlsx|brou|csv
+reportsRouter.get('/pagos-banco/archivo', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const companyId = (req.query.companyId as string) || req.user!.companyId;
+    if (!companyId) throw new AppError(400, 'companyId requerido');
+    await assertCompanyAccess(req, companyId);
+    const year = parseInt(req.query.year as string);
+    const month = parseInt(req.query.month as string);
+    if (isNaN(year) || isNaN(month)) throw new AppError(400, 'year y month requeridos');
+    const formato = String(req.query.formato ?? 'xlsx');
+
+    const company = await prisma.company.findUnique({ where: { id: companyId }, select: { razonSocial: true } });
+    const { filas } = await planillaPagos(companyId, year, month);
+    const mm = String(month).padStart(2, '0');
+
+    if (formato === 'brou') {
+      const txt = planillaPagosBrou(filas, year, month);
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="pagos_brou_${mm}${year}.txt"`);
+      return res.send(txt);
+    }
+    if (formato === 'csv') {
+      const csv = planillaPagosCsv(filas);
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="pagos_${mm}${year}.csv"`);
+      return res.send(csv);
+    }
+    const buf = planillaPagosXlsx(filas, company?.razonSocial ?? '', year, month);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="planilla_pagos_${mm}${year}.xlsx"`);
+    res.send(buf);
+  } catch (err) { next(err); }
+});
+
+// ───────────────── Asiento contable del mes ─────────────────
+
+// GET /api/reports/asiento?companyId=&year=&month= → líneas Debe/Haber (JSON)
+reportsRouter.get('/asiento', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const companyId = (req.query.companyId as string) || req.user!.companyId;
+    if (!companyId) throw new AppError(400, 'companyId requerido');
+    await assertCompanyAccess(req, companyId);
+    const year = parseInt(req.query.year as string);
+    const month = parseInt(req.query.month as string);
+    if (isNaN(year) || isNaN(month)) throw new AppError(400, 'year y month requeridos');
+
+    const r = await asientoContable(companyId, year, month);
+    res.json(r);
+  } catch (err) { next(err); }
+});
+
+// GET /api/reports/asiento/excel?companyId=&year=&month=
+reportsRouter.get('/asiento/excel', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const companyId = (req.query.companyId as string) || req.user!.companyId;
+    if (!companyId) throw new AppError(400, 'companyId requerido');
+    await assertCompanyAccess(req, companyId);
+    const year = parseInt(req.query.year as string);
+    const month = parseInt(req.query.month as string);
+    if (isNaN(year) || isNaN(month)) throw new AppError(400, 'year y month requeridos');
+
+    const company = await prisma.company.findUnique({ where: { id: companyId }, select: { razonSocial: true } });
+    const r = await asientoContable(companyId, year, month);
+    const buf = asientoXlsx(r.lineas, r.totalDebe, r.totalHaber, company?.razonSocial ?? '', year, month);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="asiento_sueldos_${String(month).padStart(2, '0')}${year}.xlsx"`);
+    res.send(buf);
   } catch (err) { next(err); }
 });
