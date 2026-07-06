@@ -13,6 +13,7 @@
 import * as XLSX from 'xlsx';
 import { ItemType, LiquidationStatus, LiquidationType } from '@prisma/client';
 import { prisma } from '../utils/prisma';
+import { resolverContratoEnMes } from './contract.service';
 import { AppError } from '../middleware/errorHandler';
 
 // ─────────────────────────── Planilla de pagos ───────────────────────────
@@ -161,35 +162,52 @@ export async function asientoContable(companyId: string, year: number, month: nu
     include: { items: true },
   });
 
-  // ── DEBE (pérdidas/devengamientos) ──
-  let sueldos = CERO;        // haberes de mensuales (ya netos de faltas)
-  let aguinaldo = CERO;      // aguinaldos + aguinaldo por egreso
-  let licencias = CERO;      // salario vacacional + licencia no gozada (finales y especiales)
-  let ipd = CERO;            // indemnización por despido
-  let patronalBps = CERO;    // IVS + FONASA + FRL patronales
-  let patronalBse = CERO;
+  // Centro de costos por persona: la CUENTA DE SUELDOS del contrato vigente del
+  // mes (Producción, Administración, sucursal…). Sin cuenta → línea general.
+  const cuentaPorEmpleado = new Map<string, string>();
+  for (const employeeId of new Set(liqs.map((l) => l.employeeId))) {
+    const contrato = await resolverContratoEnMes(employeeId, year, month, companyId);
+    cuentaPorEmpleado.set(employeeId, contrato?.cuentaSueldos?.trim() || '');
+  }
+  const sufijo = (empleadoId: string) => {
+    const c = cuentaPorEmpleado.get(empleadoId) || '';
+    return c ? ` — ${c}` : '';
+  };
+  const suma = (map: Map<string, bigint>, key: string, v: bigint) => map.set(key, (map.get(key) ?? CERO) + v);
 
-  // ── HABER (pasivos) ──
+  // ── DEBE (gastos, abiertos por centro de costos) ──
+  const sueldosPorCuenta = new Map<string, bigint>();      // TODAS las retribuciones (sueldos, aguinaldo, licencias/vacacional)
+  const patronalBpsPorCuenta = new Map<string, bigint>();  // IVS + FONASA + FRL patronales
+  const patronalBsePorCuenta = new Map<string, bigint>();
+  let ipd = CERO;                                          // indemnización por despido (excepcional, línea única)
+
+  // ── HABER (pasivos / cancelaciones) ──
   let liquidos = CERO;       // remuneraciones a pagar
   let bpsObrero = CERO;      // jubilatorio + FONASA + adicional + FRL retenidos
   let irpf = CERO;
-  let otrasRet = CERO;       // adelantos y otros descuentos manuales
+  let adelantos = CERO;      // adelantos ya entregados (cancelan el activo "Adelantos al personal")
+  let otrasRet = CERO;       // otros descuentos manuales
+  let patronalBps = CERO;
+  let patronalBse = CERO;
+
+  const esAdelanto = (concepto: string, descripcion: string) =>
+    concepto === 'ADELANTO' || /adelanto/i.test(descripcion);
 
   for (const l of liqs) {
     liquidos += l.liquidoPercibir;
+    const suf = sufijo(l.employeeId);
     for (const it of l.items) {
       if (it.itemType === ItemType.HABER) {
-        if (it.concepto.startsWith('AGUINALDO')) aguinaldo += it.amount;
-        else if (it.concepto === 'SALARIO_VACACIONAL' || it.concepto === 'LICENCIA_NO_GOZADA') licencias += it.amount;
-        else if (it.concepto === 'INDEMNIZACION') ipd += it.amount;
-        else sueldos += it.amount; // incluye FALTAS (negativo), licencia gozada, HE, comisiones, etc.
+        if (it.concepto === 'INDEMNIZACION') ipd += it.amount;
+        else suma(sueldosPorCuenta, suf, it.amount); // sueldos + aguinaldo + licencias/vacacional + HE + faltas (negativo)
       } else if (it.itemType === ItemType.DESCUENTO_OBRERO) {
         if (['BPS_JUBILATORIO', 'FONASA', 'FONASA_ADICIONAL', 'FRL'].includes(it.concepto)) bpsObrero += it.amount;
         else if (it.concepto === 'IRPF') irpf += it.amount;
+        else if (esAdelanto(it.concepto, it.descripcion)) adelantos += it.amount;
         else otrasRet += it.amount;
       } else if (it.itemType === ItemType.APORTE_PATRONAL) {
-        if (it.concepto === 'BSE') patronalBse += it.amount;
-        else patronalBps += it.amount;
+        if (it.concepto === 'BSE') { patronalBse += it.amount; suma(patronalBsePorCuenta, suf, it.amount); }
+        else { patronalBps += it.amount; suma(patronalBpsPorCuenta, suf, it.amount); }
       }
     }
   }
@@ -198,20 +216,22 @@ export async function asientoContable(companyId: string, year: number, month: nu
   const push = (cuenta: string, debe: bigint, haber: bigint) => {
     if (debe !== CERO || haber !== CERO) lineas.push({ cuenta, debe: debe.toString(), haber: haber.toString() });
   };
+  const pushPorCuenta = (nombre: string, map: Map<string, bigint>) => {
+    for (const key of [...map.keys()].sort()) push(`${nombre}${key}`, map.get(key)!, CERO);
+  };
 
-  // Debe
-  push('Sueldos y jornales', sueldos, CERO);
-  push('Aguinaldo', aguinaldo, CERO);
-  push('Licencias y salario vacacional', licencias, CERO);
+  // Debe (gastos por centro de costos)
+  pushPorCuenta('Sueldos y jornales', sueldosPorCuenta);
   push('Indemnizaciones por despido (IPD)', ipd, CERO);
-  push('Cargas sociales patronales — BPS', patronalBps, CERO);
-  push('Cargas sociales — BSE', patronalBse, CERO);
+  pushPorCuenta('Cargas sociales patronales — BPS', patronalBpsPorCuenta);
+  pushPorCuenta('Cargas sociales — BSE', patronalBsePorCuenta);
   // Haber
   push('Remuneraciones a pagar', CERO, liquidos);
   push('BPS a pagar (aportes obreros retenidos)', CERO, bpsObrero);
   push('BPS a pagar (aportes patronales)', CERO, patronalBps);
   push('BSE a pagar', CERO, patronalBse);
   push('IRPF a pagar (retenciones)', CERO, irpf);
+  push('Adelantos al personal (ya entregados)', CERO, adelantos);
   push('Otras retenciones a pagar', CERO, otrasRet);
 
   const totalDebe = lineas.reduce((s, x) => s + BigInt(x.debe), CERO);

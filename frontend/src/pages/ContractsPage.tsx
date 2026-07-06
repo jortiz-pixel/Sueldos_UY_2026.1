@@ -23,6 +23,7 @@ interface ContractForm {
   salarioNominalPesos: number;
   jornalPesos?: number;
   sucursal?: string;
+  cuentaSueldos?: string;
   // Historia Laboral BPS
   vinculoFuncional?: string;
   seguroSalud?: string;
@@ -76,7 +77,7 @@ export default function ContractsPage() {
     setEditing(null);
     setFormError('');
     const hoy = new Date().toISOString().slice(0, 10);
-    reset({ personId: '', vigenciaDesde: hoy, fechaIngreso: hoy, fechaFin: '', salaryType: 'MENSUAL', salarioNominalPesos: 0, cargo: '', categoria: '', nivel: '', tipoContrato: '', sucursal: '', observacion: '', vinculoFuncional: '12', seguroSalud: '', computosEspeciales: '99', exoneracionAporte: '9', horasSemanales: 44 });
+    reset({ personId: '', vigenciaDesde: hoy, fechaIngreso: hoy, fechaFin: '', salaryType: 'MENSUAL', salarioNominalPesos: 0, cargo: '', categoria: '', nivel: '', tipoContrato: '', sucursal: '', cuentaSueldos: '', observacion: '', vinculoFuncional: '12', seguroSalud: '', computosEspeciales: '99', exoneracionAporte: '9', horasSemanales: 44 });
     setModalOpen(true);
   };
 
@@ -93,7 +94,7 @@ export default function ContractsPage() {
       salaryType: c.salaryType,
       salarioNominalPesos: Number(c.salarioNominal) / 100,
       jornalPesos: c.jornal ? Number(c.jornal) / 100 : undefined,
-      sucursal: c.sucursal ?? '', observacion: c.observacion ?? '',
+      sucursal: c.sucursal ?? '', cuentaSueldos: c.cuentaSueldos ?? '', observacion: c.observacion ?? '',
       vinculoFuncional: c.vinculoFuncional != null ? String(c.vinculoFuncional) : '12',
       seguroSalud: c.seguroSalud != null ? String(c.seguroSalud) : '',
       computosEspeciales: c.computosEspeciales != null ? String(c.computosEspeciales) : '99',
@@ -118,6 +119,7 @@ export default function ContractsPage() {
         salarioNominal: String(Math.round(Number(data.salarioNominalPesos) * 100)),
         jornal: data.jornalPesos ? String(Math.round(Number(data.jornalPesos) * 100)) : undefined,
         sucursal: data.sucursal || undefined,
+        cuentaSueldos: data.cuentaSueldos || undefined,
         vinculoFuncional: data.vinculoFuncional ? Number(data.vinculoFuncional) : undefined,
         seguroSalud: data.seguroSalud ? Number(data.seguroSalud) : undefined,
         computosEspeciales: data.computosEspeciales ? Number(data.computosEspeciales) : undefined,
@@ -360,6 +362,11 @@ export default function ContractsPage() {
                 <div>
                   <label className="form-label">Sucursal</label>
                   <input {...register('sucursal')} className="form-input" />
+                </div>
+                <div>
+                  <label className="form-label">Cuenta de sueldos (centro de costos)</label>
+                  <input {...register('cuentaSueldos')} className="form-input" placeholder="Producción, Administración, Sucursal Centro…" />
+                  <p className="text-xs text-gray-400 mt-1">Separa el gasto en el asiento contable por unidad de negocio.</p>
                 </div>
                 <div className="col-span-2 pt-2 mt-1 border-t border-hairline">
                   <p className="text-xs font-semibold uppercase tracking-wider text-ink-subtle mb-3">Historia Laboral — BPS</p>

@@ -129,6 +129,7 @@ export interface Contrato {
   horasDia?: number;
   regimenHorario?: string;
   sucursal?: string;
+  cuentaSueldos?: string | null;
   moneda: string;
   grupoActividadNum?: number | null;
   subgrupo?: string;

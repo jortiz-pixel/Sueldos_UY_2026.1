@@ -30,6 +30,7 @@ interface PersonaDemo {
   conyugeACargo: boolean;
   fechaIngreso: string;        // ISO
   cargo: string;
+  cuenta?: string;             // cuenta de sueldos / centro de costos
   // Situaciones especiales
   faltasFeb?: number;          // cantidad de faltas en febrero
   horasExtraMar?: number;      // horas extra diurnas en marzo
@@ -38,16 +39,16 @@ interface PersonaDemo {
 }
 
 const PLANTEL: PersonaDemo[] = [
-  { ci: '3456789-1', nombre: 'Lucía', apellido: 'Fernández', salaryType: 'MENSUAL', salarioNominal: 3200000n, seguroSalud: 15, hijosACargo: 0, conyugeACargo: false, fechaIngreso: '2024-02-01', cargo: 'Administrativa' },
-  { ci: '3567891-2', nombre: 'Marcos', apellido: 'Píriz', salaryType: 'MENSUAL', salarioNominal: 4500000n, seguroSalud: 1, hijosACargo: 2, conyugeACargo: false, fechaIngreso: '2023-08-15', cargo: 'Vendedor' },
-  { ci: '3678912-3', nombre: 'Sofía', apellido: 'Cabrera', salaryType: 'MENSUAL', salarioNominal: 5800000n, seguroSalud: 16, hijosACargo: 1, conyugeACargo: true, fechaIngreso: '2022-05-02', cargo: 'Contadora', licenciaMar: 10 },
-  { ci: '3789123-4', nombre: 'Diego', apellido: 'Núñez', salaryType: 'MENSUAL', salarioNominal: 7500000n, seguroSalud: 17, hijosACargo: 0, conyugeACargo: true, fechaIngreso: '2024-11-01', cargo: 'Técnico', horasExtraMar: 8 },
-  { ci: '3891234-5', nombre: 'Valentina', apellido: 'Silva', salaryType: 'MENSUAL', salarioNominal: 12000000n, seguroSalud: 15, hijosACargo: 0, conyugeACargo: false, fechaIngreso: '2021-03-01', cargo: 'Gerenta' },
-  { ci: '3912345-6', nombre: 'Rodrigo', apellido: 'Techera', salaryType: 'MENSUAL', salarioNominal: 2800000n, seguroSalud: 15, hijosACargo: 0, conyugeACargo: false, fechaIngreso: '2025-01-10', cargo: 'Auxiliar', faltasFeb: 2 },
-  { ci: '4123456-7', nombre: 'Camila', apellido: 'Olivera', salaryType: 'JORNALERO', salarioNominal: 4500000n, jornal: 150000n, seguroSalud: 1, hijosACargo: 1, conyugeACargo: false, fechaIngreso: '2024-06-01', cargo: 'Operaria' },
-  { ci: '4234567-8', nombre: 'Andrés', apellido: 'Morales', salaryType: 'MENSUAL', salarioNominal: 5000000n, seguroSalud: 15, hijosACargo: 0, conyugeACargo: false, fechaIngreso: '2024-04-01', cargo: 'Chofer', egreso: { dia: 15, causal: 1 } },
-  { ci: '4345678-9', nombre: 'Paula', apellido: 'Giménez', salaryType: 'MENSUAL', salarioNominal: 6500000n, seguroSalud: 16, hijosACargo: 1, conyugeACargo: true, fechaIngreso: '2023-03-10', cargo: 'Analista', egreso: { dia: 20, causal: 2 } },
-  { ci: '4456789-0', nombre: 'Federico', apellido: 'Acosta', salaryType: 'JORNALERO', salarioNominal: 5400000n, jornal: 180000n, seguroSalud: 15, hijosACargo: 0, conyugeACargo: false, fechaIngreso: '2025-07-01', cargo: 'Peón', egreso: { dia: 10, causal: 4 } },
+  { ci: '3456789-1', nombre: 'Lucía', apellido: 'Fernández', salaryType: 'MENSUAL', salarioNominal: 3200000n, seguroSalud: 15, hijosACargo: 0, conyugeACargo: false, fechaIngreso: '2024-02-01', cargo: 'Administrativa', cuenta: 'Administración' },
+  { ci: '3567891-2', nombre: 'Marcos', apellido: 'Píriz', salaryType: 'MENSUAL', salarioNominal: 4500000n, seguroSalud: 1, hijosACargo: 2, conyugeACargo: false, fechaIngreso: '2023-08-15', cargo: 'Vendedor', cuenta: 'Ventas' },
+  { ci: '3678912-3', nombre: 'Sofía', apellido: 'Cabrera', salaryType: 'MENSUAL', salarioNominal: 5800000n, seguroSalud: 16, hijosACargo: 1, conyugeACargo: true, fechaIngreso: '2022-05-02', cargo: 'Contadora', cuenta: 'Administración', licenciaMar: 10 },
+  { ci: '3789123-4', nombre: 'Diego', apellido: 'Núñez', salaryType: 'MENSUAL', salarioNominal: 7500000n, seguroSalud: 17, hijosACargo: 0, conyugeACargo: true, fechaIngreso: '2024-11-01', cargo: 'Técnico', cuenta: 'Producción', horasExtraMar: 8 },
+  { ci: '3891234-5', nombre: 'Valentina', apellido: 'Silva', salaryType: 'MENSUAL', salarioNominal: 12000000n, seguroSalud: 15, hijosACargo: 0, conyugeACargo: false, fechaIngreso: '2021-03-01', cargo: 'Gerenta', cuenta: 'Administración' },
+  { ci: '3912345-6', nombre: 'Rodrigo', apellido: 'Techera', salaryType: 'MENSUAL', salarioNominal: 2800000n, seguroSalud: 15, hijosACargo: 0, conyugeACargo: false, fechaIngreso: '2025-01-10', cargo: 'Auxiliar', cuenta: 'Producción', faltasFeb: 2 },
+  { ci: '4123456-7', nombre: 'Camila', apellido: 'Olivera', salaryType: 'JORNALERO', salarioNominal: 4500000n, jornal: 150000n, seguroSalud: 1, hijosACargo: 1, conyugeACargo: false, fechaIngreso: '2024-06-01', cargo: 'Operaria', cuenta: 'Producción' },
+  { ci: '4234567-8', nombre: 'Andrés', apellido: 'Morales', salaryType: 'MENSUAL', salarioNominal: 5000000n, seguroSalud: 15, hijosACargo: 0, conyugeACargo: false, fechaIngreso: '2024-04-01', cargo: 'Chofer', cuenta: 'Ventas', egreso: { dia: 15, causal: 1 } },
+  { ci: '4345678-9', nombre: 'Paula', apellido: 'Giménez', salaryType: 'MENSUAL', salarioNominal: 6500000n, seguroSalud: 16, hijosACargo: 1, conyugeACargo: true, fechaIngreso: '2023-03-10', cargo: 'Analista', cuenta: 'Ventas', egreso: { dia: 20, causal: 2 } },
+  { ci: '4456789-0', nombre: 'Federico', apellido: 'Acosta', salaryType: 'JORNALERO', salarioNominal: 5400000n, jornal: 180000n, seguroSalud: 15, hijosACargo: 0, conyugeACargo: false, fechaIngreso: '2025-07-01', cargo: 'Peón', cuenta: 'Producción', egreso: { dia: 10, causal: 4 } },
 ];
 
 const YEAR = 2026;
@@ -137,7 +138,7 @@ export async function seedDemoData(userId: string): Promise<{
           vigenciaDesde: new Date(p.fechaIngreso), fechaIngreso: new Date(p.fechaIngreso),
           cargo: p.cargo, salaryType: p.salaryType,
           salarioNominal: p.salarioNominal, jornal: p.jornal ?? null,
-          vinculoFuncional: 12, seguroSalud: p.seguroSalud,
+          vinculoFuncional: 12, seguroSalud: p.seguroSalud, cuentaSueldos: p.cuenta,
           computosEspeciales: 99, exoneracionAporte: 9, acumulacionLaboral: 1,
           horasSemanales: 44, moneda: 'UYU',
         },

@@ -155,7 +155,10 @@ nómina, BPS, IRPF) · Accesos · Auditoría (solo ADMIN) · Parámetros.
 3. ~~Planilla de pagos al banco~~ HECHA (Reportes → "Pagos al banco": Excel
    genérico + TXT multipago BROU + CSV; datos bancarios en la ficha de la
    persona; si un banco exige layout exacto, pedir plantilla y replicar).
-   También HECHO el asiento contable del mes (Reportes → "Asiento contable").
+   También HECHO el asiento contable del mes (Reportes → "Asiento contable"):
+   todo el gasto salarial va en "Sueldos y jornales" (sin abrir aguinaldo/
+   vacacional; IPD aparte), abierto por la CUENTA DE SUELDOS del contrato
+   (centro de costos: Producción/Administración/sucursal); adelantos al Haber.
 4. Multi-aportación por RUT (un RUT con varias aportaciones/números BPS) — hacer
    cuando aparezca el cliente que lo necesite.
 5. Archivo D de BPS (deducciones) — completa la familia N/R/D.

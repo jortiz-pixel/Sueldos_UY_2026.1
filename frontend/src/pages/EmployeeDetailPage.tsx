@@ -34,6 +34,7 @@ interface ContractForm {
   horasDia?: number;
   regimenHorario?: string;
   sucursal?: string;
+  cuentaSueldos?: string;
   // Historia Laboral BPS
   vinculoFuncional?: string;
   seguroSalud?: string;
@@ -110,6 +111,7 @@ export default function EmployeeDetailPage() {
         horasDia: data.horasDia ? Number(data.horasDia) : undefined,
         regimenHorario: data.regimenHorario || undefined,
         sucursal: data.sucursal || undefined,
+        cuentaSueldos: data.cuentaSueldos || undefined,
         vinculoFuncional: data.vinculoFuncional ? Number(data.vinculoFuncional) : undefined,
         seguroSalud: data.seguroSalud ? Number(data.seguroSalud) : undefined,
         computosEspeciales: data.computosEspeciales ? Number(data.computosEspeciales) : undefined,
@@ -199,6 +201,7 @@ export default function EmployeeDetailPage() {
       horasDia: c.horasDia ?? undefined,
       regimenHorario: c.regimenHorario ?? '',
       sucursal: c.sucursal ?? '',
+      cuentaSueldos: c.cuentaSueldos ?? '',
       vinculoFuncional: c.vinculoFuncional != null ? String(c.vinculoFuncional) : '12',
       seguroSalud: c.seguroSalud != null ? String(c.seguroSalud) : '',
       computosEspeciales: c.computosEspeciales != null ? String(c.computosEspeciales) : '99',
@@ -560,6 +563,10 @@ export default function EmployeeDetailPage() {
                 <div>
                   <label className="form-label">Sucursal</label>
                   <input {...register('sucursal')} className="form-input" />
+                </div>
+                <div>
+                  <label className="form-label">Cuenta de sueldos (centro de costos)</label>
+                  <input {...register('cuentaSueldos')} className="form-input" placeholder="Producción, Administración…" />
                 </div>
                 <div className="col-span-2 pt-2 mt-1 border-t border-hairline">
                   <p className="text-xs font-semibold uppercase tracking-wider text-ink-subtle mb-3">Historia Laboral — BPS</p>

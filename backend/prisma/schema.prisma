@@ -493,6 +493,9 @@ model Contrato {
   horasDia         Int?
   regimenHorario   String?
   sucursal         String?
+  // Cuenta contable / centro de costos al que se imputan los sueldos de este
+  // contrato (ej. Producción, Administración, Sucursal Centro).
+  cuentaSueldos    String?
   moneda           String     @default("UYU")
   grupoActividadNum Int?
   subgrupo         String?

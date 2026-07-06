@@ -590,9 +590,10 @@ function AsientoContable({ data, loading, companyId, year, month }: {
         </table>
       </div>
       <p className="text-xs text-gray-400">
-        Devengamiento del período sobre liquidaciones confirmadas: al Debe las retribuciones (sueldos, aguinaldo, licencias/salario
-        vacacional, IPD) y las cargas patronales; al Haber las remuneraciones a pagar (líquidos), BPS obrero y patronal, IRPF, BSE y
-        otras retenciones. Las faltas ya restan de "Sueldos y jornales".
+        Devengamiento del período sobre liquidaciones confirmadas: al Debe "Sueldos y jornales" (incluye aguinaldo, licencias y
+        salario vacacional; las faltas ya restan), la IPD y las cargas patronales — abiertos por la cuenta de sueldos del contrato
+        (centro de costos) si está definida; al Haber las remuneraciones a pagar (líquidos), BPS obrero y patronal, IRPF, BSE, los
+        adelantos ya entregados y otras retenciones.
       </p>
     </div>
   );
