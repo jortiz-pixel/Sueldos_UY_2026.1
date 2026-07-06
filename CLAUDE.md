@@ -66,7 +66,8 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
 - **IRPF** (auditado contra Comunicado BPS R 5/2026): escala anual en BPC
   0-84:0 · 84-120:10 · 120-180:15 · 180-360:24 · 360-600:25 · 600-900:27 ·
   900-1380:31 · >1380:36. Método de CRÉDITO (art. 38): primario sobre el nominal;
-  deducciones (aportes + 20 BPC/hijo + 40 discapacidad, SIN cónyuge) valorizadas
+  deducciones (aportes jub+FONASA+FRL + 20 BPC/hijo + 40 discapacidad, SIN
+  cónyuge) valorizadas
   al 14% si nominal mensual ≤ 15 BPC, 8% si no.
 - **Modelo persona/contrato**: persona global; CI única POR empresa (repetible entre
   empresas); legajo (`employeeNumber`) único por empresa. La liquidación es POR
@@ -78,8 +79,9 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
   días_licencia_año × días_trabajados_año/360 − tomados (redondeo 2 decimales).
   Aguinaldo por egreso = 1/12 de los haberes de las mensuales del semestre EN
   CURSO hasta el egreso (el semestre ya cerrado se pagó en junio/diciembre, no
-  se re-incluye) — es la ÚNICA partida gravada. Indemnización (IPD) y preaviso
-  SOLO por despido (causal 2); voluntario/término de contrato no llevan.
+  se re-incluye) — es la ÚNICA partida gravada. Indemnización (IPD) SOLO por
+  despido (causal 2); voluntario/término no llevan. PREAVISO NO APLICA en
+  Uruguay: no existe esa partida en ninguna liquidación.
 - **Contrato a prueba** = modalidad de 90 días rescindible sin IPD (no es un borrador).
 - **FALTAS** (estilo GNS, recibo Belén Martínez): figuran del lado de los
   HABERES como un haber NEGATIVO (días × jornal). Así el "Total de Haberes" ya

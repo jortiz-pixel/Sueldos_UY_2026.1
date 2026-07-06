@@ -74,8 +74,9 @@ export function calcularIrpfMensual(input: IrpfInput): IrpfResult {
     aplicarTramos(rentaComputableAnual, params.irpfBrackets, params.bpc);
 
   // ── 3. Deducciones anuales ────────────────────────────────────
-  // Aportes personales (jubilatorio + FONASA; el FRL, 0,1%, es despreciable).
-  const deduccionAportesAnual = maxBigInt(0n, (input.bpsMensual + input.fonasaMensual) * 12n);
+  // Aportes personales deducibles (DGI): jubilatorio + FONASA + FRL.
+  const frlMensual = applyRate(input.salarioNominal, params.frlObreroRate);
+  const deduccionAportesAnual = maxBigInt(0n, (input.bpsMensual + input.fonasaMensual + frlMensual) * 12n);
   const deduccionHijosAnual =
     BigInt(input.hijosACargo) * params.bpc * BigInt(params.irpfHijosBpc)
     + BigInt(input.hijosDiscapacitados) * params.bpc * BigInt(params.irpfHijosDiscapacitadosBpc);

@@ -1,7 +1,8 @@
 import { useState, ChangeEvent } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, ArrowRight, Download, Landmark } from 'lucide-react';
-import { importApi, ImportResult, nominaApi, NominaImportPlan } from '../services/api';
+import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, ArrowRight, Download, Landmark, FlaskConical } from 'lucide-react';
+import { importApi, ImportResult, nominaApi, NominaImportPlan, demoApi } from '../services/api';
+import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
 
 async function descargarPlantilla() {
@@ -191,6 +192,52 @@ export default function ImportPage() {
 
       {/* ── Importar desde nómina BPS (migración desde GNS u otro software) ── */}
       <ImportarDesdeNomina />
+
+      {/* ── Datos de prueba en la empresa Demo (solo ADMIN) ── */}
+      <DatosDemo />
+    </div>
+  );
+}
+
+// Genera el plantel de prueba en la empresa Demo: 10 personas (mensuales y
+// jornaleras, con distintas cargas FONASA), liquidaciones Ene–Jun 2026 con
+// faltas/horas extra/licencia, aguinaldos y 3 egresos a mitad de junio.
+function DatosDemo() {
+  const { isAdmin } = useAuth();
+  const [resumen, setResumen] = useState('');
+  const seedMutation = useMutation({
+    mutationFn: () => demoApi.seed(),
+    onSuccess: (r) => {
+      setResumen(
+        `${r.empresa}: ${r.personasCreadas} personas creadas (${r.personasExistentes} ya existían) · `
+        + `${r.liquidacionesGeneradas} liquidaciones · ${r.aguinaldos} aguinaldos · ${r.finales} finales`
+        + (r.errores.length ? ` · ${r.errores.length} avisos: ${r.errores.slice(0, 3).join(' | ')}` : ''),
+      );
+    },
+    onError: (e: unknown) => {
+      const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      setResumen(msg || 'No se pudieron generar los datos de prueba.');
+    },
+  });
+  if (!isAdmin) return null;
+  return (
+    <div className="card p-5 space-y-3 border-t-4 border-t-amber-400">
+      <div>
+        <h2 className="text-lg font-bold text-ink flex items-center gap-2">
+          <FlaskConical size={18} className="text-amber-500" /> Datos de prueba (empresa Demo)
+        </h2>
+        <p className="text-sm text-ink-subtle mt-1">
+          Genera 10 personas con contratos y sus liquidaciones de Ene–Jun 2026: mensuales y jornaleros,
+          faltas, horas extra, licencia con salario vacacional, aguinaldos y 3 egresos a mitad de junio
+          (voluntario, despido y término de contrato). Usa el mismo motor de cálculo que producción.
+        </p>
+      </div>
+      <div className="flex items-center gap-3 flex-wrap">
+        <button onClick={() => seedMutation.mutate()} disabled={seedMutation.isPending} className="btn-primary">
+          <FlaskConical size={16} /> {seedMutation.isPending ? 'Generando…' : 'Generar datos de prueba'}
+        </button>
+        {resumen && <span className="text-sm text-ink-subtle">{resumen}</span>}
+      </div>
     </div>
   );
 }

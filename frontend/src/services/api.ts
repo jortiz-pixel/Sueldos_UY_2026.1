@@ -61,6 +61,13 @@ export interface AuditRow {
   empresa: string | null;
 }
 
+export const demoApi = {
+  seed: () => api.post<{
+    empresa: string; personasCreadas: number; personasExistentes: number;
+    liquidacionesGeneradas: number; aguinaldos: number; finales: number; errores: string[];
+  }>('/demo/seed').then((r) => r.data),
+};
+
 export const auditApi = {
   list: (params: { page?: number; limit?: number; action?: string; entity?: string; from?: string; to?: string }) =>
     api.get<{ data: AuditRow[]; pagination: { page: number; limit: number; total: number; totalPages: number } }>('/audit', { params })

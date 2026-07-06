@@ -20,6 +20,7 @@ import { calendarRouter } from './routes/calendar.routes';
 import { importRouter } from './routes/import.routes';
 import { nominaRouter } from './routes/nomina.routes';
 import { auditRouter } from './routes/audit.routes';
+import { demoRouter } from './routes/demo.routes';
 import { errorHandler } from './middleware/errorHandler';
 import { logger } from './utils/logger';
 
@@ -88,6 +89,7 @@ app.use('/api/attachments', attachmentsRouter);
 app.use('/api/calendar', calendarRouter);
 app.use('/api/import', importRouter);
 app.use('/api/audit', auditRouter);
+app.use('/api/demo', demoRouter);
 
 const APP_VERSION = process.env.APP_VERSION || 'dev';
 const APP_BUILT_AT = process.env.APP_BUILT_AT || null;

@@ -12,7 +12,6 @@ import {
   diasLicenciaCorrespondientes,
   calcularAntiguedad,
   calcularAntiguedadMeses,
-  diasPreavisoCorrespondientes,
 } from '../utils/date';
 import { resolverContratoVigente, datosLaboralesEfectivos } from './contract.service';
 import { AppError } from '../middleware/errorHandler';
@@ -205,8 +204,9 @@ export async function calcularLiquidacionFinal(
   const jornalNominal = multiplyFraction(salarioBase, 1, 30);
   const jornalTxt = (Number(jornalNominal) / 100).toFixed(2);
 
-  // Causal de egreso (Tabla 9): solo el DESPIDO (2) genera indemnización (IPD) y
-  // preaviso. El retiro voluntario, término de contrato, etc. no.
+  // Causal de egreso (Tabla 9): solo el DESPIDO (2) genera indemnización (IPD).
+  // En Uruguay NO aplica preaviso (no existe esa partida). El retiro voluntario,
+  // término de contrato, etc. no llevan IPD.
   const causal = contrato?.causalEgresoCod ?? null;
   const generaIndemnizacion = causal === 2;
 
@@ -215,9 +215,6 @@ export async function calcularLiquidacionFinal(
 
   const mesesIndemnizacion = generaIndemnizacion ? Math.min(antiguedadAnios, 6) : 0;
   const indemnizacion = salarioBase * BigInt(mesesIndemnizacion);
-
-  const diasPraveiso = generaIndemnizacion ? diasPreavisoCorrespondientes(antiguedadMeses) : 0;
-  const preaviso = jornalNominal * BigInt(diasPraveiso);
 
   // Días de licencia NO GOZADA: proporcional al tiempo trabajado en el año del
   // egreso (días de licencia/año × días trabajados / 360), menos los ya tomados.
@@ -259,11 +256,11 @@ export async function calcularLiquidacionFinal(
   const haberesSemestre = liqsSemestre.reduce((s, l) => s + l.totalHaberes, 0n);
   const aguinaldoEgreso = multiplyFraction(haberesSemestre, 1, 12);
 
-  const totalBruto = indemnizacion + preaviso + aguinaldoEgreso
+  const totalBruto = indemnizacion + aguinaldoEgreso
     + licenciaNoGozada + salarioVacacionalEgreso;
 
-  // Solo el aguinaldo integra la base de aportes/IRPF. La indemnización, el
-  // preaviso, la licencia no gozada y el salario vacacional van EXENTOS.
+  // Solo el aguinaldo integra la base de aportes/IRPF. La indemnización, la
+  // licencia no gozada y el salario vacacional van EXENTOS.
   const baseBpsIrpf = aguinaldoEgreso;
 
   // FONASA adicional según el seguro de salud del contrato (respaldo: empleado).
@@ -339,18 +336,12 @@ export async function calcularLiquidacionFinal(
   await prisma.payrollItem.deleteMany({ where: { liquidationId: liquidacion.id } });
   await prisma.payrollItem.createMany({
     data: [
-      // HABERES. Indemnización y preaviso solo por despido; ambos EXENTOS.
+      // HABERES. Indemnización (IPD) solo por despido; EXENTA. Sin preaviso (no aplica en Uruguay).
       ...(indemnizacion > 0n ? [{
         liquidationId: liquidacion.id, employeeId, itemType: ItemType.HABER,
         concepto: 'INDEMNIZACION', descripcion: `Indemnización por despido (${mesesIndemnizacion} meses)`,
         baseCalculo: salarioBase, rate: null, amount: indemnizacion,
         calculationDetail: { mesesIndemnizacion, antiguedadAnios } as unknown as Prisma.InputJsonValue,
-      }] : []),
-      ...(preaviso > 0n ? [{
-        liquidationId: liquidacion.id, employeeId, itemType: ItemType.HABER,
-        concepto: 'PREAVISO', descripcion: `Preaviso (${diasPraveiso} días)`,
-        baseCalculo: jornalNominal, rate: null, amount: preaviso,
-        calculationDetail: { diasPraveiso } as unknown as Prisma.InputJsonValue,
       }] : []),
       // Licencia no gozada + salario vacacional por egreso: días × jornal nominal, EXENTOS.
       ...(licenciaNoGozada > 0n ? [{
@@ -414,7 +405,6 @@ export async function calcularLiquidacionFinal(
   return {
     liquidacionId: liquidacion.id,
     indemnizacion,
-    preaviso,
     aguinaldoEgreso,
     licenciaNoGozada,
     salarioVacacionalEgreso,
@@ -424,7 +414,6 @@ export async function calcularLiquidacionFinal(
     liquidoPercibir,
     antiguedadAnios,
     antiguedadMeses,
-    diasPraveiso,
     mesesIndemnizacion,
   };
 }
