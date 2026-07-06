@@ -18,11 +18,18 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
   - Estética: tokens AsysTax en `tailwind.config.js` + `src/index.css`
     (navy `#0B1B3A`, primario `#1E5BFF`, `brand-*`, `ink-*`, `canvas`, `ok/warn/bad`).
     Tipos: Space Grotesk (marca/cifras, clase `figure` = tabular-nums) + Plus Jakarta Sans.
-- **Deploy**: MANUAL por el usuario en su VPS (Hostinger):
-  `bash /root/Sueldos_UY_2026.1/deploy/deploy.sh` (fetch → reset → build → migrate → up).
-  El asistente NO tiene acceso al servidor: entrega por push y el usuario deploya.
-  Indicador de versión (commit) en el pie del sidebar y `/api/version`.
-  Si el build "0.8s all CACHED" sirve un dist viejo → `docker compose build --no-cache`.
+- **Deploy**: AUTOMÁTICO por systemd timer en el VPS (Hostinger). Se instala UNA
+  vez: `sudo bash deploy/install-autodeploy.sh`. El timer corre
+  `deploy/auto-deploy.sh` cada minuto: si hay commit nuevo en la rama hace
+  fetch → reset → build → migrate → up (mantiene la versión anterior si el
+  build o la migración fallan; lock anti-solapamiento; solo salida HTTPS a
+  GitHub, sin abrir puertos). El asistente NO tiene acceso al servidor: entrega
+  por push y el deploy se aplica solo en ~1 minuto. Deploy manual disponible
+  como respaldo: `bash deploy/deploy.sh`. Indicador de versión (commit) en el
+  pie del sidebar y `/api/version`. Ver deploys: `journalctl -u
+  sueldos-deploy.service -f`. Desactivar: `systemctl disable --now
+  sueldos-deploy.timer`. Si el build "all CACHED" sirve dist viejo →
+  `docker compose build --no-cache`.
 
 ## Reglas de trabajo
 
