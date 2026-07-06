@@ -719,7 +719,10 @@ liquidationRouter.delete('/:id/item/:itemId', authenticate, requireRole(UserRole
     }
     const item = await prisma.payrollItem.findUnique({ where: { id: req.params.itemId } });
     if (!item || item.liquidationId !== liquidation.id) throw new NotFoundError('Concepto');
-    if (!item.concepto.startsWith('AJUSTE')) {
+    // Solo los conceptos agregados a mano: ajustes (AJUSTE/AJUSTE_NO_GRAVADO) y
+    // faltas (FALTAS). Los aportes legales se recalculan, no se borran.
+    const esManual = item.concepto.startsWith('AJUSTE') || item.concepto === 'FALTAS';
+    if (!esManual) {
       throw new AppError(409, 'Solo se pueden quitar los conceptos agregados manualmente');
     }
     await prisma.payrollItem.delete({ where: { id: item.id } });

@@ -17,7 +17,8 @@ function ItemRow({ item, editable, onEdit, onDelete }: {
   onEdit?: (itemId: string, data: { descripcion: string; monto: number }) => void;
   onDelete?: (id: string) => void;
 }) {
-  const manual = item.concepto === 'AJUSTE';
+  // Conceptos agregados a mano (ajustes y faltas): se pueden editar y eliminar.
+  const manual = item.concepto.startsWith('AJUSTE') || item.concepto === 'FALTAS';
   const [editing, setEditing] = useState(false);
   const [d, setD] = useState(item.descripcion);
   const [m, setM] = useState(Number(item.amount) / 100);
