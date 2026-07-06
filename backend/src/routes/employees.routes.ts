@@ -130,9 +130,22 @@ employeesRouter.get('/', authenticate, async (req: Request, res: Response, next:
     const limit = parseInt(req.query.limit as string || '50');
     const includeInactive = req.query.includeInactive === 'true';
 
+    // "Activo en la empresa" = tiene un contrato VIGENTE en esta empresa. La
+    // fuente de verdad es el contrato (no el flag global employee.active, que se
+    // desactualiza en multiempresa o tras bajas/reactivaciones), por eso las
+    // personas se ven igual que sus contratos.
+    const hoy = new Date();
+    const contratoVigente = {
+      companyId,
+      activo: true,
+      AND: [
+        { OR: [{ vigenciaHasta: null }, { vigenciaHasta: { gte: hoy } }] },
+        { OR: [{ fechaFin: null }, { fechaFin: { gte: hoy } }] },
+      ],
+    };
+
     const where = {
-      contratos: { some: { companyId } },
-      active: includeInactive ? undefined : true,
+      contratos: { some: includeInactive ? { companyId } : contratoVigente },
       ...(search && {
         OR: [
           { nombre: { contains: search, mode: 'insensitive' as const } },
