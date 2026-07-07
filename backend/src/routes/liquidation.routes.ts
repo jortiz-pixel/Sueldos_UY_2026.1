@@ -210,6 +210,8 @@ liquidationRouter.post('/generate', authenticate, requireRole(UserRole.ADMIN, Us
       year: z.number().int(),
       month: z.number().int().min(1).max(12),
       diasTrabajados: z.number().int().min(0).max(31).optional(),
+      horasTrabajadas: z.number().min(0).max(400).optional(),   // construcción: horas del mes
+      cantidadesConcepto: z.record(z.number().min(0)).optional(), // cantidades por código de concepto
       horasExtraDiurnas: z.number().min(0).optional(),
       horasExtraNocturnas: z.number().min(0).optional(),
       comisiones: z.string().transform((v) => BigInt(v)).optional(),

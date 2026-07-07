@@ -34,8 +34,10 @@ interface ConceptoConstruccion {
 // Valores vigentes 01/2026 (recibo GNS Oficial Albañil — jornal hora 444,85).
 const CONCEPTOS: ConceptoConstruccion[] = [
   { codigo: 'HORAS_LLUVIA', nombre: 'Horas de espera por lluvia', orden: 60, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 44485n, gravado: true },
-  { codigo: 'PRESENTISMO_OBRA', nombre: 'Incentivo Presentismo (10,42%)', orden: 61, tipoOperacion: 'HABER', tipoCalculo: 'PORCENTAJE', baseCalculo: 'SUELDO_BASICO', valorRate: 1042, gravado: true },
-  { codigo: 'PRES_MES_COMPLETO', nombre: 'Presentismo por trabajo completo en el mes (5%)', orden: 62, tipoOperacion: 'HABER', tipoCalculo: 'PORCENTAJE', baseCalculo: 'SUELDO_BASICO', valorRate: 500, gravado: true },
+  // Presentismos: se calculan sobre horas × HORA LAUDO (421,39 — guardada en
+  // valorFijo, editable), NO sobre la hora pagada (recibo GNS: 10,42% de 3.371,12).
+  { codigo: 'PRESENTISMO_OBRA', nombre: 'Incentivo Presentismo (10,42% s/hora laudo)', orden: 61, tipoOperacion: 'HABER', tipoCalculo: 'PORCENTAJE', baseCalculo: 'HORAS_LAUDO', valorRate: 1042, valorFijo: 42139n, gravado: true },
+  { codigo: 'PRES_MES_COMPLETO', nombre: 'Presentismo por trabajo completo en el mes (5% s/hora laudo)', orden: 62, tipoOperacion: 'HABER', tipoCalculo: 'PORCENTAJE', baseCalculo: 'HORAS_LAUDO', valorRate: 500, valorFijo: 42139n, gravado: true },
   { codigo: 'TICKET_ALIMENTACION', nombre: 'Ticket Alimentación (gravado)', orden: 63, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 18416n, gravado: true },
   { codigo: 'MEDIAS_HORAS', nombre: 'Medias horas', orden: 64, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 22242n, gravado: false },
   // Partidas extraordinarias EXENTAS: los valores del laudo son POR JORNADA DE
@@ -57,10 +59,16 @@ export const CATEGORIAS_CONSTRUCCION = [
   'Oficial Especializado', 'Capataz', 'Sereno', 'Administrativo de obra',
 ];
 
+// Desgaste de herramientas: corresponde SOLO desde Medio Oficial en adelante.
+export function correspondeHerramientas(categoria: string | null | undefined): boolean {
+  if (!categoria) return false;
+  return /oficial|capataz|especialista|especializado/i.test(categoria) && !/pe[oó]n/i.test(categoria);
+}
+
 /**
- * Crea los conceptos de construcción como propios de la empresa (activo=false:
- * quedan disponibles para agregarlos en las liquidaciones sin auto-aplicarse).
- * No pisa valores si ya existen (respeta ajustes del operador).
+ * Crea los conceptos de construcción como propios de la empresa, ACTIVOS: se
+ * auto-aplican al liquidar (los de cantidad valen 0 si no se indica cantidad y
+ * no generan ítem; el presentismo vale 0 sin horas). No pisa valores editados.
  */
 export async function ensureConceptosConstruccion(companyId: string): Promise<number> {
   let creados = 0;
@@ -69,11 +77,19 @@ export async function ensureConceptosConstruccion(companyId: string): Promise<nu
       where: { companyId_codigo: { companyId, codigo: c.codigo } },
     });
     if (existing) {
-      // Refrescar solo el nombre (documenta la regla del laudo); los valores
-      // ajustados por el operador no se tocan.
-      if (existing.nombre !== c.nombre) {
-        await prisma.concepto.update({ where: { id: existing.id }, data: { nombre: c.nombre } });
-      }
+      // Refrescar la ESTRUCTURA (nombre, base, activo) sin pisar los valores
+      // que el operador haya ajustado (valorRate/valorFijo solo si faltan).
+      await prisma.concepto.update({
+        where: { id: existing.id },
+        data: {
+          nombre: c.nombre,
+          tipoCalculo: c.tipoCalculo,
+          baseCalculo: c.baseCalculo ?? null,
+          activo: true,
+          valorRate: existing.valorRate ?? c.valorRate ?? null,
+          valorFijo: existing.valorFijo ?? c.valorFijo ?? null,
+        },
+      });
       continue;
     }
     await prisma.concepto.create({
@@ -88,7 +104,7 @@ export async function ensureConceptosConstruccion(companyId: string): Promise<nu
         valorRate: c.valorRate ?? null,
         valorFijo: c.valorFijo ?? null,
         gravado: c.gravado,
-        activo: false,
+        activo: true,
       },
     });
     creados++;

@@ -92,6 +92,17 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
   Vivienda 0,025% (descuentos, tipoCalculo `PORCENTAJE_CIENMIL` = % × 10.000
   para tasas con 4 decimales). En el campo Categoría del contrato se sugieren
   las categorías del laudo (datalist) solo si la empresa es de construcción.
+  LIQUIDACIÓN POR HORAS: en construcción el `jornal` del contrato es el VALOR
+  HORA de la categoría (444,85 Oficial Albañil 1/2026); los conceptos están
+  ACTIVOS y se auto-aplican. Sin horas indicadas se asume días×8. Con
+  `horasTrabajadas` (panel "Construcción" en el detalle del borrador, endpoint
+  /generate): Horas Comunes = horas × valor hora; presentismos sobre horas ×
+  HORA LAUDO (421,39, guardada en valorFijo del concepto, base `HORAS_LAUDO`);
+  ropa y transporte × horas (transporte solo jornaleros); herramientas × horas
+  SOLO si la categoría es ½ Oficial+ (`correspondeHerramientas`); lluvia/
+  tickets/medias horas por cantidad manual (`cantidadesConcepto`). Validado
+  contra recibo GNS Martín Hernández 1/2026 (única diferencia conocida: pres.
+  mes completo 168,56 vs 168,60 GNS, redondeo interno de GNS).
 - **FALTAS** (estilo GNS, recibo Belén Martínez): figuran del lado de los
   HABERES como un haber NEGATIVO (días × jornal). Así el "Total de Haberes" ya
   sale NETO de faltas y sobre ese neto se calculan TODOS los descuentos (aportes

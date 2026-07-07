@@ -16,6 +16,20 @@ export interface ConceptoContext {
   sueldoBasico: bigint;     // base SUELDO_BASICO (proporcional a días)
   haberesGravados: bigint;  // base HABERES_GRAVADOS (acumulado)
   cantidades?: Record<string, number>; // para CANTIDAD_VALOR (por código)
+  horasTrabajadas?: number; // construcción: horas efectivas del mes (base HORAS_LAUDO)
+}
+
+// Base del concepto según baseCalculo. 'HORAS_LAUDO' (construcción): horas
+// trabajadas × valor hora del laudo (guardado en valorFijo del concepto) — es
+// la base del presentismo, distinta de la hora pagada.
+function baseDelConcepto(c: Concepto, ctx: ConceptoContext): bigint {
+  if (c.baseCalculo === 'NOMINAL') return ctx.salarioNominal;
+  if (c.baseCalculo === 'SUELDO_BASICO') return ctx.sueldoBasico;
+  if (c.baseCalculo === 'HORAS_LAUDO') {
+    const horas = ctx.horasTrabajadas ?? 0;
+    return divRoundHalfUp((c.valorFijo ?? 0n) * BigInt(Math.round(horas * 100)), 100n);
+  }
+  return ctx.haberesGravados;
 }
 
 /**
@@ -26,13 +40,8 @@ export function evaluarConcepto(c: Concepto, ctx: ConceptoContext): bigint {
     case 'VALOR_FIJO':
       return c.valorFijo ?? 0n;
 
-    case 'PORCENTAJE': {
-      const base =
-        c.baseCalculo === 'NOMINAL' ? ctx.salarioNominal
-        : c.baseCalculo === 'SUELDO_BASICO' ? ctx.sueldoBasico
-        : ctx.haberesGravados;
-      return applyRate(base, c.valorRate ?? 0);
-    }
+    case 'PORCENTAJE':
+      return applyRate(baseDelConcepto(c, ctx), c.valorRate ?? 0);
 
     case 'CANTIDAD_VALOR': {
       // Admite cantidades fraccionadas (ej. 8,5 horas): se redondea al centésimo.
@@ -43,13 +52,8 @@ export function evaluarConcepto(c: Concepto, ctx: ConceptoContext): bigint {
     // Porcentaje con 4 decimales (valorRate en cienmilésimas: 0,5809% → 5809).
     // Necesario para tasas finas como Fondo Social construcción (0,5809%) o
     // Fondo de Vivienda (0,025% → 250).
-    case 'PORCENTAJE_CIENMIL': {
-      const base =
-        c.baseCalculo === 'NOMINAL' ? ctx.salarioNominal
-        : c.baseCalculo === 'SUELDO_BASICO' ? ctx.sueldoBasico
-        : ctx.haberesGravados;
-      return divRoundHalfUp(base * BigInt(c.valorRate ?? 0), 1000000n);
-    }
+    case 'PORCENTAJE_CIENMIL':
+      return divRoundHalfUp(baseDelConcepto(c, ctx) * BigInt(c.valorRate ?? 0), 1000000n);
 
     default:
       return 0n;

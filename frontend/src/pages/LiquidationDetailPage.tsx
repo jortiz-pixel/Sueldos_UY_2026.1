@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Download, CheckCircle, XCircle, RotateCcw, RefreshCw, X, Plus, Pencil, Check } from 'lucide-react';
-import { liquidationApi, conceptsApi } from '../services/api';
+import { ArrowLeft, Download, CheckCircle, XCircle, RotateCcw, RefreshCw, X, Plus, Pencil, Check, HardHat } from 'lucide-react';
+import { liquidationApi, conceptsApi, companiesApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
 import { abrirBlobEnPestania } from '../utils/file';
-import { CONCEPTOS_SISTEMA } from '../constants/conceptos';
+import { CONCEPTOS_SISTEMA, TIPO_APORTE_CONSTRUCCION } from '../constants/conceptos';
 import { formatPesos, MESES, PayrollItem } from '../types';
 
 interface OpcionConcepto { key: string; nombre: string; grupo: string; montoFijo?: number }
@@ -207,6 +207,40 @@ export default function LiquidationDetailPage() {
     enabled: !!activeCompanyId,
   });
 
+  // CONSTRUCCIÓN: si la empresa tiene aportación CT, se muestran las horas del
+  // mes y las cantidades del laudo; al aplicar se REGENERA la liquidación y el
+  // motor calcula todas las partidas (presentismo, ropa, transporte, etc.).
+  const { data: empresa } = useQuery({
+    queryKey: ['company', activeCompanyId],
+    queryFn: () => companiesApi.get(activeCompanyId),
+    enabled: !!activeCompanyId,
+  });
+  const esConstruccion = empresa?.tipoAporte === TIPO_APORTE_CONSTRUCCION;
+  const [horasMes, setHorasMes] = useState('');
+  const [horasLluvia, setHorasLluvia] = useState('');
+  const [ticketCant, setTicketCant] = useState('');
+  const [mediasHoras, setMediasHoras] = useState('');
+
+  const construccionMutation = useMutation({
+    mutationFn: () => liquidationApi.generate({
+      employeeId: liq!.employeeId,
+      periodId: liq!.periodId,
+      year: liq!.year,
+      month: liq!.month,
+      ...(horasMes !== '' ? { horasTrabajadas: Number(horasMes) } : {}),
+      cantidadesConcepto: {
+        ...(horasLluvia !== '' ? { HORAS_LLUVIA: Number(horasLluvia) } : {}),
+        ...(ticketCant !== '' ? { TICKET_ALIMENTACION: Number(ticketCant) } : {}),
+        ...(mediasHoras !== '' ? { MEDIAS_HORAS: Number(mediasHoras) } : {}),
+      },
+    }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['liquidation', id] }),
+    onError: (e: unknown) => {
+      const err = e as { response?: { data?: { error?: string } } };
+      alert(err.response?.data?.error || 'No se pudo recalcular la liquidación.');
+    },
+  });
+
   const addItemMutation = useMutation({
     mutationFn: (vars: { descripcion: string; monto?: number; cantidad?: number; itemType: 'HABER' | 'DESCUENTO_OBRERO' }) => liquidationApi.addItem(id!, vars),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['liquidation', id] }),
@@ -360,6 +394,43 @@ export default function LiquidationDetailPage() {
           <p className="text-lg font-bold text-emerald-700 mt-1">{formatPesos(liq.liquidoPercibir)}</p>
         </div>
       </div>
+
+      {/* Construcción: horas del mes y cantidades del laudo */}
+      {esConstruccion && liq.type === 'MENSUAL' && puedeEditar && (
+        <div className="card p-4 border-t-4 border-t-amber-400 space-y-3">
+          <p className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+            <HardHat size={16} className="text-amber-500" /> Construcción — horas del mes
+          </p>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div>
+              <label className="form-label">Horas comunes</label>
+              <input type="number" min="0" step="0.5" value={horasMes} onChange={(e) => setHorasMes(e.target.value)} placeholder="ej. 176" className="form-input" />
+            </div>
+            <div>
+              <label className="form-label">Horas lluvia</label>
+              <input type="number" min="0" step="0.5" value={horasLluvia} onChange={(e) => setHorasLluvia(e.target.value)} placeholder="0" className="form-input" />
+            </div>
+            <div>
+              <label className="form-label">Tickets alim. (cant.)</label>
+              <input type="number" min="0" value={ticketCant} onChange={(e) => setTicketCant(e.target.value)} placeholder="0" className="form-input" />
+            </div>
+            <div>
+              <label className="form-label">Medias horas (cant.)</label>
+              <input type="number" min="0" value={mediasHoras} onChange={(e) => setMediasHoras(e.target.value)} placeholder="0" className="form-input" />
+            </div>
+            <div className="flex items-end">
+              <button onClick={() => construccionMutation.mutate()} disabled={construccionMutation.isPending} className="btn-primary btn-sm w-full">
+                {construccionMutation.isPending ? 'Calculando…' : 'Aplicar y recalcular'}
+              </button>
+            </div>
+          </div>
+          <p className="text-[11px] text-gray-400">
+            Con las horas, el motor calcula solo: Horas Comunes (horas × valor hora del contrato), presentismos (s/hora laudo),
+            desgaste de ropa y transporte (× horas), herramientas solo si la categoría es ½ Oficial o superior, y Fondo Social/Vivienda.
+            Lluvia, tickets y medias horas se indican acá. Recalcular pisa los conceptos manuales agregados.
+          </p>
+        </div>
+      )}
 
       {/* Itemized breakdown */}
       <div className="card overflow-hidden divide-y divide-gray-100">

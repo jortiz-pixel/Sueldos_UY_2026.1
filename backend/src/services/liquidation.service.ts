@@ -4,13 +4,14 @@
 
 import { LiquidationType, LiquidationStatus, ItemType, PayrollItem, Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
-import { salarioProporcional } from '../utils/money';
+import { salarioProporcional, divRoundHalfUp } from '../utils/money';
 import { calcularAportesObreros, calcularAportesPatronales, calcularHorasExtra, fonasaCargasDeSeguroSalud } from './bps.service';
 import { calcularIrpfMensual, calcularIrpfSimplificado } from './irpf.service';
 import { parametersService } from './parameters.service';
 import { resolverContratoEnMes, diasTrabajadosEnMes, datosLaboralesEfectivos } from './contract.service';
 import { evaluarConcepto, ConceptoContext } from './concept.engine';
 import { calcularAguinaldoBrutoSemestre } from './aguinaldo.service';
+import { correspondeHerramientas } from './construccion.service';
 import { AppError } from '../middleware/errorHandler';
 
 // Días hábiles de licencia GOZADA (LeaveRequest aprobada/pendiente) que caen
@@ -64,6 +65,7 @@ export interface LiquidacionInput {
   month: number;
   diasTrabajados?: number;
   diasLicencia?: number;   // días de licencia gozada en el mes (desglosa el sueldo)
+  horasTrabajadas?: number; // construcción: horas efectivas del mes (jornalero por horas)
   horasExtraDiurnas?: number;
   horasExtraNocturnas?: number;
   comisiones?: bigint;
@@ -128,9 +130,34 @@ export async function generarLiquidacionMensual(
   );
   const diasJornal = Math.max(0, diasTrabajados - diasLicencia);
 
+  // CONSTRUCCIÓN (aportación CT): los jornaleros se liquidan POR HORAS. El
+  // "jornal" del contrato es el VALOR HORA de la categoría; sin horas indicadas
+  // se asume jornada de 8 hs por día trabajado. Con las horas, el resto de las
+  // partidas del laudo (presentismo, ropa, transporte, herramientas) y los
+  // fondos se calculan solos vía el motor de conceptos.
+  const esConstruccion = period.company.tipoAporte === 4;
+  const horasConstruccion = esConstruccion && labor.salaryType === 'JORNALERO'
+    ? (input.horasTrabajadas ?? diasTrabajados * 8)
+    : input.horasTrabajadas;
+
   const salarioBase = labor.salaryType === 'MENSUAL'
     ? salarioProporcional(labor.salarioNominal, diasTrabajados, 30)
-    : (labor.jornal ?? 0n) * BigInt(diasTrabajados);
+    : esConstruccion && horasConstruccion !== undefined
+      ? divRoundHalfUp((labor.jornal ?? 0n) * BigInt(Math.round(horasConstruccion * 100)), 100n)
+      : (labor.jornal ?? 0n) * BigInt(diasTrabajados);
+
+  // Cantidades para el motor de conceptos: en construcción, las partidas por
+  // hora se precargan con las horas trabajadas (ropa siempre; transporte para
+  // jornaleros; herramientas SOLO desde Medio Oficial). Lluvia/ticket/medias
+  // horas se indican a mano. Lo indicado por el usuario pisa los defaults.
+  const cantidades: Record<string, number> = {
+    ...(esConstruccion && horasConstruccion ? {
+      DESGASTE_ROPA: horasConstruccion,
+      ...(labor.salaryType === 'JORNALERO' ? { GASTOS_TRANSPORTE: horasConstruccion } : {}),
+      ...(correspondeHerramientas(contrato?.categoria) ? { DESGASTE_HERRAMIENTAS: horasConstruccion } : {}),
+    } : {}),
+    ...(input.cantidadesConcepto ?? {}),
+  };
 
   const items: Omit<PayrollItem, 'id' | 'liquidationId' | 'createdAt'>[] = [];
 
@@ -173,7 +200,9 @@ export async function generarLiquidacionMensual(
       concepto: 'SUELDO_BASICO',
       descripcion: labor.salaryType === 'MENSUAL'
         ? `Sueldo básico ${diasTrabajados < 30 ? `(${diasTrabajados}/30 días)` : ''}`
-        : `Jornal (${diasTrabajados} días)`,
+        : esConstruccion && horasConstruccion !== undefined
+          ? `Horas Comunes ${horasConstruccion} x ${jornalTxt}`
+          : `Jornal (${diasTrabajados} días)`,
       baseCalculo: labor.salarioNominal,
       rate: diasTrabajados < 30 ? Math.round(diasTrabajados * 10000 / 30) : null,
       amount: salarioBase,
@@ -290,7 +319,8 @@ export async function generarLiquidacionMensual(
       salarioNominal: labor.salarioNominal,
       sueldoBasico: salarioBase,
       haberesGravados: gravadoHaberes,
-      cantidades: input.cantidadesConcepto,
+      cantidades,
+      horasTrabajadas: horasConstruccion,
     }));
     if (amount === 0n) continue;
     items.push({
@@ -310,7 +340,8 @@ export async function generarLiquidacionMensual(
     salarioNominal: labor.salarioNominal,
     sueldoBasico: salarioBase,
     haberesGravados: gravadoHaberes,
-    cantidades: input.cantidadesConcepto,
+    cantidades,
+    horasTrabajadas: horasConstruccion,
   };
 
   for (const c of conceptos.filter((c) => c.tipoOperacion === ItemType.HABER)) {
@@ -491,7 +522,8 @@ export async function generarLiquidacionMensual(
       salarioNominal: labor.salarioNominal,
       sueldoBasico: salarioBase,
       haberesGravados: baseGravada,
-      cantidades: input.cantidadesConcepto,
+      cantidades,
+      horasTrabajadas: horasConstruccion,
     });
     if (amount <= 0n) continue;
     items.push({
@@ -564,7 +596,8 @@ export async function generarLiquidacionMensual(
       salarioNominal: labor.salarioNominal,
       sueldoBasico: salarioBase,
       haberesGravados: baseGravada,
-      cantidades: input.cantidadesConcepto,
+      cantidades,
+      horasTrabajadas: horasConstruccion,
     });
     if (amount <= 0n) continue;
     items.push({
