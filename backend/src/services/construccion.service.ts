@@ -53,16 +53,42 @@ const CONCEPTOS: ConceptoConstruccion[] = [
   { codigo: 'FONDO_VIVIENDA', nombre: 'Fondo de Vivienda (0,025%)', orden: 221, tipoOperacion: 'DESCUENTO_OBRERO', tipoCalculo: 'PORCENTAJE_CIENMIL', baseCalculo: 'HABERES_GRAVADOS', valorRate: 250, gravado: false },
 ];
 
-// Categorías laborales típicas del Grupo 9 (Industria de la construcción).
+// Categorías del laudo de la construcción (tabla oficial de grados II–XII).
 export const CATEGORIAS_CONSTRUCCION = [
-  'Peón', 'Peón Práctico', 'Medio Oficial Albañil', 'Oficial Albañil',
-  'Oficial Especializado', 'Capataz', 'Sereno', 'Administrativo de obra',
+  'II — Sereno',
+  'III — Peón común o Canchero',
+  'IV — Peón práctico',
+  'V — Guinchero',
+  'V — ½ Oficial Albañil',
+  'V — ½ Oficial Hierro',
+  'VI — ½ Oficial Madera',
+  'VII — Chofer de camión',
+  'VIII — Oficial Albañil',
+  'VIII — Oficial Hierro',
+  'IX — Oficial Madera',
+  'IX — Oficial Finalista',
+  'X — Oficial Escalerista',
+  'XI — Oficial Maquinista',
+  'XII — Mecánico',
 ];
 
-// Desgaste de herramientas: corresponde SOLO desde Medio Oficial en adelante.
+// Grado (II–XII) de una categoría escrita como "V — ½ Oficial Albañil".
+const ROMANOS: Record<string, number> = { II: 2, III: 3, IV: 4, V: 5, VI: 6, VII: 7, VIII: 8, IX: 9, X: 10, XI: 11, XII: 12 };
+function gradoCategoria(categoria: string): number | null {
+  const m = categoria.trim().toUpperCase().match(/^(XII|XI|X|IX|VIII|VII|VI|V|IV|III|II)\b/);
+  return m ? ROMANOS[m[1]] : null;
+}
+
+// Desgaste de herramientas: corresponde SOLO desde ½ Oficial en adelante, es
+// decir grado V o superior (V guinchero/½ oficiales · VI ½ oficial madera ·
+// VII chofer · VIII+ oficiales · XII mecánico). Sereno y peones (II–IV) no.
 export function correspondeHerramientas(categoria: string | null | undefined): boolean {
   if (!categoria) return false;
-  return /oficial|capataz|especialista|especializado/i.test(categoria) && !/pe[oó]n/i.test(categoria);
+  const grado = gradoCategoria(categoria);
+  if (grado !== null) return grado >= 5;
+  // Texto libre sin grado: heurística por nombre de la categoría.
+  if (/pe[oó]n|sereno|canchero|administrativ/i.test(categoria)) return false;
+  return /oficial|guinchero|chofer|maquinista|escalerista|finalista|mec[aá]nico|capataz|especialista|especializado/i.test(categoria);
 }
 
 /**

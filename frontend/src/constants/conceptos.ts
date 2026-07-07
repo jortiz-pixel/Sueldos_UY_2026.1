@@ -32,6 +32,19 @@ export const CONCEPTOS_SISTEMA: ConceptoSistema[] = [
 // aportación CONSTRUCCIÓN (Tabla 1 código 4); admite texto libre igual.
 export const TIPO_APORTE_CONSTRUCCION = 4;
 export const CATEGORIAS_CONSTRUCCION = [
-  'Peón', 'Peón Práctico', 'Medio Oficial Albañil', 'Oficial Albañil',
-  'Oficial Especializado', 'Capataz', 'Sereno', 'Administrativo de obra',
+  'II — Sereno',
+  'III — Peón común o Canchero',
+  'IV — Peón práctico',
+  'V — Guinchero',
+  'V — ½ Oficial Albañil',
+  'V — ½ Oficial Hierro',
+  'VI — ½ Oficial Madera',
+  'VII — Chofer de camión',
+  'VIII — Oficial Albañil',
+  'VIII — Oficial Hierro',
+  'IX — Oficial Madera',
+  'IX — Oficial Finalista',
+  'X — Oficial Escalerista',
+  'XI — Oficial Maquinista',
+  'XII — Mecánico',
 ];
