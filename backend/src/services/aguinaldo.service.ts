@@ -96,6 +96,7 @@ export async function calcularAguinaldo(input: AguinaldoInput): Promise<{
     conyugeACargo: employee.conyugeACargo,
     params,
     bseRateEmpresa: bseRate,
+    topeJubilatorioMedio: true, // el aguinaldo topea en MAXAPJ/2 (criterio GNS)
   });
 
   const aportesPatronales = calcularAportesPatronales({
@@ -181,7 +182,7 @@ export async function calcularAguinaldo(input: AguinaldoInput): Promise<{
         itemType: ItemType.DESCUENTO_OBRERO,
         concepto: 'BPS_JUBILATORIO',
         descripcion: 'BPS Jubilatorio sobre aguinaldo',
-        baseCalculo: aguinaldoBruto,
+        baseCalculo: aportesObreros.baseJubilatorio,
         rate: params.bpsJubilatorioRate,
         amount: aportesObreros.jubilatorio,
         calculationDetail: Prisma.DbNull,

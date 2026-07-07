@@ -18,6 +18,8 @@ export interface IrpfBracket {
 export interface PayrollParameters {
   bpc: bigint;                    // BPC en centésimos
   bpsJubilatorioRate: number;     // 1500 bp = 15%
+  bpsTopeJubilatorio: bigint;     // tope de aportación jubilatoria (art. 7 Ley
+                                  // 16.713) en centésimos; aguinaldo topea a la mitad
   // FONASA escalonado (Ley 18.131 y modificativas)
   fonasaBasicRate: number;        // 300 bp = 3%  (ingreso <= umbral)
   fonasaBasicHighRate: number;    // 450 bp = 4.5% (ingreso > umbral)
@@ -96,6 +98,7 @@ async function getPayrollParameters(asOfDate: Date = new Date()): Promise<Payrol
   const [
     bpcRaw,
     bpsJubilatorioRaw,
+    bpsTopeJubRaw,
     fonasaBasicRaw,
     fonasaBasicHighRaw,
     fonasaThresholdRaw,
@@ -114,6 +117,7 @@ async function getPayrollParameters(asOfDate: Date = new Date()): Promise<Payrol
   ] = await Promise.all([
     getParam<number>('BPC', asOfDate),
     getParam<number>('BPS_JUBILATORIO_RATE_BP', asOfDate),
+    getParam<number>('BPS_TOPE_JUBILATORIO', asOfDate),
     getParam<number>('FONASA_BASIC_RATE_BP', asOfDate),
     getParam<number>('FONASA_BASIC_HIGH_RATE_BP', asOfDate),
     getParam<number>('FONASA_THRESHOLD_BPC', asOfDate),
@@ -136,6 +140,7 @@ async function getPayrollParameters(asOfDate: Date = new Date()): Promise<Payrol
   return {
     bpc: toCtms(bpcRaw ?? 6756),              // BPC 2024: $6,756
     bpsJubilatorioRate: bpsJubilatorioRaw ?? 1500,  // 15%
+    bpsTopeJubilatorio: toCtms(bpsTopeJubRaw ?? 272564), // tope 2026: $272.564
     fonasaBasicRate: fonasaBasicRaw ?? 300,         // 3% (ingreso <= 2.5 BPC)
     fonasaBasicHighRate: fonasaBasicHighRaw ?? 450, // 4.5% (ingreso > 2.5 BPC)
     fonasaThresholdBpc: fonasaThresholdRaw ?? 2.5,  // umbral 2.5 BPC

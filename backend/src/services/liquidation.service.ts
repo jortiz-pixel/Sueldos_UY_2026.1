@@ -430,10 +430,10 @@ export async function generarLiquidacionMensual(
     itemType: ItemType.DESCUENTO_OBRERO,
     concepto: 'BPS_JUBILATORIO',
     descripcion: 'BPS Jubilatorio',
-    baseCalculo: baseGravada,
+    baseCalculo: aportesObreros.baseJubilatorio,
     rate: params.bpsJubilatorioRate,
     amount: aportesObreros.jubilatorio,
-    calculationDetail: { base: baseGravada.toString(), rateBp: params.bpsJubilatorioRate } as unknown as Prisma.JsonValue,
+    calculationDetail: { base: aportesObreros.baseJubilatorio.toString(), gravado: baseGravada.toString(), rateBp: params.bpsJubilatorioRate } as unknown as Prisma.JsonValue,
   });
 
   // FONASA (Seguro por Enfermedad): 3% fijo sobre el total de haberes.

@@ -112,6 +112,7 @@ async function main() {
   const params2024 = [
     { key: 'BPC', value: '6756', description: 'BPC 2024' },
     { key: 'BPS_JUBILATORIO_RATE_BP', value: '1500', description: 'BPS jubilatorio obrero 15%' },
+    { key: 'BPS_TOPE_JUBILATORIO', value: '272564', description: 'Tope aportación jubilatoria (aguinaldo: mitad)' },
     { key: 'FONASA_BASIC_RATE_BP', value: '300', description: 'FONASA base 3% (<= 2.5 BPC)' },
     { key: 'FONASA_BASIC_HIGH_RATE_BP', value: '450', description: 'FONASA base 4.5% (> 2.5 BPC)' },
     { key: 'FONASA_THRESHOLD_BPC', value: '2.5', description: 'Umbral FONASA en BPC' },

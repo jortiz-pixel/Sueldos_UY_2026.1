@@ -33,10 +33,14 @@ export interface AportesInput {
   // Se usa en junio/diciembre: el adicional del aguinaldo NO se cobra en el
   // aguinaldo sino en la mensualidad, sobre (nominal del mes + aguinaldo).
   fonasaAdicionalExtraBase?: bigint;
+  // Tope jubilatorio a la MITAD (aguinaldo): criterio GNS/BPS, el aguinaldo
+  // topea en MAXAPJ/2 mientras el mes topea en MAXAPJ.
+  topeJubilatorioMedio?: boolean;
 }
 
 export interface AportesObreros {
   jubilatorio: bigint;
+  baseJubilatorio: bigint;   // base efectiva del jubilatorio (gravado topeado)
   fonasaBasico: bigint;
   fonasaFamilia: bigint;
   fonasaTotal: bigint;
@@ -118,7 +122,14 @@ export function calcularTasaFonasa(input: AportesInput): {
 export function calcularAportesObreros(input: AportesInput): AportesObreros {
   const { salarioNominal, params } = input;
 
-  const jubilatorio = applyRate(salarioNominal, params.bpsJubilatorioRate);
+  // TOPE de aportación jubilatoria (art. 7 Ley 16.713, criterio GNS "MAXAPJ"):
+  // el aporte jubilatorio se calcula sobre min(gravado, tope); para el
+  // AGUINALDO el tope es la MITAD. FONASA y FRL se calculan SIN tope.
+  const tope = input.topeJubilatorioMedio
+    ? params.bpsTopeJubilatorio / 2n
+    : params.bpsTopeJubilatorio;
+  const baseJubilatorio = tope > 0n && salarioNominal > tope ? tope : salarioNominal;
+  const jubilatorio = applyRate(baseJubilatorio, params.bpsJubilatorioRate);
 
   const fonasa = calcularTasaFonasa(input);
   // FONASA se compone del "seguro de enfermedad" (3% fijo, siempre sobre el
@@ -137,6 +148,7 @@ export function calcularAportesObreros(input: AportesInput): AportesObreros {
 
   return {
     jubilatorio,
+    baseJubilatorio,
     fonasaBasico,
     fonasaFamilia: fonasaFamiliaAporte,
     fonasaTotal,

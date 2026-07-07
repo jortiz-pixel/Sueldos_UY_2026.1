@@ -627,6 +627,12 @@ async function recalcularLiquidacion(liquidationId: string): Promise<void> {
     }
   }
 
+  // BPS Jubilatorio: reflejar la base topeada (tope jubilatorio) en el ítem.
+  const jubItem = liq.items.find((i) => i.concepto === 'BPS_JUBILATORIO');
+  if (jubItem) {
+    await prisma.payrollItem.update({ where: { id: jubItem.id }, data: { baseCalculo: obreros.baseJubilatorio } });
+  }
+
   // Adicional FONASA: partida separada. Su base incluye el aguinaldo en junio/
   // diciembre. Se crea/actualiza si corresponde y se elimina si quedó en 0.
   const adicionalItem = liq.items.find((i) => i.concepto === 'FONASA_ADICIONAL');

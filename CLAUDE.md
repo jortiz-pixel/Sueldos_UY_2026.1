@@ -63,6 +63,11 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
   Jun–Nov. Toma todas las mensuales GENERADAS del semestre (borrador o
   confirmada, excluye anulada), así suma los 6 importes aunque falte confirmar.
 - **FRL**: 0,10% obrero y patronal (2026). Patronales: IVS 7,5%, FONASA 5%, BSE por empresa.
+- **TOPE JUBILATORIO** (art. 7 Ley 16.713, criterio GNS "MAXAPJ"): la base del
+  Aporte Jubilatorio OBRERO se topea en $272.564 (2026, parámetro
+  `BPS_TOPE_JUBILATORIO` con vigencias); el AGUINALDO topea en la MITAD
+  (MAXAPJ/2), incluido el aguinaldo por egreso de la final. FONASA, FRL y los
+  patronales van SIN tope. El ítem BPS_JUBILATORIO muestra la base topeada.
 - **IRPF** (auditado contra Comunicado BPS R 5/2026): escala anual en BPC
   0-84:0 · 84-120:10 · 120-180:15 · 180-360:24 · 360-600:25 · 600-900:27 ·
   900-1380:31 · >1380:36. Método de CRÉDITO (art. 38): primario sobre el nominal;

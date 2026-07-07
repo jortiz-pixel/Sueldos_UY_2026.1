@@ -274,6 +274,7 @@ export async function calcularLiquidacionFinal(
     conyugeACargo: fonasaConyuge,
     params,
     bseRateEmpresa: bseRate,
+    topeJubilatorioMedio: true, // la base gravada de la final es aguinaldo → tope/2
   });
   const aportesPatronales = calcularAportesPatronales({
     salarioNominal: baseBpsIrpf,
