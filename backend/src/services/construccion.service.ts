@@ -112,7 +112,15 @@ export function correspondeHerramientas(categoria: string | null | undefined): b
  * auto-aplican al liquidar (los de cantidad valen 0 si no se indica cantidad y
  * no generan ítem; el presentismo vale 0 sin horas). No pisa valores editados.
  */
-export async function ensureConceptosConstruccion(companyId: string): Promise<number> {
+export async function ensureConceptosConstruccion(companyId: string, quick = false): Promise<number> {
+  // Camino rápido (se llama en cada generación de liquidación): si ya están
+  // todos los conceptos, no hay nada que hacer.
+  if (quick) {
+    const existentes = await prisma.concepto.count({
+      where: { companyId, codigo: { in: CONCEPTOS.map((c) => c.codigo) } },
+    });
+    if (existentes >= CONCEPTOS.length) return 0;
+  }
   let creados = 0;
   for (const c of CONCEPTOS) {
     const existing = await prisma.concepto.findUnique({

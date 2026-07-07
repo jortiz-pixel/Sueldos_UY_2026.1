@@ -83,8 +83,11 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
   despido (causal 2); voluntario/término no llevan. PREAVISO NO APLICA en
   Uruguay: no existe esa partida en ninguna liquidación.
 - **Contrato a prueba** = modalidad de 90 días rescindible sin IPD (no es un borrador).
-- **CONSTRUCCIÓN (aportación CT, Tabla 1 código 4)**: al crear/editar una empresa
-  con tipoAporte=4 se cargan automáticamente sus conceptos del laudo Grupo 9
+- **CONSTRUCCIÓN**: una empresa es de construcción si su GRUPO de Consejos de
+  Salarios es 9 (marcador canónico: la aportación puede ser CT=4 o Industria y
+  Comercio) o tipoAporte=4 o actividad "construc" (`esEmpresaConstruccion`).
+  Al crear/editar la empresa —o al LIQUIDAR, si faltan (camino rápido `quick`)—
+  se cargan automáticamente sus conceptos del laudo Grupo 9
   (`construccion.service.ts`, idempotente, valores 01/2026 del recibo GNS
   Oficial Albañil, editables en Conceptos): horas lluvia, presentismo 10,42%,
   mes completo 5%, ticket alimentación GRAVADO, medias horas/ropa/transporte/

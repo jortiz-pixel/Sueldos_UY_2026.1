@@ -11,7 +11,7 @@ import { parametersService } from './parameters.service';
 import { resolverContratoEnMes, diasTrabajadosEnMes, datosLaboralesEfectivos } from './contract.service';
 import { evaluarConcepto, ConceptoContext } from './concept.engine';
 import { calcularAguinaldoBrutoSemestre } from './aguinaldo.service';
-import { correspondeHerramientas, esEmpresaConstruccion } from './construccion.service';
+import { correspondeHerramientas, esEmpresaConstruccion, ensureConceptosConstruccion } from './construccion.service';
 import { AppError } from '../middleware/errorHandler';
 
 // Días hábiles de licencia GOZADA (LeaveRequest aprobada/pendiente) que caen
@@ -136,6 +136,10 @@ export async function generarLiquidacionMensual(
   // partidas del laudo (presentismo, ropa, transporte, herramientas) y los
   // fondos se calculan solos vía el motor de conceptos.
   const esConstruccion = esEmpresaConstruccion(period.company);
+  // Automatización total para grupo 9: si la empresa es de construcción y aún
+  // no tiene los conceptos del laudo (p. ej. fue creada antes de esta regla o
+  // con aportación Industria y Comercio), se cargan acá mismo antes de liquidar.
+  if (esConstruccion) await ensureConceptosConstruccion(period.companyId, true);
   const horasConstruccion = esConstruccion && labor.salaryType === 'JORNALERO'
     ? (input.horasTrabajadas ?? diasTrabajados * 8)
     : input.horasTrabajadas;
