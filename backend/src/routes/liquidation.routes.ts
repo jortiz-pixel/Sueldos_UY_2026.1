@@ -634,30 +634,28 @@ async function recalcularLiquidacion(liquidationId: string): Promise<void> {
   }
 
   // Adicional FONASA: partida separada. Su base incluye el aguinaldo en junio/
-  // diciembre. Se crea/actualiza si corresponde y se elimina si quedó en 0.
+  // diciembre. SIEMPRE figura en el recibo (aun en 0, estilo GNS), así que se
+  // crea/actualiza también cuando queda en 0.
   const adicionalItem = liq.items.find((i) => i.concepto === 'FONASA_ADICIONAL');
-  if (obreros.fonasaFamilia > 0n) {
-    const adicData = {
-      baseCalculo: obreros.detail.fonasaAdicionalBase,
-      rate: obreros.detail.fonasaAdicionalRate,
-      amount: obreros.fonasaFamilia,
-      descripcion: 'Adicional FONASA',
-    };
-    if (adicionalItem) {
-      await prisma.payrollItem.update({ where: { id: adicionalItem.id }, data: adicData });
-    } else {
-      await prisma.payrollItem.create({
-        data: { liquidationId, employeeId: liq.employeeId, itemType: ItemType.DESCUENTO_OBRERO, concepto: 'FONASA_ADICIONAL', ...adicData },
-      });
-    }
-  } else if (adicionalItem) {
-    await prisma.payrollItem.delete({ where: { id: adicionalItem.id } });
+  const adicData = {
+    baseCalculo: obreros.detail.fonasaAdicionalBase,
+    rate: obreros.detail.fonasaAdicionalRate,
+    amount: obreros.fonasaFamilia,
+    descripcion: 'Adicional FONASA',
+  };
+  if (adicionalItem) {
+    await prisma.payrollItem.update({ where: { id: adicionalItem.id }, data: adicData });
+  } else {
+    await prisma.payrollItem.create({
+      data: { liquidationId, employeeId: liq.employeeId, itemType: ItemType.DESCUENTO_OBRERO, concepto: 'FONASA_ADICIONAL', ...adicData },
+    });
   }
 
+  // El IRPF SIEMPRE figura (aun en 0,00): se crea aunque la retención sea cero.
   const irpfItem = liq.items.find((i) => i.concepto === 'IRPF');
   if (irpfItem) {
     await prisma.payrollItem.update({ where: { id: irpfItem.id }, data: { baseCalculo: baseGravada, amount: irpf.retencionMensual } });
-  } else if (irpf.retencionMensual > 0n) {
+  } else {
     await prisma.payrollItem.create({
       data: {
         liquidationId, employeeId: liq.employeeId, itemType: ItemType.DESCUENTO_OBRERO,

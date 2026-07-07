@@ -23,6 +23,18 @@ export interface ConceptoContext {
   valorMediaHora?: bigint;  // construcción: media hora PAGADA del trabajador
                             // (hora del contrato/laudo ÷ 2) — valor unitario del
                             // concepto MEDIAS_HORAS (base MEDIA_HORA).
+  valorHoraPagada?: bigint; // construcción: hora pagada (unidad de HORAS_LLUVIA,
+                            // base HORA_PAGADA).
+  baseFondoConstruccion?: bigint; // construcción: base de Fondo Social/Vivienda
+                            // (horas comunes + lluvia + medias horas + presentismo
+                            // mensual — criterio GNS). Base FONDO_CONSTRUCCION.
+}
+
+/** Valor unitario de un concepto CANTIDAD_VALOR (dinámico según baseCalculo). */
+export function valorUnitarioConcepto(c: Concepto, ctx: ConceptoContext): bigint {
+  if (c.baseCalculo === 'MEDIA_HORA') return ctx.valorMediaHora ?? c.valorFijo ?? 0n;
+  if (c.baseCalculo === 'HORA_PAGADA') return ctx.valorHoraPagada ?? c.valorFijo ?? 0n;
+  return c.valorFijo ?? 0n;
 }
 
 // Base del concepto según baseCalculo. 'HORAS_LAUDO' (construcción): horas
@@ -35,6 +47,9 @@ function baseDelConcepto(c: Concepto, ctx: ConceptoContext): bigint {
     const horas = ctx.horasTrabajadas ?? 0;
     const hora = ctx.horaLaudo ?? c.valorFijo ?? 0n;
     return divRoundHalfUp(hora * BigInt(Math.round(horas * 100)), 100n);
+  }
+  if (c.baseCalculo === 'FONDO_CONSTRUCCION') {
+    return ctx.baseFondoConstruccion ?? ctx.haberesGravados;
   }
   return ctx.haberesGravados;
 }
@@ -53,10 +68,8 @@ export function evaluarConcepto(c: Concepto, ctx: ConceptoContext): bigint {
     case 'CANTIDAD_VALOR': {
       // Admite cantidades fraccionadas (ej. 8,5 horas): se redondea al centésimo.
       const cantidad = ctx.cantidades?.[c.codigo] ?? 0;
-      // Valor unitario dinámico: MEDIA_HORA = media hora pagada del trabajador.
-      const unitario = c.baseCalculo === 'MEDIA_HORA'
-        ? (ctx.valorMediaHora ?? c.valorFijo ?? 0n)
-        : (c.valorFijo ?? 0n);
+      // Valor unitario dinámico (media hora / hora pagada / fijo).
+      const unitario = valorUnitarioConcepto(c, ctx);
       return divRoundHalfUp(unitario * BigInt(Math.round(cantidad * 100)), 100n);
     }
 

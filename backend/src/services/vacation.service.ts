@@ -378,24 +378,26 @@ export async function calcularLiquidacionFinal(
           baseCalculo: baseBpsIrpf, rate: aportesObreros.detail.fonasaSeguroRate, amount: aportesObreros.fonasaBasico,
           calculationDetail: Prisma.DbNull,
         },
-        ...(aportesObreros.fonasaFamilia > 0n ? [{
+        {
+          // SIEMPRE figura, aun en 0 ("Adicional Fonasa 0%", estilo GNS).
           liquidationId: liquidacion.id, employeeId, itemType: ItemType.DESCUENTO_OBRERO,
           concepto: 'FONASA_ADICIONAL', descripcion: 'Adicional FONASA',
           baseCalculo: baseBpsIrpf, rate: aportesObreros.detail.fonasaAdicionalRate, amount: aportesObreros.fonasaFamilia,
           calculationDetail: Prisma.DbNull,
-        }] : []),
+        },
         {
           liquidationId: liquidacion.id, employeeId, itemType: ItemType.DESCUENTO_OBRERO,
           concepto: 'FRL', descripcion: 'Fondo de Reconversión Laboral',
           baseCalculo: baseBpsIrpf, rate: params.frlObreroRate, amount: aportesObreros.frl,
           calculationDetail: Prisma.DbNull,
         },
-        ...(irpfResult.retencionMensual > 0n ? [{
+        {
+          // El IRPF figura SIEMPRE, aun en 0,00 (estilo GNS).
           liquidationId: liquidacion.id, employeeId, itemType: ItemType.DESCUENTO_OBRERO,
           concepto: 'IRPF', descripcion: 'IRPF',
           baseCalculo: baseBpsIrpf, rate: null, amount: irpfResult.retencionMensual,
           calculationDetail: Prisma.DbNull,
-        }] : []),
+        },
       ] : []),
     ],
   });

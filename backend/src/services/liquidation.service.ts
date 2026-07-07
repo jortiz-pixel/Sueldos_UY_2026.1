@@ -9,7 +9,7 @@ import { calcularAportesObreros, calcularAportesPatronales, calcularHorasExtra, 
 import { calcularIrpfMensual, calcularIrpfSimplificado } from './irpf.service';
 import { parametersService } from './parameters.service';
 import { resolverContratoEnMes, diasTrabajadosEnMes, datosLaboralesEfectivos } from './contract.service';
-import { evaluarConcepto, ConceptoContext } from './concept.engine';
+import { evaluarConcepto, valorUnitarioConcepto, ConceptoContext } from './concept.engine';
 import { calcularAguinaldoBrutoSemestre } from './aguinaldo.service';
 import { correspondeHerramientas, esEmpresaConstruccion, ensureConceptosConstruccion, jornalHoraVigente, recuadroDeEmpresa } from './construccion.service';
 import { AppError } from '../middleware/errorHandler';
@@ -341,6 +341,11 @@ export async function generarLiquidacionMensual(
     gravadoHaberes += amount; // amount es negativo → reduce el neto imponible
   }
 
+  // Media hora PAGADA (unidad de MEDIAS_HORAS): hora pagada ÷ 2 TRUNCADA al
+  // centésimo (444,85/2 → 222,42, como GNS). Hora pagada = unidad de la lluvia.
+  const valorMediaHora = esConstruccion ? horaPagada / 2n : undefined;
+  const valorHoraPagada = esConstruccion ? horaPagada : undefined;
+
   for (const c of conceptos.filter((c) => c.tipoOperacion === ItemType.DESCUENTO_OBRERO && esFalta(c.codigo))) {
     const amount = montoFalta(evaluarConcepto(c, {
       salarioNominal: labor.salarioNominal,
@@ -349,7 +354,8 @@ export async function generarLiquidacionMensual(
       cantidades,
       horasTrabajadas: horasConstruccion,
       horaLaudo: horaLaudo ?? undefined,
-      valorMediaHora: esConstruccion ? divRoundHalfUp(horaPagada, 2n) : undefined,
+      valorMediaHora,
+      valorHoraPagada,
     }));
     if (amount === 0n) continue;
     items.push({
@@ -372,22 +378,50 @@ export async function generarLiquidacionMensual(
     cantidades,
     horasTrabajadas: horasConstruccion,
     horaLaudo: horaLaudo ?? undefined,
-    valorMediaHora: esConstruccion ? divRoundHalfUp(horaPagada, 2n) : undefined,
+    valorMediaHora,
+    valorHoraPagada,
   };
+
+  // En modo construcción por horas, el recibo GNS muestra TODAS las líneas del
+  // laudo aunque den 0 (ej. lluvia sin horas cargadas). Herramientas solo desde
+  // ½ Oficial y transporte solo para jornaleros (si no corresponden, no figuran).
+  const modoHorasConstruccion = esConstruccion && horasConstruccion !== undefined;
+  const CODIGOS_LAUDO_G9 = new Set([
+    'HORAS_LLUVIA', 'PRESENTISMO_OBRA', 'PRES_MES_COMPLETO', 'TICKET_ALIMENTACION',
+    'MEDIAS_HORAS', 'DESGASTE_ROPA', 'GASTOS_TRANSPORTE', 'DESGASTE_HERRAMIENTAS',
+  ]);
+  const mostrarEnCero = (codigo: string) => modoHorasConstruccion
+    && CODIGOS_LAUDO_G9.has(codigo)
+    && (codigo !== 'DESGASTE_HERRAMIENTAS' || correspondeHerramientas(contrato?.categoria))
+    && (codigo !== 'GASTOS_TRANSPORTE' || labor.salaryType === 'JORNALERO');
 
   for (const c of conceptos.filter((c) => c.tipoOperacion === ItemType.HABER)) {
     ctxConcepto.haberesGravados = gravadoHaberes;
     const amount = evaluarConcepto(c, ctxConcepto);
-    if (amount <= 0n) continue;
+    if (amount <= 0n && !mostrarEnCero(c.codigo)) continue;
+    if (amount < 0n) continue;
+    // Detalle estilo GNS: "N x valor" para cantidad×valor; base para porcentajes.
+    const esCantidadValor = c.tipoCalculo === 'CANTIDAD_VALOR';
+    const cantidad = esCantidadValor ? (cantidades[c.codigo] ?? 0) : undefined;
+    const valorUnit = esCantidadValor ? valorUnitarioConcepto(c, ctxConcepto) : undefined;
+    const basePorcentaje = c.baseCalculo === 'HORAS_LAUDO'
+      ? divRoundHalfUp((horaLaudo ?? c.valorFijo ?? 0n) * BigInt(Math.round((horasConstruccion ?? 0) * 100)), 100n)
+      : null;
     items.push({
       employeeId: input.employeeId,
       itemType: ItemType.HABER,
       concepto: c.codigo,
       descripcion: c.nombre,
-      baseCalculo: null,
+      baseCalculo: basePorcentaje,
       rate: c.valorRate ?? null,
       amount,
-      calculationDetail: { motor: 'CONCEPTO', tipoCalculo: c.tipoCalculo, gravado: c.gravado, baseCalculo: c.baseCalculo } as unknown as Prisma.JsonValue,
+      calculationDetail: {
+        motor: 'CONCEPTO',
+        tipoCalculo: c.tipoCalculo,
+        gravado: c.gravado,
+        baseCalculo: c.baseCalculo,
+        ...(esCantidadValor ? { cantidad, valorUnit: (valorUnit ?? 0n).toString() } : {}),
+      } as unknown as Prisma.JsonValue,
     });
     if (c.gravado) gravadoHaberes += amount;
   }
@@ -399,6 +433,17 @@ export async function generarLiquidacionMensual(
   // El total de haberes ya está NETO de faltas → esa es la base imponible sobre
   // la que se calculan los aportes personales, patronales y el IRPF.
   const baseGravada = gravadoHaberes;
+
+  // Base de Fondo Social / Fondo de Vivienda (criterio GNS, validado con recibo
+  // Martín Hernández 1/2026): horas comunes + horas de lluvia + medias horas +
+  // presentismo por mes completo. NO incluye el incentivo presentismo ni las
+  // partidas exentas por hora (ropa/transporte/herramientas) ni el ticket.
+  const CONCEPTOS_BASE_FONDO = new Set(['SUELDO_BASICO', 'HORAS_LLUVIA', 'MEDIAS_HORAS', 'PRES_MES_COMPLETO']);
+  const baseFondoConstruccion = esConstruccion
+    ? items
+        .filter((i) => i.itemType === ItemType.HABER && CONCEPTOS_BASE_FONDO.has(i.concepto))
+        .reduce((sum, i) => sum + i.amount, 0n)
+    : undefined;
 
   // En junio y diciembre el ADICIONAL de FONASA del aguinaldo se cobra en la
   // mensualidad: su base es (nominal del mes + aguinaldo del semestre). El
@@ -450,27 +495,26 @@ export async function generarLiquidacionMensual(
 
   // Adicional FONASA: complemento según el seguro de salud (escalón > 2,5 BPC +
   // hijos + cónyuge). Partida SEPARADA. En junio/diciembre su base incluye el
-  // aguinaldo del semestre (fonasaAdicionalBase).
-  if (aportesObreros.fonasaFamilia > 0n) {
-    items.push({
-      employeeId: input.employeeId,
-      itemType: ItemType.DESCUENTO_OBRERO,
-      concepto: 'FONASA_ADICIONAL',
-      descripcion: 'Adicional FONASA',
-      baseCalculo: aportesObreros.detail.fonasaAdicionalBase,
-      rate: aportesObreros.detail.fonasaAdicionalRate,
-      amount: aportesObreros.fonasaFamilia,
-      calculationDetail: {
-        base: aportesObreros.detail.fonasaAdicionalBase.toString(),
-        rateBp: aportesObreros.detail.fonasaAdicionalRate,
-        hijosRate: aportesObreros.detail.fonasaHijosRate,
-        conyugeRate: aportesObreros.detail.fonasaConyugeRate,
-        hijosACargo: fonasaHijosACargo,
-        conyugeACargo: fonasaConyugeACargo,
-        seguroSalud: contrato?.seguroSalud ?? null,
-      } as unknown as Prisma.JsonValue,
-    });
-  }
+  // aguinaldo del semestre (fonasaAdicionalBase). SIEMPRE figura en el recibo,
+  // aun en 0 ("Adicional Fonasa 0%", estilo GNS).
+  items.push({
+    employeeId: input.employeeId,
+    itemType: ItemType.DESCUENTO_OBRERO,
+    concepto: 'FONASA_ADICIONAL',
+    descripcion: 'Adicional FONASA',
+    baseCalculo: aportesObreros.detail.fonasaAdicionalBase,
+    rate: aportesObreros.detail.fonasaAdicionalRate,
+    amount: aportesObreros.fonasaFamilia,
+    calculationDetail: {
+      base: aportesObreros.detail.fonasaAdicionalBase.toString(),
+      rateBp: aportesObreros.detail.fonasaAdicionalRate,
+      hijosRate: aportesObreros.detail.fonasaHijosRate,
+      conyugeRate: aportesObreros.detail.fonasaConyugeRate,
+      hijosACargo: fonasaHijosACargo,
+      conyugeACargo: fonasaConyugeACargo,
+      seguroSalud: contrato?.seguroSalud ?? null,
+    } as unknown as Prisma.JsonValue,
+  });
 
   items.push({
     employeeId: input.employeeId,
@@ -522,18 +566,17 @@ export async function generarLiquidacionMensual(
     } as unknown as Prisma.JsonValue;
   }
 
-  if (irpfRetencion > 0n) {
-    items.push({
-      employeeId: input.employeeId,
-      itemType: ItemType.DESCUENTO_OBRERO,
-      concepto: 'IRPF',
-      descripcion: 'IRPF — Impuesto a la Renta de las Personas Físicas (Cat. II)',
-      baseCalculo: baseGravada,
-      rate: null,
-      amount: irpfRetencion,
-      calculationDetail: irpfDetail,
-    });
-  }
+  // El IRPF SIEMPRE figura en el recibo, aun en 0,00 (estilo GNS).
+  items.push({
+    employeeId: input.employeeId,
+    itemType: ItemType.DESCUENTO_OBRERO,
+    concepto: 'IRPF',
+    descripcion: 'IRPF — Impuesto a la Renta de las Personas Físicas (Cat. II)',
+    baseCalculo: baseGravada,
+    rate: null,
+    amount: irpfRetencion,
+    calculationDetail: irpfDetail,
+  });
 
   for (const od of otrosDescuentosSinFaltas) {
     items.push({
@@ -556,18 +599,27 @@ export async function generarLiquidacionMensual(
       cantidades,
       horasTrabajadas: horasConstruccion,
       horaLaudo: horaLaudo ?? undefined,
-      valorMediaHora: esConstruccion ? divRoundHalfUp(horaPagada, 2n) : undefined,
+      valorMediaHora,
+      valorHoraPagada,
+      baseFondoConstruccion,
     });
     if (amount <= 0n) continue;
+    const baseDescuento = c.tipoCalculo === 'PORCENTAJE' || c.tipoCalculo === 'PORCENTAJE_CIENMIL'
+      ? (c.baseCalculo === 'FONDO_CONSTRUCCION'
+        ? (baseFondoConstruccion ?? baseGravada)
+        : c.baseCalculo === 'NOMINAL' ? labor.salarioNominal
+          : c.baseCalculo === 'SUELDO_BASICO' ? salarioBase
+            : baseGravada)
+      : null;
     items.push({
       employeeId: input.employeeId,
       itemType: ItemType.DESCUENTO_OBRERO,
       concepto: c.codigo,
       descripcion: c.nombre,
-      baseCalculo: null,
+      baseCalculo: baseDescuento,
       rate: c.valorRate ?? null,
       amount,
-      calculationDetail: { motor: 'CONCEPTO', tipoCalculo: c.tipoCalculo } as unknown as Prisma.JsonValue,
+      calculationDetail: { motor: 'CONCEPTO', tipoCalculo: c.tipoCalculo, baseCalculo: c.baseCalculo } as unknown as Prisma.JsonValue,
     });
   }
 
@@ -632,7 +684,9 @@ export async function generarLiquidacionMensual(
       cantidades,
       horasTrabajadas: horasConstruccion,
       horaLaudo: horaLaudo ?? undefined,
-      valorMediaHora: esConstruccion ? divRoundHalfUp(horaPagada, 2n) : undefined,
+      valorMediaHora,
+      valorHoraPagada,
+      baseFondoConstruccion,
     });
     if (amount <= 0n) continue;
     items.push({

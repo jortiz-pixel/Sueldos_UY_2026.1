@@ -11,6 +11,16 @@ import { formatPesos, MESES, PayrollItem } from '../types';
 
 interface OpcionConcepto { key: string; nombre: string; grupo: string; montoFijo?: number }
 
+// Tasa del ítem: los conceptos PORCENTAJE_CIENMIL (Fondo Social/Vivienda de la
+// construcción) guardan el rate en cienmilésimas (5809 → 0,5809%); el resto en
+// basis points (rate/100).
+function formatTasa(item: PayrollItem): string {
+  if (!item.rate) return '—';
+  const det = item.calculationDetail as { tipoCalculo?: string } | null | undefined;
+  if (det?.tipoCalculo === 'PORCENTAJE_CIENMIL') return `${(item.rate / 10000).toFixed(4)}%`;
+  return `${(item.rate / 100).toFixed(3)}%`;
+}
+
 function ItemRow({ item, editable, onEdit, onDelete }: {
   item: PayrollItem;
   editable?: boolean;
@@ -49,7 +59,7 @@ function ItemRow({ item, editable, onEdit, onDelete }: {
         {item.baseCalculo ? formatPesos(item.baseCalculo) : '—'}
       </td>
       <td className="px-4 py-2.5 text-right text-xs text-gray-500">
-        {item.rate ? `${(item.rate / 100).toFixed(3)}%` : '—'}
+        {formatTasa(item)}
       </td>
       <td className="px-4 py-2.5 text-right text-sm font-mono font-medium whitespace-nowrap">
         <span className="align-middle">{formatPesos(item.amount)}</span>
@@ -477,7 +487,7 @@ export default function LiquidationDetailPage() {
                   <tr key={item.id} className="hover:bg-gray-50">
                     <td className="px-4 py-2.5 text-sm text-gray-600">{item.descripcion}</td>
                     <td className="px-4 py-2.5 text-right text-xs font-mono text-gray-400">
-                      {item.rate ? `${(item.rate / 100).toFixed(3)}%` : ''}
+                      {item.rate ? formatTasa(item) : ''}
                     </td>
                     <td className="px-4 py-2.5 text-right text-sm font-mono text-gray-600">
                       {formatPesos(item.amount)}

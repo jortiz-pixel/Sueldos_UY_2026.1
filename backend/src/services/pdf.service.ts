@@ -165,14 +165,30 @@ export function generateReciboPDF(
       } else if (d.concepto === 'IRPF') {
         descFilas.push({ nombre: 'I.R.P.F.', detalle: '', importe: d.amount });
       } else {
-        descFilas.push({ nombre: d.descripcion, detalle: d.rate ? `${(d.rate / 100)} % ${baseTxt}` : '', importe: d.amount });
+        // PORCENTAJE_CIENMIL (Fondo Social/Vivienda): rate en cienmilésimas
+        // (5809 → "0.5809 %"), el resto en basis points (rate/100).
+        const det = d.calculationDetail as { tipoCalculo?: string } | null | undefined;
+        const divisor = det?.tipoCalculo === 'PORCENTAJE_CIENMIL' ? 10000 : 100;
+        descFilas.push({ nombre: d.descripcion, detalle: d.rate ? `${(d.rate / divisor)} % ${baseTxt}` : '', importe: d.amount });
       }
     }
-    const habFilas: Fila[] = haberes.map((h) => ({
-      nombre: h.descripcion.replace(/\s*\(.*\)\s*$/, ''),
-      detalle: h.rate ? `${(h.rate / 100)} % ${h.baseCalculo ? 'de ' + fmt(h.baseCalculo) : ''}` : '',
-      importe: h.amount,
-    }));
+    const habFilas: Fila[] = haberes.map((h) => {
+      // Detalle estilo GNS: "N x valor" para cantidad×valor (ticket, ropa,
+      // transporte, herramientas, medias horas, lluvia); "% de base" para los
+      // porcentajes (presentismos).
+      const det = h.calculationDetail as { cantidad?: number; valorUnit?: string } | null | undefined;
+      let detalle = '';
+      if (det && typeof det.cantidad === 'number' && det.valorUnit) {
+        detalle = `${det.cantidad} x ${fmt(BigInt(det.valorUnit))}`;
+      } else if (h.rate) {
+        detalle = `${(h.rate / 100)} % ${h.baseCalculo ? 'de ' + fmt(h.baseCalculo) : ''}`;
+      }
+      return {
+        nombre: h.descripcion.replace(/\s*\(.*\)\s*$/, ''),
+        detalle,
+        importe: h.amount,
+      };
+    });
 
     // Redondeo al peso entero.
     const liqCent = liquidation.liquidoPercibir;

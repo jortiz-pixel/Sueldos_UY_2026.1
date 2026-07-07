@@ -47,7 +47,10 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
   Enfermedad" 3% fijo sobre el total de haberes · `FONASA_ADICIONAL` =
   "Adicional FONASA", el complemento según el seguro de salud (escalón >2,5 BPC
   + hijos + cónyuge). Cada parte se redondea aparte (criterio GNS). El adicional
-  solo se crea si es > 0. Reportes/Excel suman ambos como "FONASA total".
+  y el IRPF figuran SIEMPRE como ítems, aun en 0 ("Adicional Fonasa 0%" /
+  "IRPF 0,00", estilo GNS) — en mensual, aguinaldo y final; el recálculo
+  (`recalcularLiquidacion`) tampoco los borra al quedar en 0.
+  Reportes/Excel suman ambos como "FONASA total".
   Las cargas (hijos/cónyuge) del adicional se derivan del CÓDIGO DE SEGURO DE
   SALUD (Tabla 8) del contrato vigente del mes (`fonasaCargasDeSeguroSalud`):
   familias con 4 variantes hijos/cónyuge (1/15/16/17 y análogos). Si el código
@@ -107,10 +110,19 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
   /generate): Horas Comunes = horas × valor hora; presentismos sobre horas ×
   HORA LAUDO (421,39, guardada en valorFijo del concepto, base `HORAS_LAUDO`);
   ropa y transporte × horas (transporte solo jornaleros); herramientas × horas
-  SOLO si la categoría es ½ Oficial+ (`correspondeHerramientas`); lluvia/
-  tickets/medias horas por cantidad manual (`cantidadesConcepto`). Validado
-  contra recibo GNS Martín Hernández 1/2026 (única diferencia conocida: pres.
-  mes completo 168,56 vs 168,60 GNS, redondeo interno de GNS).
+  SOLO si la categoría es ½ Oficial+ (`correspondeHerramientas`); lluvia por
+  cantidad manual; ticket y media hora default 1 por jornada de 8 hs
+  (`cantidadesConcepto` pisa los defaults). RECIBO IGUAL A GNS (espec.: recibo
+  Martín Hernández 1/2026): TODAS las líneas del laudo visibles aunque den 0
+  (lluvia, y también Adicional FONASA 0% e IRPF 0,00), nombres GNS exactos,
+  detalle "N x valor" (desde `calculationDetail.cantidad/valorUnit`) y "% de
+  base" en recibo PDF y pantalla; media hora = hora pagada ÷ 2 TRUNCADA
+  (444,85→222,42); lluvia por HORA PAGADA (base `HORA_PAGADA`). BASE del Fondo
+  Social/Vivienda (base `FONDO_CONSTRUCCION`, criterio GNS): horas comunes +
+  lluvia + medias horas + presentismo mes completo (da exactos 22,94 y 0,99
+  del recibo); tasas CIENMIL se muestran /10.000 con 4 decimales. Diferencias
+  ACEPTADAS por redondeo interno de GNS: pres. mes completo 168,56 vs 168,60 y
+  medias horas 222,42 vs 222,40.
   JORNALES DEL LAUDO (`jornales_construccion`, editor en Parámetros): valor
   HORA por categoría × recuadro con vigencias. INCLUIDOS en la ley 14.411 →
   empresas con aportación CT · NO_INCLUIDOS → grupo 9 con aportación Industria
@@ -123,8 +135,9 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
   TABLAS CARGADAS del Acta CS G9 Sub 01 del 22/4/2025 (vigencia 1/4/2025,
   convenio hasta 31/07/2026): ambos recuadros, categorías II-XII. La HORA
   LAUDO del presentismo es DINÁMICA: valor hora de la categoría del trabajador
-  en el recuadro NO_INCLUIDOS (validado: Oficial Albañil 421,38 ≈ recibo GNS);
-  fallback al valorFijo del concepto. OJO: el jornal PAGADO puede superar el
+  en el recuadro NO_INCLUIDOS (Oficial Albañil VIII ajustado a 421,39 =
+  3.371,14/8 como usa GNS — el acta imprimía 421,38; migración
+  `20260717120000_hora_laudo_viii`); fallback al valorFijo del concepto. OJO: el jornal PAGADO puede superar el
   laudo (Lambrechts paga 444,85 vs laudo 421,38) — el autocompletado sugiere el
   laudo mínimo. Al vencer el convenio sin vigencia nueva, el panel de jornales
   muestra alerta con link al MTSS (no hay auto-scraping: MTSS publica PDF

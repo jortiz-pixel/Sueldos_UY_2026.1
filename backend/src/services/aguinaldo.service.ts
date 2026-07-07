@@ -199,6 +199,19 @@ export async function calcularAguinaldo(input: AguinaldoInput): Promise<{
         calculationDetail: { soloSeguro: true, adicionalEnMensualidad: true } as unknown as Prisma.InputJsonValue,
       },
       {
+        // El adicional NO se descuenta en el aguinaldo (se cobra en la
+        // mensualidad de junio/diciembre), pero la línea figura en 0 (estilo GNS).
+        liquidationId: liquidacion.id,
+        employeeId: input.employeeId,
+        itemType: ItemType.DESCUENTO_OBRERO,
+        concepto: 'FONASA_ADICIONAL',
+        descripcion: 'Adicional FONASA',
+        baseCalculo: aguinaldoBruto,
+        rate: 0,
+        amount: 0n,
+        calculationDetail: { adicionalEnMensualidad: true } as unknown as Prisma.InputJsonValue,
+      },
+      {
         liquidationId: liquidacion.id,
         employeeId: input.employeeId,
         itemType: ItemType.DESCUENTO_OBRERO,
@@ -209,7 +222,8 @@ export async function calcularAguinaldo(input: AguinaldoInput): Promise<{
         amount: aportesObreros.frl,
         calculationDetail: Prisma.DbNull,
       },
-      ...(irpf > 0n ? [{
+      {
+        // El IRPF figura SIEMPRE, aun en 0,00 (estilo GNS).
         liquidationId: liquidacion.id,
         employeeId: input.employeeId,
         itemType: ItemType.DESCUENTO_OBRERO,
@@ -219,7 +233,7 @@ export async function calcularAguinaldo(input: AguinaldoInput): Promise<{
         rate: null,
         amount: irpf,
         calculationDetail: Prisma.DbNull,
-      }] : []),
+      },
       {
         liquidationId: liquidacion.id,
         employeeId: input.employeeId,
