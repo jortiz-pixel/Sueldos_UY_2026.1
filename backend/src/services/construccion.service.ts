@@ -190,13 +190,23 @@ export async function refrescarPartidasDesdeJornal(fecha: Date = new Date()): Pr
  * no generan ítem; el presentismo vale 0 sin horas). No pisa valores editados.
  */
 export async function ensureConceptosConstruccion(companyId: string, quick = false): Promise<number> {
-  // Camino rápido (se llama en cada generación de liquidación): si ya están
-  // todos los conceptos, no hay nada que hacer.
+  // Camino rápido (se llama en cada generación de liquidación): un solo query;
+  // si están todos los conceptos Y con la estructura vigente (nombre, orden,
+  // tipo y base de cálculo), no hay nada que hacer. Si falta alguno o quedó
+  // estructura vieja (p. ej. fondos sin base FONDO_CONSTRUCCION), sigue por el
+  // camino completo — así los cambios de espec. llegan a las empresas existentes.
   if (quick) {
-    const existentes = await prisma.concepto.count({
+    const existentes = await prisma.concepto.findMany({
       where: { companyId, codigo: { in: CONCEPTOS.map((c) => c.codigo) } },
+      select: { codigo: true, nombre: true, orden: true, tipoCalculo: true, baseCalculo: true, activo: true },
     });
-    if (existentes >= CONCEPTOS.length) return 0;
+    const porCodigo = new Map(existentes.map((e) => [e.codigo, e]));
+    const alDia = CONCEPTOS.every((c) => {
+      const e = porCodigo.get(c.codigo);
+      return !!e && e.activo && e.nombre === c.nombre && e.orden === c.orden
+        && e.tipoCalculo === c.tipoCalculo && (e.baseCalculo ?? null) === (c.baseCalculo ?? null);
+    });
+    if (alDia) return 0;
   }
   let creados = 0;
   for (const c of CONCEPTOS) {
