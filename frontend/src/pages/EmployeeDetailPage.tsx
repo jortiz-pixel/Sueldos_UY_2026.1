@@ -97,6 +97,7 @@ export default function EmployeeDetailPage() {
   // Empresa elegida en el form: si es de CONSTRUCCIÓN se sugieren las categorías del laudo.
   const formCompanyId = watch('companyId');
   const esConstruccion = companies?.find((co) => co.id === formCompanyId)?.tipoAporte === TIPO_APORTE_CONSTRUCCION;
+  const categoriaActual = watch('categoria') ?? '';
 
   const createMutation = useMutation({
     mutationFn: (data: ContractForm) => {
@@ -541,11 +542,16 @@ export default function EmployeeDetailPage() {
                 </div>
                 <div>
                   <label className="form-label">Categoría{esConstruccion ? ' (laudo construcción)' : ''}</label>
-                  <input {...register('categoria')} className="form-input" list={esConstruccion ? 'categorias-construccion' : undefined} placeholder={esConstruccion ? 'Ej. Oficial Albañil' : ''} />
-                  {esConstruccion && (
-                    <datalist id="categorias-construccion">
-                      {CATEGORIAS_CONSTRUCCION.map((c) => <option key={c} value={c} />)}
-                    </datalist>
+                  {esConstruccion ? (
+                    <select {...register('categoria')} className="form-input">
+                      <option value="">— Seleccionar categoría —</option>
+                      {categoriaActual && !CATEGORIAS_CONSTRUCCION.includes(categoriaActual) && (
+                        <option value={categoriaActual}>{categoriaActual} (actual)</option>
+                      )}
+                      {CATEGORIAS_CONSTRUCCION.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  ) : (
+                    <input {...register('categoria')} className="form-input" />
                   )}
                 </div>
                 <div>

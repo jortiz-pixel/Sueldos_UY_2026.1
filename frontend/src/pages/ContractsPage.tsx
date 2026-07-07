@@ -80,6 +80,7 @@ export default function ContractsPage() {
     defaultValues: { personId: '', vigenciaDesde: '', fechaIngreso: '', salaryType: 'MENSUAL', salarioNominalPesos: 0 },
   });
   const salaryType = watch('salaryType');
+  const categoriaActual = watch('categoria') ?? '';
 
   const openNew = () => {
     setEditing(null);
@@ -344,11 +345,16 @@ export default function ContractsPage() {
                 </div>
                 <div>
                   <label className="form-label">Categoría{esConstruccion ? ' (laudo construcción)' : ''}</label>
-                  <input {...register('categoria')} className="form-input" list={esConstruccion ? 'categorias-construccion' : undefined} placeholder={esConstruccion ? 'Ej. Oficial Albañil' : ''} />
-                  {esConstruccion && (
-                    <datalist id="categorias-construccion">
-                      {CATEGORIAS_CONSTRUCCION.map((c) => <option key={c} value={c} />)}
-                    </datalist>
+                  {esConstruccion ? (
+                    <select {...register('categoria')} className="form-input">
+                      <option value="">— Seleccionar categoría —</option>
+                      {categoriaActual && !CATEGORIAS_CONSTRUCCION.includes(categoriaActual) && (
+                        <option value={categoriaActual}>{categoriaActual} (actual)</option>
+                      )}
+                      {CATEGORIAS_CONSTRUCCION.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  ) : (
+                    <input {...register('categoria')} className="form-input" />
                   )}
                 </div>
                 <div>
