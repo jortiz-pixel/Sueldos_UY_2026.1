@@ -3,10 +3,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { Link } from 'react-router-dom';
 import { Eye, Plus, X, AlertCircle, Pencil, Printer, Trash2, Undo2 } from 'lucide-react';
-import { contractsApi, catalogsApi } from '../services/api';
+import { contractsApi, catalogsApi, companiesApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
 import { formatPesos, SalaryType, Contrato } from '../types';
+import { CATEGORIAS_CONSTRUCCION, TIPO_APORTE_CONSTRUCCION } from '../constants/conceptos';
 
 type ContratoRow = Contrato & { employee: { id: string; ci: string; nombre: string; apellido: string } };
 
@@ -63,6 +64,13 @@ export default function ContractsPage() {
   });
 
   const { data: persons } = useQuery({ queryKey: ['persons-picker'], queryFn: () => contractsApi.persons() });
+  // Detalle de la empresa activa (para saber si es de CONSTRUCCIÓN).
+  const { data: empresaDetalle } = useQuery({
+    queryKey: ['company', companyId],
+    queryFn: () => companiesApi.get(companyId),
+    enabled: !!companyId,
+  });
+  const esConstruccion = empresaDetalle?.tipoAporte === TIPO_APORTE_CONSTRUCCION;
   const { data: vinculos } = useQuery({ queryKey: ['cat-vinculos'], queryFn: () => catalogsApi.vinculosFuncionales(), staleTime: Infinity });
   const { data: segurosSalud } = useQuery({ queryKey: ['cat-seguros-salud'], queryFn: () => catalogsApi.segurosSalud(), staleTime: Infinity });
   const { data: computos } = useQuery({ queryKey: ['cat-computos'], queryFn: () => catalogsApi.computosEspeciales(), staleTime: Infinity });
@@ -335,8 +343,13 @@ export default function ContractsPage() {
                   <input {...register('cargo')} className="form-input" />
                 </div>
                 <div>
-                  <label className="form-label">Categoría</label>
-                  <input {...register('categoria')} className="form-input" />
+                  <label className="form-label">Categoría{esConstruccion ? ' (laudo construcción)' : ''}</label>
+                  <input {...register('categoria')} className="form-input" list={esConstruccion ? 'categorias-construccion' : undefined} placeholder={esConstruccion ? 'Ej. Oficial Albañil' : ''} />
+                  {esConstruccion && (
+                    <datalist id="categorias-construccion">
+                      {CATEGORIAS_CONSTRUCCION.map((c) => <option key={c} value={c} />)}
+                    </datalist>
+                  )}
                 </div>
                 <div>
                   <label className="form-label">Nivel</label>

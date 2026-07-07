@@ -154,7 +154,7 @@ export interface Concepto {
   nombreReducido?: string;
   orden: number;
   tipoOperacion: ItemType;
-  tipoCalculo: 'VALOR_FIJO' | 'PORCENTAJE' | 'CANTIDAD_VALOR';
+  tipoCalculo: 'VALOR_FIJO' | 'PORCENTAJE' | 'CANTIDAD_VALOR' | 'PORCENTAJE_CIENMIL';
   baseCalculo?: 'NOMINAL' | 'SUELDO_BASICO' | 'HABERES_GRAVADOS' | null;
   valorRate?: number | null;
   valorFijo?: string | null;

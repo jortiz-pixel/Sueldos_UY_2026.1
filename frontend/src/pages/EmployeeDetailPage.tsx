@@ -8,6 +8,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
 import AttachmentsPanel from '../components/AttachmentsPanel';
 import { formatPesos, MESES, Contrato, SalaryType } from '../types';
+import { CATEGORIAS_CONSTRUCCION, TIPO_APORTE_CONSTRUCCION } from '../constants/conceptos';
 
 function Field({ label, value }: { label: string; value: string | number | boolean | null | undefined }) {
   if (value === null || value === undefined || value === '') return null;
@@ -93,6 +94,9 @@ export default function EmployeeDetailPage() {
     defaultValues: { companyId: '', vigenciaDesde: '', fechaIngreso: '', salaryType: 'MENSUAL', salarioNominalPesos: 0 },
   });
   const salaryType = watch('salaryType');
+  // Empresa elegida en el form: si es de CONSTRUCCIÓN se sugieren las categorías del laudo.
+  const formCompanyId = watch('companyId');
+  const esConstruccion = companies?.find((co) => co.id === formCompanyId)?.tipoAporte === TIPO_APORTE_CONSTRUCCION;
 
   const createMutation = useMutation({
     mutationFn: (data: ContractForm) => {
@@ -536,8 +540,13 @@ export default function EmployeeDetailPage() {
                   <input {...register('cargo')} className="form-input" />
                 </div>
                 <div>
-                  <label className="form-label">Categoría</label>
-                  <input {...register('categoria')} className="form-input" />
+                  <label className="form-label">Categoría{esConstruccion ? ' (laudo construcción)' : ''}</label>
+                  <input {...register('categoria')} className="form-input" list={esConstruccion ? 'categorias-construccion' : undefined} placeholder={esConstruccion ? 'Ej. Oficial Albañil' : ''} />
+                  {esConstruccion && (
+                    <datalist id="categorias-construccion">
+                      {CATEGORIAS_CONSTRUCCION.map((c) => <option key={c} value={c} />)}
+                    </datalist>
+                  )}
                 </div>
                 <div>
                   <label className="form-label">Nivel</label>

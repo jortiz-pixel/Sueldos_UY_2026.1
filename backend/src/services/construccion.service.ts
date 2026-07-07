@@ -1,0 +1,84 @@
+/**
+ * CONCEPTOS ESPECIALES DE LA CONSTRUCCIÓN (aportación CT — Tabla 1 código 4)
+ *
+ * Al crear (o pasar) una empresa a aportación Construcción se cargan como
+ * conceptos PROPIOS de la empresa las partidas típicas del laudo del Grupo 9
+ * (SUNCA), con los valores vigentes tomados del recibo de referencia (Oficial
+ * Albañil, enero 2026). Los valores/porcentajes quedan EDITABLES en Conceptos
+ * (los laudos cambian por ronda) y los importes por cantidad se calculan como
+ * cantidad × valor. Las partidas extraordinarias (ropa, transporte,
+ * herramientas) y las medias horas van EXENTAS; el ticket de alimentación de
+ * este laudo va GRAVADO. Fondo Social y Fondo de Vivienda usan porcentaje de
+ * precisión fina (4 decimales).
+ *
+ * Idempotente: upsert por (companyId, codigo); si el concepto ya existe no se
+ * pisan los valores que el operador haya ajustado.
+ */
+import { ItemType } from '@prisma/client';
+import { prisma } from '../utils/prisma';
+
+export const TIPO_APORTE_CONSTRUCCION = 4; // Tabla 1: CT — Construcción
+
+interface ConceptoConstruccion {
+  codigo: string;
+  nombre: string;
+  orden: number;
+  tipoOperacion: ItemType;
+  tipoCalculo: 'VALOR_FIJO' | 'PORCENTAJE' | 'CANTIDAD_VALOR' | 'PORCENTAJE_CIENMIL';
+  baseCalculo?: string;
+  valorRate?: number;
+  valorFijo?: bigint;
+  gravado: boolean;
+}
+
+// Valores vigentes 01/2026 (recibo GNS Oficial Albañil — jornal hora 444,85).
+const CONCEPTOS: ConceptoConstruccion[] = [
+  { codigo: 'HORAS_LLUVIA', nombre: 'Horas de espera por lluvia', orden: 60, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 44485n, gravado: true },
+  { codigo: 'PRESENTISMO_OBRA', nombre: 'Incentivo Presentismo (10,42%)', orden: 61, tipoOperacion: 'HABER', tipoCalculo: 'PORCENTAJE', baseCalculo: 'SUELDO_BASICO', valorRate: 1042, gravado: true },
+  { codigo: 'PRES_MES_COMPLETO', nombre: 'Presentismo por trabajo completo en el mes (5%)', orden: 62, tipoOperacion: 'HABER', tipoCalculo: 'PORCENTAJE', baseCalculo: 'SUELDO_BASICO', valorRate: 500, gravado: true },
+  { codigo: 'TICKET_ALIMENTACION', nombre: 'Ticket Alimentación (gravado)', orden: 63, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 18416n, gravado: true },
+  { codigo: 'MEDIAS_HORAS', nombre: 'Medias horas', orden: 64, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 22242n, gravado: false },
+  { codigo: 'DESGASTE_ROPA', nombre: 'Desgaste de ropa (por hora)', orden: 65, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 1293n, gravado: false },
+  { codigo: 'GASTOS_TRANSPORTE', nombre: 'Gastos de transporte (por hora)', orden: 66, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 1131n, gravado: false },
+  { codigo: 'DESGASTE_HERRAMIENTAS', nombre: 'Desgaste de herramientas (por hora)', orden: 67, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 517n, gravado: false },
+  { codigo: 'FONDO_SOCIAL', nombre: 'Fondo Social construcción (0,5809%)', orden: 220, tipoOperacion: 'DESCUENTO_OBRERO', tipoCalculo: 'PORCENTAJE_CIENMIL', baseCalculo: 'HABERES_GRAVADOS', valorRate: 5809, gravado: false },
+  { codigo: 'FONDO_VIVIENDA', nombre: 'Fondo de Vivienda (0,025%)', orden: 221, tipoOperacion: 'DESCUENTO_OBRERO', tipoCalculo: 'PORCENTAJE_CIENMIL', baseCalculo: 'HABERES_GRAVADOS', valorRate: 250, gravado: false },
+];
+
+// Categorías laborales típicas del Grupo 9 (Industria de la construcción).
+export const CATEGORIAS_CONSTRUCCION = [
+  'Peón', 'Peón Práctico', 'Medio Oficial Albañil', 'Oficial Albañil',
+  'Oficial Especializado', 'Capataz', 'Sereno', 'Administrativo de obra',
+];
+
+/**
+ * Crea los conceptos de construcción como propios de la empresa (activo=false:
+ * quedan disponibles para agregarlos en las liquidaciones sin auto-aplicarse).
+ * No pisa valores si ya existen (respeta ajustes del operador).
+ */
+export async function ensureConceptosConstruccion(companyId: string): Promise<number> {
+  let creados = 0;
+  for (const c of CONCEPTOS) {
+    const existing = await prisma.concepto.findUnique({
+      where: { companyId_codigo: { companyId, codigo: c.codigo } },
+    });
+    if (existing) continue;
+    await prisma.concepto.create({
+      data: {
+        companyId,
+        codigo: c.codigo,
+        nombre: c.nombre,
+        orden: c.orden,
+        tipoOperacion: c.tipoOperacion,
+        tipoCalculo: c.tipoCalculo,
+        baseCalculo: c.baseCalculo ?? null,
+        valorRate: c.valorRate ?? null,
+        valorFijo: c.valorFijo ?? null,
+        gravado: c.gravado,
+        activo: false,
+      },
+    });
+    creados++;
+  }
+  return creados;
+}

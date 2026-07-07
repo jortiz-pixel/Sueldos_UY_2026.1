@@ -14,7 +14,7 @@ interface ConceptoForm {
   nombre: string;
   orden: number;
   tipoOperacion: ItemType;
-  tipoCalculo: 'VALOR_FIJO' | 'PORCENTAJE' | 'CANTIDAD_VALOR';
+  tipoCalculo: 'VALOR_FIJO' | 'PORCENTAJE' | 'CANTIDAD_VALOR' | 'PORCENTAJE_CIENMIL';
   baseCalculo: string;
   valorRate: number;
   valorFijoPesos: number;
@@ -106,8 +106,8 @@ export default function ConceptsPage() {
         orden: Number(data.orden),
         tipoOperacion: data.tipoOperacion,
         tipoCalculo: data.tipoCalculo,
-        baseCalculo: data.tipoCalculo === 'PORCENTAJE' ? data.baseCalculo : null,
-        valorRate: data.tipoCalculo === 'PORCENTAJE' ? Number(data.valorRate) : null,
+        baseCalculo: (data.tipoCalculo === 'PORCENTAJE' || data.tipoCalculo === 'PORCENTAJE_CIENMIL') ? data.baseCalculo : null,
+        valorRate: (data.tipoCalculo === 'PORCENTAJE' || data.tipoCalculo === 'PORCENTAJE_CIENMIL') ? Number(data.valorRate) : null,
         valorFijo: (data.tipoCalculo === 'VALOR_FIJO' || data.tipoCalculo === 'CANTIDAD_VALOR')
           ? String(Math.round(Number(data.valorFijoPesos) * 100)) : null,
         gravado: data.gravado,
@@ -139,6 +139,7 @@ export default function ConceptsPage() {
 
   const resumenCalculo = (c: Concepto) => {
     if (c.tipoCalculo === 'PORCENTAJE') return `${(c.valorRate ?? 0) / 100}% sobre ${c.baseCalculo}`;
+    if (c.tipoCalculo === 'PORCENTAJE_CIENMIL') return `${((c.valorRate ?? 0) / 10000).toFixed(4).replace('.', ',')}% sobre ${c.baseCalculo}`;
     if (c.tipoCalculo === 'VALOR_FIJO') return `${c.valorFijo ? formatPesos(c.valorFijo) : '$0'} fijo`;
     return `${c.valorFijo ? formatPesos(c.valorFijo) : '$0'} × cantidad`;
   };
@@ -366,9 +367,10 @@ export default function ConceptsPage() {
                     <option value="VALOR_FIJO">Valor fijo</option>
                     <option value="PORCENTAJE">Porcentaje sobre base</option>
                     <option value="CANTIDAD_VALOR">Cantidad × valor</option>
+                    <option value="PORCENTAJE_CIENMIL">Porcentaje fino (4 decimales, ej. Fondo Social 0,5809% = 5809)</option>
                   </select>
                 </div>
-                {tipoCalculo === 'PORCENTAJE' ? (
+                {(tipoCalculo === 'PORCENTAJE' || tipoCalculo === 'PORCENTAJE_CIENMIL') ? (
                   <>
                     <div>
                       <label className="form-label">Base</label>
@@ -379,7 +381,7 @@ export default function ConceptsPage() {
                       </select>
                     </div>
                     <div>
-                      <label className="form-label">Tasa (basis points, 500 = 5%)</label>
+                      <label className="form-label">{tipoCalculo === 'PORCENTAJE_CIENMIL' ? 'Tasa (% × 10.000: 0,5809% = 5809)' : 'Tasa (basis points, 500 = 5%)'}</label>
                       <input {...register('valorRate', { valueAsNumber: true })} type="number" className="form-input" />
                     </div>
                   </>

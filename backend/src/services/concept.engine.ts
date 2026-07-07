@@ -8,7 +8,7 @@
  * primas, adelantos, etc.).
  */
 
-import { applyRate } from '../utils/money';
+import { applyRate, divRoundHalfUp } from '../utils/money';
 import { Concepto } from '@prisma/client';
 
 export interface ConceptoContext {
@@ -35,8 +35,20 @@ export function evaluarConcepto(c: Concepto, ctx: ConceptoContext): bigint {
     }
 
     case 'CANTIDAD_VALOR': {
+      // Admite cantidades fraccionadas (ej. 8,5 horas): se redondea al centésimo.
       const cantidad = ctx.cantidades?.[c.codigo] ?? 0;
-      return (c.valorFijo ?? 0n) * BigInt(Math.round(cantidad));
+      return divRoundHalfUp((c.valorFijo ?? 0n) * BigInt(Math.round(cantidad * 100)), 100n);
+    }
+
+    // Porcentaje con 4 decimales (valorRate en cienmilésimas: 0,5809% → 5809).
+    // Necesario para tasas finas como Fondo Social construcción (0,5809%) o
+    // Fondo de Vivienda (0,025% → 250).
+    case 'PORCENTAJE_CIENMIL': {
+      const base =
+        c.baseCalculo === 'NOMINAL' ? ctx.salarioNominal
+        : c.baseCalculo === 'SUELDO_BASICO' ? ctx.sueldoBasico
+        : ctx.haberesGravados;
+      return divRoundHalfUp(base * BigInt(c.valorRate ?? 0), 1000000n);
     }
 
     default:

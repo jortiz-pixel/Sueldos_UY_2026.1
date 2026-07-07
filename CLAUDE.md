@@ -83,6 +83,15 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
   despido (causal 2); voluntario/término no llevan. PREAVISO NO APLICA en
   Uruguay: no existe esa partida en ninguna liquidación.
 - **Contrato a prueba** = modalidad de 90 días rescindible sin IPD (no es un borrador).
+- **CONSTRUCCIÓN (aportación CT, Tabla 1 código 4)**: al crear/editar una empresa
+  con tipoAporte=4 se cargan automáticamente sus conceptos del laudo Grupo 9
+  (`construccion.service.ts`, idempotente, valores 01/2026 del recibo GNS
+  Oficial Albañil, editables en Conceptos): horas lluvia, presentismo 10,42%,
+  mes completo 5%, ticket alimentación GRAVADO, medias horas/ropa/transporte/
+  herramientas EXENTOS (cantidad × valor), Fondo Social 0,5809% y Fondo
+  Vivienda 0,025% (descuentos, tipoCalculo `PORCENTAJE_CIENMIL` = % × 10.000
+  para tasas con 4 decimales). En el campo Categoría del contrato se sugieren
+  las categorías del laudo (datalist) solo si la empresa es de construcción.
 - **FALTAS** (estilo GNS, recibo Belén Martínez): figuran del lado de los
   HABERES como un haber NEGATIVO (días × jornal). Así el "Total de Haberes" ya
   sale NETO de faltas y sobre ese neto se calculan TODOS los descuentos (aportes

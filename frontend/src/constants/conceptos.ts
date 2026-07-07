@@ -26,3 +26,12 @@ export const CONCEPTOS_SISTEMA: ConceptoSistema[] = [
   { nombre: 'FRL Patronal', tipo: 'APORTE_PATRONAL', calculo: '0,10% sobre el gravado', gravado: '—' },
   { nombre: 'FGCL Patronal', tipo: 'APORTE_PATRONAL', calculo: '0,025% sobre el gravado', gravado: '—' },
 ];
+
+// Categorías laborales típicas del Grupo 9 (Industria de la construcción).
+// Se ofrecen como sugerencia en el campo Categoría cuando la empresa tiene
+// aportación CONSTRUCCIÓN (Tabla 1 código 4); admite texto libre igual.
+export const TIPO_APORTE_CONSTRUCCION = 4;
+export const CATEGORIAS_CONSTRUCCION = [
+  'Peón', 'Peón Práctico', 'Medio Oficial Albañil', 'Oficial Albañil',
+  'Oficial Especializado', 'Capataz', 'Sereno', 'Administrativo de obra',
+];
