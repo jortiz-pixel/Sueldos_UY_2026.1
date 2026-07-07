@@ -38,9 +38,15 @@ const CONCEPTOS: ConceptoConstruccion[] = [
   { codigo: 'PRES_MES_COMPLETO', nombre: 'Presentismo por trabajo completo en el mes (5%)', orden: 62, tipoOperacion: 'HABER', tipoCalculo: 'PORCENTAJE', baseCalculo: 'SUELDO_BASICO', valorRate: 500, gravado: true },
   { codigo: 'TICKET_ALIMENTACION', nombre: 'Ticket Alimentación (gravado)', orden: 63, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 18416n, gravado: true },
   { codigo: 'MEDIAS_HORAS', nombre: 'Medias horas', orden: 64, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 22242n, gravado: false },
-  { codigo: 'DESGASTE_ROPA', nombre: 'Desgaste de ropa (por hora)', orden: 65, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 1293n, gravado: false },
-  { codigo: 'GASTOS_TRANSPORTE', nombre: 'Gastos de transporte (por hora)', orden: 66, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 1131n, gravado: false },
-  { codigo: 'DESGASTE_HERRAMIENTAS', nombre: 'Desgaste de herramientas (por hora)', orden: 67, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 517n, gravado: false },
+  // Partidas extraordinarias EXENTAS: los valores del laudo son POR JORNADA DE
+  // 8 HORAS EFECTIVAS; acá se cargan por HORA (valor/8) y el importe se calcula
+  // horas × valor, igual que en el recibo GNS ("8 x 12.93").
+  //  - Ropa: 103,44 c/8 hs (= 5% del jornal del medio oficial albañil) → 12,93/h. Todas las categorías obreras.
+  //  - Herramientas: 41,36 c/8 hs → 5,17/h. SOLO desde Medio Oficial en adelante.
+  //  - Transporte: jornaleros 90,50 c/8 hs → 11,31/h (los mensuales tienen otro régimen).
+  { codigo: 'DESGASTE_ROPA', nombre: 'Desgaste de ropa (hs × 12,93 — 103,44 c/8 hs, todas las categorías)', orden: 65, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 1293n, gravado: false },
+  { codigo: 'GASTOS_TRANSPORTE', nombre: 'Gastos de transporte (hs × 11,31 — jornaleros, 90,50 c/8 hs)', orden: 66, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 1131n, gravado: false },
+  { codigo: 'DESGASTE_HERRAMIENTAS', nombre: 'Desgaste de herramientas (hs × 5,17 — 41,36 c/8 hs, desde ½ Oficial)', orden: 67, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 517n, gravado: false },
   { codigo: 'FONDO_SOCIAL', nombre: 'Fondo Social construcción (0,5809%)', orden: 220, tipoOperacion: 'DESCUENTO_OBRERO', tipoCalculo: 'PORCENTAJE_CIENMIL', baseCalculo: 'HABERES_GRAVADOS', valorRate: 5809, gravado: false },
   { codigo: 'FONDO_VIVIENDA', nombre: 'Fondo de Vivienda (0,025%)', orden: 221, tipoOperacion: 'DESCUENTO_OBRERO', tipoCalculo: 'PORCENTAJE_CIENMIL', baseCalculo: 'HABERES_GRAVADOS', valorRate: 250, gravado: false },
 ];
@@ -62,7 +68,14 @@ export async function ensureConceptosConstruccion(companyId: string): Promise<nu
     const existing = await prisma.concepto.findUnique({
       where: { companyId_codigo: { companyId, codigo: c.codigo } },
     });
-    if (existing) continue;
+    if (existing) {
+      // Refrescar solo el nombre (documenta la regla del laudo); los valores
+      // ajustados por el operador no se tocan.
+      if (existing.nombre !== c.nombre) {
+        await prisma.concepto.update({ where: { id: existing.id }, data: { nombre: c.nombre } });
+      }
+      continue;
+    }
     await prisma.concepto.create({
       data: {
         companyId,
