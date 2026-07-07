@@ -68,6 +68,13 @@ export const demoApi = {
   }>('/demo/seed').then((r) => r.data),
 };
 
+export interface JornalConstruccionRow { categoria: string; recuadro: 'INCLUIDOS' | 'NO_INCLUIDOS'; valorHora: string; effectiveDate: string }
+export const construccionApi = {
+  jornales: () => api.get<{ categorias: string[]; jornales: JornalConstruccionRow[] }>('/construccion/jornales').then((r) => r.data),
+  saveJornales: (effectiveDate: string, valores: Array<{ categoria: string; recuadro: 'INCLUIDOS' | 'NO_INCLUIDOS'; valorHoraPesos: number }>) =>
+    api.put<{ guardados: number; partidasActualizadas: number }>('/construccion/jornales', { effectiveDate, valores }).then((r) => r.data),
+};
+
 export const auditApi = {
   list: (params: { page?: number; limit?: number; action?: string; entity?: string; from?: string; to?: string }) =>
     api.get<{ data: AuditRow[]; pagination: { page: number; limit: number; total: number; totalPages: number } }>('/audit', { params })

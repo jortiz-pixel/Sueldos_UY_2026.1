@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Calendar, User, DollarSign, FileText, Briefcase, Plus, X, AlertCircle, UserMinus, Pencil, FileDown, Printer } from 'lucide-react';
 import { useForm } from 'react-hook-form';
-import { employeesApi, contractsApi, companiesApi, catalogsApi } from '../services/api';
+import { employeesApi, contractsApi, companiesApi, catalogsApi, construccionApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
 import AttachmentsPanel from '../components/AttachmentsPanel';
@@ -90,7 +90,7 @@ export default function EmployeeDetailPage() {
     enabled: !!id,
   });
 
-  const { register, handleSubmit, reset, watch, formState: { errors } } = useForm<ContractForm>({
+  const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<ContractForm>({
     defaultValues: { companyId: '', vigenciaDesde: '', fechaIngreso: '', salaryType: 'MENSUAL', salarioNominalPesos: 0 },
   });
   const salaryType = watch('salaryType');
@@ -98,6 +98,30 @@ export default function EmployeeDetailPage() {
   const formCompanyId = watch('companyId');
   const esConstruccion = esEmpresaConstruccion(companies?.find((co) => co.id === formCompanyId));
   const categoriaActual = watch('categoria') ?? '';
+  const recuadroEmpresa = companies?.find((co) => co.id === formCompanyId)?.tipoAporte === 4 ? 'INCLUIDOS' : 'NO_INCLUIDOS';
+
+  // Jornales del laudo: al ELEGIR una categoría se autocompleta el valor hora
+  // vigente según el recuadro de la empresa (CT → incluidos en la ley; IC →
+  // no incluidos). No pisa el jornal al abrir un contrato existente.
+  const { data: jornalesLaudo } = useQuery({
+    queryKey: ['jornales-construccion'],
+    queryFn: () => construccionApi.jornales(),
+    enabled: esConstruccion,
+    staleTime: 5 * 60 * 1000,
+  });
+  const prevCategoria = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const prev = prevCategoria.current;
+    prevCategoria.current = categoriaActual;
+    if (prev === undefined || prev === categoriaActual || !esConstruccion || !categoriaActual) return;
+    const j = jornalesLaudo?.jornales.find((x) => x.categoria === categoriaActual && x.recuadro === recuadroEmpresa);
+    if (!j || j.valorHora === '0') return;
+    const hora = Number(j.valorHora) / 100;
+    setValue('jornalPesos', hora);
+    // Nominal mensual ficto para BPS: 25 jornadas de 8 horas.
+    setValue('salarioNominalPesos', Math.round(hora * 200 * 100) / 100);
+    setValue('salaryType', 'JORNALERO');
+  }, [categoriaActual, esConstruccion, recuadroEmpresa, jornalesLaudo, setValue]);
 
   const createMutation = useMutation({
     mutationFn: (data: ContractForm) => {

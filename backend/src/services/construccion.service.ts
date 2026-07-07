@@ -107,6 +107,64 @@ export function correspondeHerramientas(categoria: string | null | undefined): b
   return /oficial|guinchero|chofer|maquinista|escalerista|finalista|mec[aá]nico|capataz|especialista|especializado/i.test(categoria);
 }
 
+// ── Jornales del laudo por categoría y recuadro ───────────────────────────
+// INCLUIDOS en la ley 14.411 → empresas con aportación CT (4).
+// NO_INCLUIDOS → empresas del grupo 9 que aportan por Industria y Comercio.
+export type Recuadro = 'INCLUIDOS' | 'NO_INCLUIDOS';
+
+export function recuadroDeEmpresa(co: { tipoAporte?: number | null }): Recuadro {
+  return co.tipoAporte === TIPO_APORTE_CONSTRUCCION ? 'INCLUIDOS' : 'NO_INCLUIDOS';
+}
+
+/** Jornales vigentes a una fecha: última vigencia ≤ fecha por categoría+recuadro. */
+export async function jornalesVigentes(fecha: Date = new Date()): Promise<Array<{ categoria: string; recuadro: string; valorHora: bigint; effectiveDate: Date }>> {
+  const rows = await prisma.jornalConstruccion.findMany({
+    where: { effectiveDate: { lte: fecha } },
+    orderBy: { effectiveDate: 'desc' },
+  });
+  const vistos = new Set<string>();
+  const vigentes: typeof rows = [];
+  for (const r of rows) {
+    const key = `${r.categoria}|${r.recuadro}`;
+    if (vistos.has(key)) continue;
+    vistos.add(key);
+    vigentes.push(r);
+  }
+  return vigentes;
+}
+
+// Partidas extraordinarias derivadas del JORNAL DÍA (hora × 8) del
+// ½ OFICIAL ALBAÑIL del recuadro INCLUIDOS EN LA LEY:
+//   ropa 5% · transporte 4,375% · herramientas 2% (por jornada de 8 hs).
+// El valor POR HORA del concepto es el mismo % aplicado al valor hora.
+const CATEGORIA_MEDIO_OFICIAL = 'V — ½ Oficial Albañil';
+const PARTIDAS_DERIVADAS: Array<{ codigo: string; pctCienmil: number }> = [
+  { codigo: 'DESGASTE_ROPA', pctCienmil: 50000 },          // 5%
+  { codigo: 'GASTOS_TRANSPORTE', pctCienmil: 43750 },      // 4,375%
+  { codigo: 'DESGASTE_HERRAMIENTAS', pctCienmil: 20000 },  // 2%
+];
+
+/**
+ * Recalcula el valor por hora de ropa/transporte/herramientas a partir del
+ * jornal vigente del ½ Oficial Albañil (INCLUIDOS) y lo aplica a los conceptos
+ * de TODAS las empresas de construcción. Se llama al guardar los jornales.
+ */
+export async function refrescarPartidasDesdeJornal(fecha: Date = new Date()): Promise<number> {
+  const vigentes = await jornalesVigentes(fecha);
+  const medio = vigentes.find((v) => v.categoria === CATEGORIA_MEDIO_OFICIAL && v.recuadro === 'INCLUIDOS');
+  if (!medio || medio.valorHora <= 0n) return 0;
+  let actualizados = 0;
+  for (const p of PARTIDAS_DERIVADAS) {
+    const valorHora = medio.valorHora * BigInt(p.pctCienmil) / 1000000n; // pct × hora
+    const r = await prisma.concepto.updateMany({
+      where: { codigo: p.codigo, companyId: { not: null } },
+      data: { valorFijo: valorHora },
+    });
+    actualizados += r.count;
+  }
+  return actualizados;
+}
+
 /**
  * Crea los conceptos de construcción como propios de la empresa, ACTIVOS: se
  * auto-aplican al liquidar (los de cantidad valen 0 si no se indica cantidad y

@@ -106,6 +106,15 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
   tickets/medias horas por cantidad manual (`cantidadesConcepto`). Validado
   contra recibo GNS Martín Hernández 1/2026 (única diferencia conocida: pres.
   mes completo 168,56 vs 168,60 GNS, redondeo interno de GNS).
+  JORNALES DEL LAUDO (`jornales_construccion`, editor en Parámetros): valor
+  HORA por categoría × recuadro con vigencias. INCLUIDOS en la ley 14.411 →
+  empresas con aportación CT · NO_INCLUIDOS → grupo 9 con aportación Industria
+  y Comercio. Al ELEGIR la categoría en el contrato se autocompleta el jornal
+  (hora) + nominal ficto (hora×200) según el recuadro de la empresa; no pisa
+  el jornal al abrir contratos existentes. Ropa (5%), transporte (4,375%) y
+  herramientas (2%) se derivan del ½ OFICIAL ALBAÑIL del recuadro INCLUIDOS
+  (2.068,80/día 1/2026) y se recalculan en todas las empresas de construcción
+  al guardar jornales (`refrescarPartidasDesdeJornal`).
 - **FALTAS** (estilo GNS, recibo Belén Martínez): figuran del lado de los
   HABERES como un haber NEGATIVO (días × jornal). Así el "Total de Haberes" ya
   sale NETO de faltas y sobre ese neto se calculan TODOS los descuentos (aportes

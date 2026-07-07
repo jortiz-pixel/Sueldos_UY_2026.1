@@ -582,6 +582,22 @@ model Laudo {
   @@map("laudos")
 }
 
+// Jornales del laudo de la CONSTRUCCIÓN por categoría (grados II-XII) y
+// recuadro: INCLUIDOS en la ley 14.411 (aportación CT) o NO_INCLUIDOS
+// (empresas del grupo 9 que aportan por Industria y Comercio). Valor HORA en
+// centésimos, con vigencia (los laudos cambian por ronda).
+model JornalConstruccion {
+  id            String   @id @default(cuid())
+  categoria     String   // igual al desplegable: 'VIII — Oficial Albañil'
+  recuadro      String   // 'INCLUIDOS' | 'NO_INCLUIDOS'
+  valorHora     BigInt   // centésimos por hora
+  effectiveDate DateTime
+  createdAt     DateTime @default(now())
+
+  @@unique([categoria, recuadro, effectiveDate])
+  @@map("jornales_construccion")
+}
+
 enum PeriodStatus {
   BORRADOR
   CONFIRMADO

@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { Settings, RefreshCw, Plus } from 'lucide-react';
-import { parametersApi } from '../services/api';
+import { Settings, RefreshCw, Plus, HardHat } from 'lucide-react';
+import { parametersApi, construccionApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { IrpfBracket } from '../types';
 
@@ -227,6 +227,104 @@ export default function ParametersPage() {
           </div>
         </div>
       )}
+      <JornalesConstruccion />
+    </div>
+  );
+}
+
+// ── Jornales de la construcción (laudo, por categoría y recuadro) ─────────
+// Al elegir la categoría en un contrato de una empresa de construcción, el
+// valor hora se autocompleta desde esta tabla: recuadro INCLUIDOS en la ley
+// (aportación CT) o NO INCLUIDOS (grupo 9 con aportación Industria y
+// Comercio). Guardar también recalcula ropa/transporte/herramientas (5% ·
+// 4,375% · 2% del ½ Oficial Albañil incluidos).
+function JornalesConstruccion() {
+  const queryClient = useQueryClient();
+  const [vals, setVals] = useState<Record<string, string>>({});
+  const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
+  const [msg, setMsg] = useState('');
+
+  const { data } = useQuery({ queryKey: ['jornales-construccion'], queryFn: () => construccionApi.jornales() });
+
+  const key = (cat: string, rec: string) => `${cat}|${rec}`;
+  const vigente = (cat: string, rec: string) => {
+    const j = data?.jornales.find((x) => x.categoria === cat && x.recuadro === rec);
+    return j ? (Number(j.valorHora) / 100).toFixed(2) : '';
+  };
+
+  const guardar = useMutation({
+    mutationFn: () => {
+      const valores: Array<{ categoria: string; recuadro: 'INCLUIDOS' | 'NO_INCLUIDOS'; valorHoraPesos: number }> = [];
+      for (const [k, v] of Object.entries(vals)) {
+        const n = Number(v.replace(',', '.'));
+        if (!v || isNaN(n) || n <= 0) continue;
+        const [categoria, recuadro] = k.split('|');
+        valores.push({ categoria, recuadro: recuadro as 'INCLUIDOS' | 'NO_INCLUIDOS', valorHoraPesos: n });
+      }
+      return construccionApi.saveJornales(new Date(fecha).toISOString(), valores);
+    },
+    onSuccess: (r) => {
+      setMsg(`Guardado: ${r.guardados} jornales · ${r.partidasActualizadas} partidas derivadas actualizadas (ropa/transporte/herramientas).`);
+      setVals({});
+      queryClient.invalidateQueries({ queryKey: ['jornales-construccion'] });
+    },
+    onError: () => setMsg('No se pudieron guardar los jornales.'),
+  });
+
+  return (
+    <div className="card p-5 space-y-3 border-t-4 border-t-amber-400">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+            <HardHat size={18} className="text-amber-500" /> Jornales de la construcción (laudo)
+          </h2>
+          <p className="text-sm text-gray-500 mt-0.5">
+            Valor HORA por categoría. "Incluidos en la ley" = aportación Construcción (CT) · "No incluidos" = grupo 9 con
+            aportación Industria y Comercio. Al elegir la categoría en el contrato, el jornal se carga solo desde acá.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-gray-500">Vigencia</label>
+          <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className="form-input text-sm" />
+          <button onClick={() => guardar.mutate()} disabled={guardar.isPending} className="btn-primary btn-sm">
+            {guardar.isPending ? 'Guardando…' : 'Guardar jornales'}
+          </button>
+        </div>
+      </div>
+      {msg && <p className="text-sm text-emerald-700">{msg}</p>}
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="table-header">
+              <th className="px-3 py-2 text-left">Categoría</th>
+              <th className="px-3 py-2 text-right">Incluidos en la ley ($/hora)</th>
+              <th className="px-3 py-2 text-right">No incluidos en la ley ($/hora)</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {(data?.categorias ?? []).map((cat) => (
+              <tr key={cat} className="hover:bg-gray-50">
+                <td className="px-3 py-1.5 text-sm text-gray-700">{cat}</td>
+                {(['INCLUIDOS', 'NO_INCLUIDOS'] as const).map((rec) => (
+                  <td key={rec} className="px-3 py-1.5 text-right">
+                    <input
+                      type="number" step="0.01" min="0"
+                      value={vals[key(cat, rec)] ?? vigente(cat, rec)}
+                      onChange={(e) => setVals((v) => ({ ...v, [key(cat, rec)]: e.target.value }))}
+                      className="form-input text-right w-36 inline-block"
+                      placeholder="—"
+                    />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-[11px] text-gray-400">
+        Al guardar, ropa (5%), transporte (4,375%) y herramientas (2%) se recalculan desde el ½ Oficial Albañil del recuadro
+        "incluidos en la ley" y se actualizan en los conceptos de todas las empresas de construcción.
+      </p>
     </div>
   );
 }
