@@ -412,11 +412,11 @@ export default function LiquidationDetailPage() {
             </div>
             <div>
               <label className="form-label">Tickets alim. (cant.)</label>
-              <input type="number" min="0" value={ticketCant} onChange={(e) => setTicketCant(e.target.value)} placeholder="0" className="form-input" />
+              <input type="number" min="0" value={ticketCant} onChange={(e) => setTicketCant(e.target.value)} placeholder="auto: 1 c/8 hs" className="form-input" />
             </div>
             <div>
               <label className="form-label">Medias horas (cant.)</label>
-              <input type="number" min="0" value={mediasHoras} onChange={(e) => setMediasHoras(e.target.value)} placeholder="0" className="form-input" />
+              <input type="number" min="0" value={mediasHoras} onChange={(e) => setMediasHoras(e.target.value)} placeholder="auto: 1 c/8 hs" className="form-input" />
             </div>
             <div className="flex items-end">
               <button onClick={() => construccionMutation.mutate()} disabled={construccionMutation.isPending} className="btn-primary btn-sm w-full">
@@ -425,9 +425,10 @@ export default function LiquidationDetailPage() {
             </div>
           </div>
           <p className="text-[11px] text-gray-400">
-            Con las horas, el motor calcula solo: Horas Comunes (horas × valor hora del contrato), presentismos (s/hora laudo),
-            desgaste de ropa y transporte (× horas), herramientas solo si la categoría es ½ Oficial o superior, y Fondo Social/Vivienda.
-            Lluvia, tickets y medias horas se indican acá. Recalcular pisa los conceptos manuales agregados.
+            Cargando solo las horas, todo sale automático: Horas Comunes (horas × laudo vigente de la categoría, o el jornal del
+            contrato si es mayor), presentismos, ropa, transporte, herramientas (según categoría), ticket de alimentación y media
+            hora (1 por jornada de 8 hs), y Fondo Social/Vivienda. Solo la lluvia se indica a mano; tickets y medias horas se pueden
+            corregir acá. Recalcular pisa los conceptos manuales agregados.
           </p>
         </div>
       )}

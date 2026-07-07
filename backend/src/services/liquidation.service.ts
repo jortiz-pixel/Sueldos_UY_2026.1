@@ -11,7 +11,7 @@ import { parametersService } from './parameters.service';
 import { resolverContratoEnMes, diasTrabajadosEnMes, datosLaboralesEfectivos } from './contract.service';
 import { evaluarConcepto, ConceptoContext } from './concept.engine';
 import { calcularAguinaldoBrutoSemestre } from './aguinaldo.service';
-import { correspondeHerramientas, esEmpresaConstruccion, ensureConceptosConstruccion, jornalHoraVigente } from './construccion.service';
+import { correspondeHerramientas, esEmpresaConstruccion, ensureConceptosConstruccion, jornalHoraVigente, recuadroDeEmpresa } from './construccion.service';
 import { AppError } from '../middleware/errorHandler';
 
 // Días hábiles de licencia GOZADA (LeaveRequest aprobada/pendiente) que caen
@@ -146,23 +146,40 @@ export async function generarLiquidacionMensual(
   const horaLaudo = esConstruccion
     ? await jornalHoraVigente(contrato?.categoria, 'NO_INCLUIDOS', asOfDate)
     : null;
+  // HORA PAGADA de las horas comunes: el LAUDO VIGENTE del recuadro de la
+  // empresa (incluidos si aporta CT, no incluidos si aporta IC), tomado de la
+  // tabla de jornales — así los aumentos de ronda se aplican solos. Si el
+  // contrato tiene pactado un valor MAYOR al laudo, se respeta el del contrato.
+  const laudoVigente = esConstruccion
+    ? await jornalHoraVigente(contrato?.categoria, recuadroDeEmpresa(period.company), asOfDate)
+    : null;
+  const horaPagada = esConstruccion
+    ? ((labor.jornal ?? 0n) > (laudoVigente ?? 0n) ? (labor.jornal ?? 0n) : (laudoVigente ?? labor.jornal ?? 0n))
+    : (labor.jornal ?? 0n);
+
   const horasConstruccion = esConstruccion && labor.salaryType === 'JORNALERO'
     ? (input.horasTrabajadas ?? diasTrabajados * 8)
     : input.horasTrabajadas;
+  const jornadasConstruccion = horasConstruccion !== undefined
+    ? Math.round((horasConstruccion / 8) * 100) / 100
+    : undefined;
 
   const salarioBase = labor.salaryType === 'MENSUAL'
     ? salarioProporcional(labor.salarioNominal, diasTrabajados, 30)
     : esConstruccion && horasConstruccion !== undefined
-      ? divRoundHalfUp((labor.jornal ?? 0n) * BigInt(Math.round(horasConstruccion * 100)), 100n)
+      ? divRoundHalfUp(horaPagada * BigInt(Math.round(horasConstruccion * 100)), 100n)
       : (labor.jornal ?? 0n) * BigInt(diasTrabajados);
 
-  // Cantidades para el motor de conceptos: en construcción, las partidas por
-  // hora se precargan con las horas trabajadas (ropa siempre; transporte para
-  // jornaleros; herramientas SOLO desde Medio Oficial). Lluvia/ticket/medias
-  // horas se indican a mano. Lo indicado por el usuario pisa los defaults.
+  // Cantidades para el motor de conceptos (construcción): con solo cargar las
+  // horas, todo lo demás sale automático — ropa siempre; transporte para
+  // jornaleros; herramientas SOLO desde Medio Oficial; TICKET de alimentación y
+  // MEDIA HORA de descanso 1 por jornada de 8 hs. La lluvia se indica a mano.
+  // Lo indicado por el usuario pisa cualquier default.
   const cantidades: Record<string, number> = {
     ...(esConstruccion && horasConstruccion ? {
       DESGASTE_ROPA: horasConstruccion,
+      TICKET_ALIMENTACION: jornadasConstruccion ?? 0,
+      MEDIAS_HORAS: jornadasConstruccion ?? 0,
       ...(labor.salaryType === 'JORNALERO' ? { GASTOS_TRANSPORTE: horasConstruccion } : {}),
       ...(correspondeHerramientas(contrato?.categoria) ? { DESGASTE_HERRAMIENTAS: horasConstruccion } : {}),
     } : {}),
@@ -175,7 +192,7 @@ export async function generarLiquidacionMensual(
   // usado en la descripción estilo GNS "Jornal N x valor".
   const jornalCent = labor.salaryType === 'MENSUAL'
     ? salarioProporcional(labor.salarioNominal, 1, 30)
-    : (labor.jornal ?? 0n);
+    : esConstruccion ? horaPagada : (labor.jornal ?? 0n);
   const jornalTxt = (Number(jornalCent) / 100).toFixed(2);
 
   if (labor.salaryType === 'MENSUAL' && diasLicencia > 0) {
@@ -332,6 +349,7 @@ export async function generarLiquidacionMensual(
       cantidades,
       horasTrabajadas: horasConstruccion,
       horaLaudo: horaLaudo ?? undefined,
+      valorMediaHora: esConstruccion ? divRoundHalfUp(horaPagada, 2n) : undefined,
     }));
     if (amount === 0n) continue;
     items.push({
@@ -354,6 +372,7 @@ export async function generarLiquidacionMensual(
     cantidades,
     horasTrabajadas: horasConstruccion,
     horaLaudo: horaLaudo ?? undefined,
+    valorMediaHora: esConstruccion ? divRoundHalfUp(horaPagada, 2n) : undefined,
   };
 
   for (const c of conceptos.filter((c) => c.tipoOperacion === ItemType.HABER)) {
@@ -537,6 +556,7 @@ export async function generarLiquidacionMensual(
       cantidades,
       horasTrabajadas: horasConstruccion,
       horaLaudo: horaLaudo ?? undefined,
+      valorMediaHora: esConstruccion ? divRoundHalfUp(horaPagada, 2n) : undefined,
     });
     if (amount <= 0n) continue;
     items.push({
@@ -612,6 +632,7 @@ export async function generarLiquidacionMensual(
       cantidades,
       horasTrabajadas: horasConstruccion,
       horaLaudo: horaLaudo ?? undefined,
+      valorMediaHora: esConstruccion ? divRoundHalfUp(horaPagada, 2n) : undefined,
     });
     if (amount <= 0n) continue;
     items.push({

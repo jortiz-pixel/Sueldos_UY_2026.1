@@ -52,21 +52,21 @@ const CONCEPTOS: ConceptoConstruccion[] = [
   { codigo: 'HORAS_LLUVIA', nombre: 'Horas de espera por lluvia', orden: 60, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 44485n, gravado: true },
   // Presentismos: se calculan sobre horas × HORA LAUDO (421,39 — guardada en
   // valorFijo, editable), NO sobre la hora pagada (recibo GNS: 10,42% de 3.371,12).
-  { codigo: 'PRESENTISMO_OBRA', nombre: 'Incentivo Presentismo (10,42% s/hora laudo)', orden: 61, tipoOperacion: 'HABER', tipoCalculo: 'PORCENTAJE', baseCalculo: 'HORAS_LAUDO', valorRate: 1042, valorFijo: 42139n, gravado: true },
-  { codigo: 'PRES_MES_COMPLETO', nombre: 'Presentismo por trabajo completo en el mes (5% s/hora laudo)', orden: 62, tipoOperacion: 'HABER', tipoCalculo: 'PORCENTAJE', baseCalculo: 'HORAS_LAUDO', valorRate: 500, valorFijo: 42139n, gravado: true },
-  { codigo: 'TICKET_ALIMENTACION', nombre: 'Ticket Alimentación (gravado)', orden: 63, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 18416n, gravado: true },
-  { codigo: 'MEDIAS_HORAS', nombre: 'Medias horas', orden: 64, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 22242n, gravado: false },
+  { codigo: 'PRESENTISMO_OBRA', nombre: 'Incentivo Presentismo', orden: 61, tipoOperacion: 'HABER', tipoCalculo: 'PORCENTAJE', baseCalculo: 'HORAS_LAUDO', valorRate: 1042, valorFijo: 42139n, gravado: true },
+  { codigo: 'PRES_MES_COMPLETO', nombre: 'Presentismo por Trabajo Completo en el Mes', orden: 62, tipoOperacion: 'HABER', tipoCalculo: 'PORCENTAJE', baseCalculo: 'HORAS_LAUDO', valorRate: 500, valorFijo: 42139n, gravado: true },
+  { codigo: 'TICKET_ALIMENTACION', nombre: 'Ticket Alimentación', orden: 63, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 18416n, gravado: true },
+  { codigo: 'MEDIAS_HORAS', nombre: 'Medias Horas', orden: 64, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', baseCalculo: 'MEDIA_HORA', valorFijo: 22242n, gravado: false },
   // Partidas extraordinarias EXENTAS: los valores del laudo son POR JORNADA DE
   // 8 HORAS EFECTIVAS; acá se cargan por HORA (valor/8) y el importe se calcula
   // horas × valor, igual que en el recibo GNS ("8 x 12.93").
   //  - Ropa: 103,44 c/8 hs (= 5% del jornal del medio oficial albañil) → 12,93/h. Todas las categorías obreras.
   //  - Herramientas: 41,36 c/8 hs → 5,17/h. SOLO desde Medio Oficial en adelante.
   //  - Transporte: jornaleros 90,50 c/8 hs → 11,31/h (los mensuales tienen otro régimen).
-  { codigo: 'DESGASTE_ROPA', nombre: 'Desgaste de ropa (hs × 12,93 — 103,44 c/8 hs, todas las categorías)', orden: 65, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 1293n, gravado: false },
-  { codigo: 'GASTOS_TRANSPORTE', nombre: 'Gastos de transporte (hs × 11,31 — jornaleros, 90,50 c/8 hs)', orden: 66, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 1131n, gravado: false },
-  { codigo: 'DESGASTE_HERRAMIENTAS', nombre: 'Desgaste de herramientas (hs × 5,17 — 41,36 c/8 hs, desde ½ Oficial)', orden: 67, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 517n, gravado: false },
-  { codigo: 'FONDO_SOCIAL', nombre: 'Fondo Social construcción (0,5809%)', orden: 220, tipoOperacion: 'DESCUENTO_OBRERO', tipoCalculo: 'PORCENTAJE_CIENMIL', baseCalculo: 'HABERES_GRAVADOS', valorRate: 5809, gravado: false },
-  { codigo: 'FONDO_VIVIENDA', nombre: 'Fondo de Vivienda (0,025%)', orden: 221, tipoOperacion: 'DESCUENTO_OBRERO', tipoCalculo: 'PORCENTAJE_CIENMIL', baseCalculo: 'HABERES_GRAVADOS', valorRate: 250, gravado: false },
+  { codigo: 'DESGASTE_ROPA', nombre: 'Desgaste de Ropa', orden: 65, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 1293n, gravado: false },
+  { codigo: 'GASTOS_TRANSPORTE', nombre: 'Gastos de Transporte', orden: 66, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 1131n, gravado: false },
+  { codigo: 'DESGASTE_HERRAMIENTAS', nombre: 'Desgaste De Herramientas', orden: 67, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 517n, gravado: false },
+  { codigo: 'FONDO_SOCIAL', nombre: 'Fondo Social', orden: 220, tipoOperacion: 'DESCUENTO_OBRERO', tipoCalculo: 'PORCENTAJE_CIENMIL', baseCalculo: 'HABERES_GRAVADOS', valorRate: 5809, gravado: false },
+  { codigo: 'FONDO_VIVIENDA', nombre: 'Fondo de Vivienda', orden: 221, tipoOperacion: 'DESCUENTO_OBRERO', tipoCalculo: 'PORCENTAJE_CIENMIL', baseCalculo: 'HABERES_GRAVADOS', valorRate: 250, gravado: false },
 ];
 
 // Categorías del laudo de la construcción (tabla oficial de grados II–XII).

@@ -20,6 +20,9 @@ export interface ConceptoContext {
   horaLaudo?: bigint;       // construcción: valor hora laudo de la categoría del
                             // trabajador (recuadro NO incluidos); si falta, se usa
                             // el valorFijo del concepto.
+  valorMediaHora?: bigint;  // construcción: media hora PAGADA del trabajador
+                            // (hora del contrato/laudo ÷ 2) — valor unitario del
+                            // concepto MEDIAS_HORAS (base MEDIA_HORA).
 }
 
 // Base del concepto según baseCalculo. 'HORAS_LAUDO' (construcción): horas
@@ -50,7 +53,11 @@ export function evaluarConcepto(c: Concepto, ctx: ConceptoContext): bigint {
     case 'CANTIDAD_VALOR': {
       // Admite cantidades fraccionadas (ej. 8,5 horas): se redondea al centésimo.
       const cantidad = ctx.cantidades?.[c.codigo] ?? 0;
-      return divRoundHalfUp((c.valorFijo ?? 0n) * BigInt(Math.round(cantidad * 100)), 100n);
+      // Valor unitario dinámico: MEDIA_HORA = media hora pagada del trabajador.
+      const unitario = c.baseCalculo === 'MEDIA_HORA'
+        ? (ctx.valorMediaHora ?? c.valorFijo ?? 0n)
+        : (c.valorFijo ?? 0n);
+      return divRoundHalfUp(unitario * BigInt(Math.round(cantidad * 100)), 100n);
     }
 
     // Porcentaje con 4 decimales (valorRate en cienmilésimas: 0,5809% → 5809).
