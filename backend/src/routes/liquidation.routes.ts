@@ -6,6 +6,7 @@ import { authenticate, requireRole } from '../middleware/auth';
 import { assertCompanyAccess } from '../middleware/tenancy';
 import { AppError, NotFoundError } from '../middleware/errorHandler';
 import { generarLiquidacionMensual, confirmarLiquidacion, valorJornalFalta } from '../services/liquidation.service';
+import { divRoundHalfUp } from '../utils/money';
 import { calcularAguinaldo, calcularAguinaldoBrutoSemestre } from '../services/aguinaldo.service';
 import { calcularLiquidacionLicencia, calcularLiquidacionFinal } from '../services/vacation.service';
 import { calcularAportesObreros, calcularAportesPatronales, fonasaCargasDeSeguroSalud } from '../services/bps.service';
@@ -663,6 +664,31 @@ async function recalcularLiquidacion(liquidationId: string): Promise<void> {
         baseCalculo: baseGravada, amount: irpf.retencionMensual,
       },
     });
+  }
+
+  // Fondo Social / Fondo de Vivienda (construcción): re-aplicar la fórmula GNS
+  // "ApliAFondos" = Total de Haberes − aportes BPS teóricos (tasas × nominal
+  // gravado, jubilatorio sobre la base topeada, sin redondear cada partida) −
+  // IRPF, así los conceptos manuales gravados mueven también estos fondos.
+  const fondoItems = liq.items.filter((i) => i.concepto === 'FONDO_SOCIAL' || i.concepto === 'FONDO_VIVIENDA');
+  if (fondoItems.length > 0) {
+    const totalHaberesMes = liq.items
+      .filter((i) => i.itemType === ItemType.HABER)
+      .reduce((s, i) => s + i.amount, 0n);
+    const rateFonasaFrl = BigInt(obreros.detail.fonasaSeguroRate + obreros.detail.fonasaAdicionalRate + params.frlObreroRate);
+    const apliAFondos = divRoundHalfUp(
+      totalHaberesMes * 10000n
+        - obreros.baseJubilatorio * BigInt(params.bpsJubilatorioRate)
+        - baseGravada * rateFonasaFrl
+        - irpf.retencionMensual * 10000n,
+      10000n,
+    );
+    const baseFondo = apliAFondos > 0n ? apliAFondos : 0n;
+    for (const fi of fondoItems) {
+      // El rate del ítem está en cienmilésimas (PORCENTAJE_CIENMIL): % × 10.000.
+      const amount = divRoundHalfUp(baseFondo * BigInt(fi.rate ?? 0), 1000000n);
+      await prisma.payrollItem.update({ where: { id: fi.id }, data: { baseCalculo: baseFondo, amount } });
+    }
   }
 
   await recalcularTotales(liquidationId);

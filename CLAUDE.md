@@ -118,9 +118,13 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
   detalle "N x valor" (desde `calculationDetail.cantidad/valorUnit`) y "% de
   base" en recibo PDF y pantalla; media hora = hora pagada ÷ 2 TRUNCADA
   (444,85→222,42); lluvia por HORA PAGADA (base `HORA_PAGADA`). BASE del Fondo
-  Social/Vivienda (base `FONDO_CONSTRUCCION`, criterio GNS): horas comunes +
-  lluvia + medias horas + presentismo mes completo (da exactos 22,94 y 0,99
-  del recibo); tasas CIENMIL se muestran /10.000 con 4 decimales. Diferencias
+  Social/Vivienda (base `FONDO_CONSTRUCCION`, fórmula GNS "ApliAFondos"
+  confirmada por el usuario): Total de Haberes del mes (sin aguinaldo ni
+  salario vacacional) − aportes personales BPS TEÓRICOS (tasas × nominal
+  gravado SIN redondear cada partida; jubilatorio sobre base topeada) − IRPF
+  (4.720,51 − 4.262,83×18,1% = 3.948,94 → 22,94 y 0,99 exactos); el recálculo
+  por conceptos manuales también re-aplica esta fórmula a ambos fondos; tasas
+  CIENMIL se muestran /10.000 con 4 decimales. Diferencias
   ACEPTADAS por redondeo interno de GNS: pres. mes completo 168,56 vs 168,60 y
   medias horas 222,42 vs 222,40.
   JORNALES DEL LAUDO (`jornales_construccion`, editor en Parámetros): valor

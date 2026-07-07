@@ -434,16 +434,8 @@ export async function generarLiquidacionMensual(
   // la que se calculan los aportes personales, patronales y el IRPF.
   const baseGravada = gravadoHaberes;
 
-  // Base de Fondo Social / Fondo de Vivienda (criterio GNS, validado con recibo
-  // Martín Hernández 1/2026): horas comunes + horas de lluvia + medias horas +
-  // presentismo por mes completo. NO incluye el incentivo presentismo ni las
-  // partidas exentas por hora (ropa/transporte/herramientas) ni el ticket.
-  const CONCEPTOS_BASE_FONDO = new Set(['SUELDO_BASICO', 'HORAS_LLUVIA', 'MEDIAS_HORAS', 'PRES_MES_COMPLETO']);
-  const baseFondoConstruccion = esConstruccion
-    ? items
-        .filter((i) => i.itemType === ItemType.HABER && CONCEPTOS_BASE_FONDO.has(i.concepto))
-        .reduce((sum, i) => sum + i.amount, 0n)
-    : undefined;
+  // La base de Fondo Social / Fondo de Vivienda (fórmula GNS "ApliAFondos") se
+  // calcula más abajo, después del IRPF, porque lo necesita.
 
   // En junio y diciembre el ADICIONAL de FONASA del aguinaldo se cobra en la
   // mensualidad: su base es (nominal del mes + aguinaldo del semestre). El
@@ -577,6 +569,28 @@ export async function generarLiquidacionMensual(
     amount: irpfRetencion,
     calculationDetail: irpfDetail,
   });
+
+  // Base de Fondo Social / Fondo de Vivienda: fórmula GNS "ApliAFondos" =
+  // Total de Haberes del mes (sin aguinaldo ni salario vacacional, ya neto de
+  // faltas) − aportes personales BPS TEÓRICOS (las TASAS aplicadas al nominal
+  // gravado SIN redondear cada partida: jubilatorio sobre la base topeada +
+  // FONASA seguro + adicional + FRL) − IRPF. Se redondea recién al final.
+  // Recibo Martín Hernández 1/2026: 4.720,51 − 4.262,83 × 18,1% − 0 = 3.948,94
+  // → Fondo Social 22,94 y Fondo de Vivienda 0,99 exactos.
+  let baseFondoConstruccion: bigint | undefined;
+  if (esConstruccion) {
+    const rateFonasaFrl = BigInt(
+      aportesObreros.detail.fonasaSeguroRate + aportesObreros.detail.fonasaAdicionalRate + params.frlObreroRate,
+    );
+    const apliAFondos = divRoundHalfUp(
+      totalHaberes * 10000n
+        - aportesObreros.baseJubilatorio * BigInt(params.bpsJubilatorioRate)
+        - baseGravada * rateFonasaFrl
+        - irpfRetencion * 10000n,
+      10000n,
+    );
+    baseFondoConstruccion = apliAFondos > 0n ? apliAFondos : 0n;
+  }
 
   for (const od of otrosDescuentosSinFaltas) {
     items.push({

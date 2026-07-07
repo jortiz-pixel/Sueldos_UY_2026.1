@@ -26,8 +26,8 @@ export interface ConceptoContext {
   valorHoraPagada?: bigint; // construcción: hora pagada (unidad de HORAS_LLUVIA,
                             // base HORA_PAGADA).
   baseFondoConstruccion?: bigint; // construcción: base de Fondo Social/Vivienda
-                            // (horas comunes + lluvia + medias horas + presentismo
-                            // mensual — criterio GNS). Base FONDO_CONSTRUCCION.
+                            // (fórmula GNS "ApliAFondos": total de haberes −
+                            // aportes BPS teóricos − IRPF). Base FONDO_CONSTRUCCION.
 }
 
 /** Valor unitario de un concepto CANTIDAD_VALOR (dinámico según baseCalculo). */
