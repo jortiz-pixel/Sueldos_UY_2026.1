@@ -113,8 +113,17 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
   (hora) + nominal ficto (hora×200) según el recuadro de la empresa; no pisa
   el jornal al abrir contratos existentes. Ropa (5%), transporte (4,375%) y
   herramientas (2%) se derivan del ½ OFICIAL ALBAÑIL del recuadro INCLUIDOS
-  (2.068,80/día 1/2026) y se recalculan en todas las empresas de construcción
+  (2.069,28/día) y se recalculan en todas las empresas de construcción
   al guardar jornales (`refrescarPartidasDesdeJornal`).
+  TABLAS CARGADAS del Acta CS G9 Sub 01 del 22/4/2025 (vigencia 1/4/2025,
+  convenio hasta 31/07/2026): ambos recuadros, categorías II-XII. La HORA
+  LAUDO del presentismo es DINÁMICA: valor hora de la categoría del trabajador
+  en el recuadro NO_INCLUIDOS (validado: Oficial Albañil 421,38 ≈ recibo GNS);
+  fallback al valorFijo del concepto. OJO: el jornal PAGADO puede superar el
+  laudo (Lambrechts paga 444,85 vs laudo 421,38) — el autocompletado sugiere el
+  laudo mínimo. Al vencer el convenio sin vigencia nueva, el panel de jornales
+  muestra alerta con link al MTSS (no hay auto-scraping: MTSS publica PDF
+  escaneado; el flujo es alerta → cargar acta nueva en Parámetros).
 - **FALTAS** (estilo GNS, recibo Belén Martínez): figuran del lado de los
   HABERES como un haber NEGATIVO (días × jornal). Así el "Total de Haberes" ya
   sale NETO de faltas y sobre ese neto se calculan TODOS los descuentos (aportes

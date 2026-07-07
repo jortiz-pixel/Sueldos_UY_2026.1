@@ -70,7 +70,7 @@ export const demoApi = {
 
 export interface JornalConstruccionRow { categoria: string; recuadro: 'INCLUIDOS' | 'NO_INCLUIDOS'; valorHora: string; effectiveDate: string }
 export const construccionApi = {
-  jornales: () => api.get<{ categorias: string[]; jornales: JornalConstruccionRow[] }>('/construccion/jornales').then((r) => r.data),
+  jornales: () => api.get<{ categorias: string[]; jornales: JornalConstruccionRow[]; convenioVigenteHasta: string; vencido: boolean; mtssUrl: string }>('/construccion/jornales').then((r) => r.data),
   saveJornales: (effectiveDate: string, valores: Array<{ categoria: string; recuadro: 'INCLUIDOS' | 'NO_INCLUIDOS'; valorHoraPesos: number }>) =>
     api.put<{ guardados: number; partidasActualizadas: number }>('/construccion/jornales', { effectiveDate, valores }).then((r) => r.data),
 };

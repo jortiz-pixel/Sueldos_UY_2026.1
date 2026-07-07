@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { UserRole } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { authenticate, requireRole } from '../middleware/auth';
-import { CATEGORIAS_CONSTRUCCION, jornalesVigentes, refrescarPartidasDesdeJornal } from '../services/construccion.service';
+import { CATEGORIAS_CONSTRUCCION, jornalesVigentes, refrescarPartidasDesdeJornal, CONVENIO_VIGENTE_HASTA, MTSS_URL } from '../services/construccion.service';
 import { recordAudit } from '../services/audit.service';
 
 export const construccionRouter = Router();
@@ -13,6 +13,11 @@ construccionRouter.get('/jornales', authenticate, async (req: Request, res: Resp
   try {
     const fecha = req.query.fecha ? new Date(String(req.query.fecha)) : new Date();
     const vigentes = await jornalesVigentes(fecha);
+    // Aviso de vencimiento: el convenio rige hasta CONVENIO_VIGENTE_HASTA. Si ya
+    // pasó y no se cargó ninguna vigencia posterior, avisar que hay que buscar
+    // el acta nueva en la web del MTSS.
+    const hayVigenciaNueva = vigentes.some((v) => v.effectiveDate > new Date(CONVENIO_VIGENTE_HASTA));
+    const vencido = new Date() > new Date(CONVENIO_VIGENTE_HASTA) && !hayVigenciaNueva;
     res.json({
       categorias: CATEGORIAS_CONSTRUCCION,
       jornales: vigentes.map((v) => ({
@@ -21,6 +26,9 @@ construccionRouter.get('/jornales', authenticate, async (req: Request, res: Resp
         valorHora: v.valorHora.toString(),
         effectiveDate: v.effectiveDate,
       })),
+      convenioVigenteHasta: CONVENIO_VIGENTE_HASTA,
+      vencido,
+      mtssUrl: MTSS_URL,
     });
   } catch (err) { next(err); }
 });

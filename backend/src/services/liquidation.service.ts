@@ -11,7 +11,7 @@ import { parametersService } from './parameters.service';
 import { resolverContratoEnMes, diasTrabajadosEnMes, datosLaboralesEfectivos } from './contract.service';
 import { evaluarConcepto, ConceptoContext } from './concept.engine';
 import { calcularAguinaldoBrutoSemestre } from './aguinaldo.service';
-import { correspondeHerramientas, esEmpresaConstruccion, ensureConceptosConstruccion } from './construccion.service';
+import { correspondeHerramientas, esEmpresaConstruccion, ensureConceptosConstruccion, jornalHoraVigente } from './construccion.service';
 import { AppError } from '../middleware/errorHandler';
 
 // Días hábiles de licencia GOZADA (LeaveRequest aprobada/pendiente) que caen
@@ -140,6 +140,12 @@ export async function generarLiquidacionMensual(
   // no tiene los conceptos del laudo (p. ej. fue creada antes de esta regla o
   // con aportación Industria y Comercio), se cargan acá mismo antes de liquidar.
   if (esConstruccion) await ensureConceptosConstruccion(period.companyId, true);
+  // Hora laudo de la categoría del trabajador (recuadro NO incluidos en la ley):
+  // base de los presentismos según el acta del Grupo 9 (validado con recibo GNS:
+  // Oficial Albañil → 421,38). Si no hay dato, cae al valorFijo del concepto.
+  const horaLaudo = esConstruccion
+    ? await jornalHoraVigente(contrato?.categoria, 'NO_INCLUIDOS', asOfDate)
+    : null;
   const horasConstruccion = esConstruccion && labor.salaryType === 'JORNALERO'
     ? (input.horasTrabajadas ?? diasTrabajados * 8)
     : input.horasTrabajadas;
@@ -325,6 +331,7 @@ export async function generarLiquidacionMensual(
       haberesGravados: gravadoHaberes,
       cantidades,
       horasTrabajadas: horasConstruccion,
+      horaLaudo: horaLaudo ?? undefined,
     }));
     if (amount === 0n) continue;
     items.push({
@@ -346,6 +353,7 @@ export async function generarLiquidacionMensual(
     haberesGravados: gravadoHaberes,
     cantidades,
     horasTrabajadas: horasConstruccion,
+    horaLaudo: horaLaudo ?? undefined,
   };
 
   for (const c of conceptos.filter((c) => c.tipoOperacion === ItemType.HABER)) {
@@ -528,6 +536,7 @@ export async function generarLiquidacionMensual(
       haberesGravados: baseGravada,
       cantidades,
       horasTrabajadas: horasConstruccion,
+      horaLaudo: horaLaudo ?? undefined,
     });
     if (amount <= 0n) continue;
     items.push({
@@ -602,6 +611,7 @@ export async function generarLiquidacionMensual(
       haberesGravados: baseGravada,
       cantidades,
       horasTrabajadas: horasConstruccion,
+      horaLaudo: horaLaudo ?? undefined,
     });
     if (amount <= 0n) continue;
     items.push({

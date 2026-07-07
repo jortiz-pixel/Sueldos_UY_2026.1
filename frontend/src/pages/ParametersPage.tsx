@@ -292,6 +292,19 @@ function JornalesConstruccion() {
         </div>
       </div>
       {msg && <p className="text-sm text-emerald-700">{msg}</p>}
+      {data?.vencido && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+          ⚠ El convenio vigente rige hasta el {new Date(data.convenioVigenteHasta + 'T00:00:00').toLocaleDateString('es-UY')} y todavía no se
+          cargó una vigencia nueva. Buscá el acta de ajuste del Grupo 9 en la web del MTSS y cargá los nuevos valores acá:{' '}
+          <a href={data.mtssUrl} target="_blank" rel="noreferrer" className="underline font-medium">Consejos de Salarios — MTSS</a>.
+        </div>
+      )}
+      {!data?.vencido && data?.convenioVigenteHasta && (
+        <p className="text-xs text-gray-400">
+          Convenio vigente hasta el {new Date(data.convenioVigenteHasta + 'T00:00:00').toLocaleDateString('es-UY')} (acta 22/4/2025, ajuste 5,95%).
+          Los nuevos montos se publican en la <a href={data.mtssUrl} target="_blank" rel="noreferrer" className="underline">web del MTSS</a>.
+        </p>
+      )}
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>

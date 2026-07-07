@@ -133,6 +133,25 @@ export async function jornalesVigentes(fecha: Date = new Date()): Promise<Array<
   return vigentes;
 }
 
+// Vencimiento del convenio vigente (acta 22/4/2025): los nuevos montos se
+// publican en la web del MTSS (Consejos de Salarios, Grupo 9).
+export const CONVENIO_VIGENTE_HASTA = '2026-07-31';
+export const MTSS_URL = 'https://www.gub.uy/ministerio-trabajo-seguridad-social/politicas-y-gestion/consejos-salarios';
+
+/** Valor hora vigente de una categoría en un recuadro (null si no hay dato). */
+export async function jornalHoraVigente(
+  categoria: string | null | undefined,
+  recuadro: Recuadro,
+  fecha: Date = new Date(),
+): Promise<bigint | null> {
+  if (!categoria) return null;
+  const row = await prisma.jornalConstruccion.findFirst({
+    where: { categoria, recuadro, effectiveDate: { lte: fecha } },
+    orderBy: { effectiveDate: 'desc' },
+  });
+  return row?.valorHora ?? null;
+}
+
 // Partidas extraordinarias derivadas del JORNAL DÍA (hora × 8) del
 // ½ OFICIAL ALBAÑIL del recuadro INCLUIDOS EN LA LEY:
 //   ropa 5% · transporte 4,375% · herramientas 2% (por jornada de 8 hs).

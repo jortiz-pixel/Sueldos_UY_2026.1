@@ -17,6 +17,9 @@ export interface ConceptoContext {
   haberesGravados: bigint;  // base HABERES_GRAVADOS (acumulado)
   cantidades?: Record<string, number>; // para CANTIDAD_VALOR (por código)
   horasTrabajadas?: number; // construcción: horas efectivas del mes (base HORAS_LAUDO)
+  horaLaudo?: bigint;       // construcción: valor hora laudo de la categoría del
+                            // trabajador (recuadro NO incluidos); si falta, se usa
+                            // el valorFijo del concepto.
 }
 
 // Base del concepto según baseCalculo. 'HORAS_LAUDO' (construcción): horas
@@ -27,7 +30,8 @@ function baseDelConcepto(c: Concepto, ctx: ConceptoContext): bigint {
   if (c.baseCalculo === 'SUELDO_BASICO') return ctx.sueldoBasico;
   if (c.baseCalculo === 'HORAS_LAUDO') {
     const horas = ctx.horasTrabajadas ?? 0;
-    return divRoundHalfUp((c.valorFijo ?? 0n) * BigInt(Math.round(horas * 100)), 100n);
+    const hora = ctx.horaLaudo ?? c.valorFijo ?? 0n;
+    return divRoundHalfUp(hora * BigInt(Math.round(horas * 100)), 100n);
   }
   return ctx.haberesGravados;
 }
