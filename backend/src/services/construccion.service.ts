@@ -19,6 +19,22 @@ import { prisma } from '../utils/prisma';
 
 export const TIPO_APORTE_CONSTRUCCION = 4; // Tabla 1: CT — Construcción
 
+// Una empresa es "de construcción" si aporta por CT (Tabla 1 código 4) o si su
+// grupo de Consejos de Salarios es el 9 (Industria de la construcción) o su
+// actividad lo indica. Cubre empresas cargadas con uno solo de los códigos.
+export function esEmpresaConstruccion(co?: {
+  tipoAporte?: number | null;
+  grupoActividadNum?: number | null;
+  grupoActividad?: string | null;
+  actividadPrincipal?: string | null;
+} | null): boolean {
+  if (!co) return false;
+  return co.tipoAporte === TIPO_APORTE_CONSTRUCCION
+    || co.grupoActividadNum === 9
+    || /construc/i.test(co.grupoActividad ?? '')
+    || /construc/i.test(co.actividadPrincipal ?? '');
+}
+
 interface ConceptoConstruccion {
   codigo: string;
   nombre: string;

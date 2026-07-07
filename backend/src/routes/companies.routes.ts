@@ -6,7 +6,7 @@ import { authenticate, requireRole } from '../middleware/auth';
 import { accessibleCompanyIds, assertCompanyAccess } from '../middleware/tenancy';
 import { AppError, NotFoundError } from '../middleware/errorHandler';
 import { recordAudit } from '../services/audit.service';
-import { ensureConceptosConstruccion, TIPO_APORTE_CONSTRUCCION } from '../services/construccion.service';
+import { ensureConceptosConstruccion, esEmpresaConstruccion } from '../services/construccion.service';
 
 export const companiesRouter = Router();
 
@@ -95,7 +95,7 @@ companiesRouter.post('/', authenticate, requireRole(UserRole.ADMIN), async (req:
     // Empresas de CONSTRUCCIÓN (aportación CT): cargar los conceptos del laudo
     // del Grupo 9 (ticket alimentación, partidas extraordinarias, fondos).
     let conceptosConstruccion = 0;
-    if (company.tipoAporte === TIPO_APORTE_CONSTRUCCION) {
+    if (esEmpresaConstruccion(company)) {
       conceptosConstruccion = await ensureConceptosConstruccion(company.id);
     }
     await recordAudit({ action: 'COMPANY_CREATE', entity: 'company', entityId: company.id, companyId: company.id, newData: { razonSocial: company.razonSocial, rut: company.rut }, req });
@@ -114,8 +114,8 @@ companiesRouter.put('/:id', authenticate, requireRole(UserRole.ADMIN, UserRole.O
 
     const data = companySchema.partial().parse(req.body);
     const company = await prisma.company.update({ where: { id: req.params.id }, data });
-    // Si la empresa pasa a aportación CONSTRUCCIÓN, cargar sus conceptos.
-    if (company.tipoAporte === TIPO_APORTE_CONSTRUCCION) {
+    // Si la empresa pasa a ser de CONSTRUCCIÓN, cargar sus conceptos.
+    if (esEmpresaConstruccion(company)) {
       await ensureConceptosConstruccion(company.id);
     }
     await recordAudit({ action: 'COMPANY_UPDATE', entity: 'company', entityId: company.id, companyId: company.id, oldData: { razonSocial: existing.razonSocial, rut: existing.rut, bseRate: existing.bseRate }, newData: data, req });

@@ -31,6 +31,18 @@ export const CONCEPTOS_SISTEMA: ConceptoSistema[] = [
 // Se ofrecen como sugerencia en el campo Categoría cuando la empresa tiene
 // aportación CONSTRUCCIÓN (Tabla 1 código 4); admite texto libre igual.
 export const TIPO_APORTE_CONSTRUCCION = 4;
+
+// Una empresa es "de construcción" si aporta por CT (Tabla 1 código 4) o si su
+// grupo de Consejos de Salarios es el 9 (Industria de la construcción) o su
+// actividad lo indica. Así el desplegable de categorías y el panel de horas
+// aparecen aunque falte alguno de los dos códigos.
+export function esEmpresaConstruccion(co?: { tipoAporte?: number | null; grupoActividadNum?: number | null; grupoActividad?: string | null; actividadPrincipal?: string | null } | null): boolean {
+  if (!co) return false;
+  return co.tipoAporte === TIPO_APORTE_CONSTRUCCION
+    || co.grupoActividadNum === 9
+    || /construc/i.test(co.grupoActividad ?? '')
+    || /construc/i.test(co.actividadPrincipal ?? '');
+}
 export const CATEGORIAS_CONSTRUCCION = [
   'II — Sereno',
   'III — Peón común o Canchero',

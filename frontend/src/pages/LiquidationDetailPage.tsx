@@ -6,7 +6,7 @@ import { liquidationApi, conceptsApi, companiesApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
 import { abrirBlobEnPestania } from '../utils/file';
-import { CONCEPTOS_SISTEMA, TIPO_APORTE_CONSTRUCCION } from '../constants/conceptos';
+import { CONCEPTOS_SISTEMA, esEmpresaConstruccion } from '../constants/conceptos';
 import { formatPesos, MESES, PayrollItem } from '../types';
 
 interface OpcionConcepto { key: string; nombre: string; grupo: string; montoFijo?: number }
@@ -215,7 +215,7 @@ export default function LiquidationDetailPage() {
     queryFn: () => companiesApi.get(activeCompanyId),
     enabled: !!activeCompanyId,
   });
-  const esConstruccion = empresa?.tipoAporte === TIPO_APORTE_CONSTRUCCION;
+  const esConstruccion = esEmpresaConstruccion(empresa);
   const [horasMes, setHorasMes] = useState('');
   const [horasLluvia, setHorasLluvia] = useState('');
   const [ticketCant, setTicketCant] = useState('');

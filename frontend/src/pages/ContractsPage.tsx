@@ -7,7 +7,7 @@ import { contractsApi, catalogsApi, companiesApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
 import { formatPesos, SalaryType, Contrato } from '../types';
-import { CATEGORIAS_CONSTRUCCION, TIPO_APORTE_CONSTRUCCION } from '../constants/conceptos';
+import { CATEGORIAS_CONSTRUCCION, esEmpresaConstruccion } from '../constants/conceptos';
 
 type ContratoRow = Contrato & { employee: { id: string; ci: string; nombre: string; apellido: string } };
 
@@ -70,7 +70,7 @@ export default function ContractsPage() {
     queryFn: () => companiesApi.get(companyId),
     enabled: !!companyId,
   });
-  const esConstruccion = empresaDetalle?.tipoAporte === TIPO_APORTE_CONSTRUCCION;
+  const esConstruccion = esEmpresaConstruccion(empresaDetalle);
   const { data: vinculos } = useQuery({ queryKey: ['cat-vinculos'], queryFn: () => catalogsApi.vinculosFuncionales(), staleTime: Infinity });
   const { data: segurosSalud } = useQuery({ queryKey: ['cat-seguros-salud'], queryFn: () => catalogsApi.segurosSalud(), staleTime: Infinity });
   const { data: computos } = useQuery({ queryKey: ['cat-computos'], queryFn: () => catalogsApi.computosEspeciales(), staleTime: Infinity });

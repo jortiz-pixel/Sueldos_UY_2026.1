@@ -8,7 +8,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
 import AttachmentsPanel from '../components/AttachmentsPanel';
 import { formatPesos, MESES, Contrato, SalaryType } from '../types';
-import { CATEGORIAS_CONSTRUCCION, TIPO_APORTE_CONSTRUCCION } from '../constants/conceptos';
+import { CATEGORIAS_CONSTRUCCION, esEmpresaConstruccion } from '../constants/conceptos';
 
 function Field({ label, value }: { label: string; value: string | number | boolean | null | undefined }) {
   if (value === null || value === undefined || value === '') return null;
@@ -96,7 +96,7 @@ export default function EmployeeDetailPage() {
   const salaryType = watch('salaryType');
   // Empresa elegida en el form: si es de CONSTRUCCIÓN se sugieren las categorías del laudo.
   const formCompanyId = watch('companyId');
-  const esConstruccion = companies?.find((co) => co.id === formCompanyId)?.tipoAporte === TIPO_APORTE_CONSTRUCCION;
+  const esConstruccion = esEmpresaConstruccion(companies?.find((co) => co.id === formCompanyId));
   const categoriaActual = watch('categoria') ?? '';
 
   const createMutation = useMutation({

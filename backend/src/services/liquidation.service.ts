@@ -11,7 +11,7 @@ import { parametersService } from './parameters.service';
 import { resolverContratoEnMes, diasTrabajadosEnMes, datosLaboralesEfectivos } from './contract.service';
 import { evaluarConcepto, ConceptoContext } from './concept.engine';
 import { calcularAguinaldoBrutoSemestre } from './aguinaldo.service';
-import { correspondeHerramientas } from './construccion.service';
+import { correspondeHerramientas, esEmpresaConstruccion } from './construccion.service';
 import { AppError } from '../middleware/errorHandler';
 
 // Días hábiles de licencia GOZADA (LeaveRequest aprobada/pendiente) que caen
@@ -135,7 +135,7 @@ export async function generarLiquidacionMensual(
   // se asume jornada de 8 hs por día trabajado. Con las horas, el resto de las
   // partidas del laudo (presentismo, ropa, transporte, herramientas) y los
   // fondos se calculan solos vía el motor de conceptos.
-  const esConstruccion = period.company.tipoAporte === 4;
+  const esConstruccion = esEmpresaConstruccion(period.company);
   const horasConstruccion = esConstruccion && labor.salaryType === 'JORNALERO'
     ? (input.horasTrabajadas ?? diasTrabajados * 8)
     : input.horasTrabajadas;

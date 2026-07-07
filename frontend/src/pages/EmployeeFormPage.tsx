@@ -6,7 +6,7 @@ import { ArrowLeft, AlertCircle } from 'lucide-react';
 import { employeesApi, companiesApi, catalogsApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
-import { CATEGORIAS_CONSTRUCCION, TIPO_APORTE_CONSTRUCCION } from '../constants/conceptos';
+import { CATEGORIAS_CONSTRUCCION, esEmpresaConstruccion } from '../constants/conceptos';
 import AttachmentsPanel from '../components/AttachmentsPanel';
 import PersonPhoto from '../components/PersonPhoto';
 import { SalaryType, EstadoCivil, formatCedula, validarCedula } from '../types';
@@ -85,7 +85,7 @@ export default function EmployeeFormPage() {
   const ciValue = watch('ci');
   // Empresa elegida: si es de CONSTRUCCIÓN se sugieren las categorías del laudo.
   const formCompanyId = watch('companyId');
-  const esConstruccion = companies?.find((co) => co.id === formCompanyId)?.tipoAporte === TIPO_APORTE_CONSTRUCCION;
+  const esConstruccion = esEmpresaConstruccion(companies?.find((co) => co.id === formCompanyId));
   const categoriaActual = watch('categoria') ?? '';
 
   useEffect(() => {
