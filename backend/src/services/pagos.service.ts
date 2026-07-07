@@ -264,3 +264,25 @@ export function asientoXlsx(
   XLSX.utils.book_append_sheet(wb, ws, 'Asiento');
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
 }
+
+/**
+ * TXT del asiento (para importar al sistema contable): encabezado con empresa y
+ * período, líneas `cuenta;debe;haber` con decimales con coma, y totales. Si el
+ * sistema contable exige otro layout, se ajusta contra su plantilla.
+ */
+export function asientoTxt(
+  lineas: LineaAsiento[], totalDebe: string, totalHaber: string,
+  empresa: string, rut: string, year: number, month: number,
+): string {
+  const imp = (v: string) => (Number(BigInt(v)) / 100).toFixed(2).replace('.', ',');
+  const mm = String(month).padStart(2, '0');
+  const out: string[] = [
+    `# Asiento contable de sueldos`,
+    `# Empresa: ${empresa}${rut ? ` (RUT ${rut})` : ''}`,
+    `# Período: ${mm}/${year}`,
+    `# Formato: cuenta;debe;haber`,
+    ...lineas.map((l) => `${l.cuenta};${l.debe !== '0' ? imp(l.debe) : ''};${l.haber !== '0' ? imp(l.haber) : ''}`),
+    `TOTALES;${imp(totalDebe)};${imp(totalHaber)}`,
+  ];
+  return out.join('\r\n') + '\r\n';
+}

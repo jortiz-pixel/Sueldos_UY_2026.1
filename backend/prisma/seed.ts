@@ -24,6 +24,7 @@ async function main() {
   for (const t of tiposAporte) await prisma.tipoAporte.upsert({ where: { codigo: t.codigo }, update: { nombre: t.nombre }, create: t });
 
   const tiposContribuyente = [
+    { codigo: 1, nombre: 'Empresa Unipersonal' },
     { codigo: 2, nombre: 'SRL — Sociedad de Responsabilidad Limitada' }, { codigo: 3, nombre: 'SA — Sociedad Anónima' },
     { codigo: 4, nombre: 'Sociedad de hecho' }, { codigo: 5, nombre: 'Sociedad Colectiva' },
     { codigo: 6, nombre: 'Sociedad en Comandita' }, { codigo: 7, nombre: 'Capital e Industria' },

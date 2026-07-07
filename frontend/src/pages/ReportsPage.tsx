@@ -540,10 +540,12 @@ function PagosBanco({ data, loading, companyId, year, month }: {
 function AsientoContable({ data, loading, companyId, year, month }: {
   data?: AsientoReport; loading: boolean; companyId: string; year: number; month: number;
 }) {
-  const bajar = async () => {
+  const bajar = async (formato: 'xlsx' | 'txt' = 'xlsx') => {
     try {
-      const blob = await reportsApi.asientoExcel(companyId, year, month);
-      descargarBlob(blob, `asiento_sueldos_${String(month).padStart(2, '0')}${year}.xlsx`);
+      const blob = formato === 'txt'
+        ? await reportsApi.asientoTxt(companyId, year, month)
+        : await reportsApi.asientoExcel(companyId, year, month);
+      descargarBlob(blob, `asiento_sueldos_${String(month).padStart(2, '0')}${year}.${formato}`);
     } catch {
       alert('No se pudo generar el asiento. ¿El período tiene liquidaciones confirmadas?');
     }
@@ -553,7 +555,8 @@ function AsientoContable({ data, loading, companyId, year, month }: {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
-        <button onClick={bajar} className="btn-primary btn-sm"><Download size={14} /> Exportar a Excel</button>
+        <button onClick={() => bajar('xlsx')} className="btn-primary btn-sm"><Download size={14} /> Exportar a Excel</button>
+        <button onClick={() => bajar('txt')} className="btn-secondary btn-sm"><Download size={14} /> TXT (sistema contable)</button>
         {data && !data.balanceado && (
           <span className="text-sm text-red-600 font-medium">⚠ El asiento no balancea — revisá las liquidaciones del período.</span>
         )}

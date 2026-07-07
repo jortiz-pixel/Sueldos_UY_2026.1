@@ -5,12 +5,23 @@ import {
   CheckCircle2, Circle, AlertTriangle, ChevronLeft, ChevronRight,
   CalendarPlus, Users, FileText, Landmark, Wallet, Lock, FileDiff, ArrowRight,
 } from 'lucide-react';
-import { nominaApi, liquidationApi } from '../services/api';
+import { nominaApi, liquidationApi, reportsApi } from '../services/api';
 import { useCompany } from '../hooks/useCompany';
 import { useAuth } from '../hooks/useAuth';
 import { MESES, formatPesos } from '../types';
 
 type EstadoPaso = 'ok' | 'pendiente' | 'atencion' | 'bloqueado';
+
+// Descarga el asiento contable del mes en TXT (para el sistema contable).
+async function descargarAsientoTxt(companyId: string, year: number, month: number) {
+  const blob = await reportsApi.asientoTxt(companyId, year, month);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `asiento_sueldos_${String(month).padStart(2, '0')}${year}.txt`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 const ESTADO_STYLE: Record<EstadoPaso, { icon: typeof CheckCircle2; cls: string; linea: string }> = {
   ok: { icon: CheckCircle2, cls: 'text-ok', linea: 'bg-ok/40' },
@@ -58,9 +69,20 @@ export default function CentroMesPage() {
         if (!confirm('Cerrar el período impide seguir modificándolo. ¿Confirmar el cierre del mes?')) return null;
         return liquidationApi.cerrarPeriodo(cm.period.id);
       }
+      if (tipo === 'asiento-txt') {
+        await descargarAsientoTxt(companyId, year, month).catch(() => alert('No se pudo generar el asiento. ¿El período tiene liquidaciones confirmadas?'));
+        return null;
+      }
       return null;
     },
-    onSuccess: () => { setTrabajando(''); refrescar(); },
+    onSuccess: (data, vars) => {
+      setTrabajando('');
+      refrescar();
+      // Al cerrar el mes se descarga el asiento contable en TXT.
+      if (vars.tipo === 'cerrar' && data) {
+        descargarAsientoTxt(companyId, year, month).catch(() => { /* sin confirmadas: nada para descargar */ });
+      }
+    },
     onError: (err: unknown) => {
       setTrabajando('');
       const m = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
@@ -173,7 +195,9 @@ export default function CentroMesPage() {
             : 'Se habilita al confirmar todo y declarar la nómina.',
         accion: pasoCierre === 'atencion' && isOperator
           ? { label: 'Cerrar período', tipo: 'cerrar' }
-          : null,
+          : cerrado
+            ? { label: 'Descargar asiento (TXT)', tipo: 'asiento-txt' }
+            : null,
         link: null,
       },
     ];

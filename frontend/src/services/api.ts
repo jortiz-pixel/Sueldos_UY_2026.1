@@ -476,6 +476,8 @@ export const reportsApi = {
     api.get<AsientoReport>('/reports/asiento', { params }).then((r) => r.data),
   asientoExcel: (companyId: string, year: number, month: number) =>
     api.get('/reports/asiento/excel', { params: { companyId, year, month }, responseType: 'blob' }).then((r) => r.data as Blob),
+  asientoTxt: (companyId: string, year: number, month: number) =>
+    api.get('/reports/asiento/txt', { params: { companyId, year, month }, responseType: 'blob' }).then((r) => r.data as Blob),
 };
 
 export interface FilaPagoBanco {

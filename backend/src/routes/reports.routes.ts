@@ -3,7 +3,7 @@ import { ItemType, LiquidationType, LiquidationStatus } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { authenticate } from '../middleware/auth';
 import { assertCompanyAccess } from '../middleware/tenancy';
-import { planillaPagos, planillaPagosXlsx, planillaPagosBrou, planillaPagosCsv, asientoContable, asientoXlsx } from '../services/pagos.service';
+import { planillaPagos, planillaPagosXlsx, planillaPagosBrou, planillaPagosCsv, asientoContable, asientoXlsx, asientoTxt } from '../services/pagos.service';
 import { AppError } from '../middleware/errorHandler';
 import { toPesos } from '../utils/money';
 import { generateNominaExcel } from '../services/excel.service';
@@ -492,5 +492,25 @@ reportsRouter.get('/asiento/excel', authenticate, async (req: Request, res: Resp
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="asiento_sueldos_${String(month).padStart(2, '0')}${year}.xlsx"`);
     res.send(buf);
+  } catch (err) { next(err); }
+});
+
+// GET /api/reports/asiento/txt?companyId=&year=&month= — asiento en texto plano
+// (cuenta;debe;haber) para importar al sistema contable al cerrar el mes.
+reportsRouter.get('/asiento/txt', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const companyId = (req.query.companyId as string) || req.user!.companyId;
+    if (!companyId) throw new AppError(400, 'companyId requerido');
+    await assertCompanyAccess(req, companyId);
+    const year = parseInt(req.query.year as string);
+    const month = parseInt(req.query.month as string);
+    if (isNaN(year) || isNaN(month)) throw new AppError(400, 'year y month requeridos');
+
+    const company = await prisma.company.findUnique({ where: { id: companyId }, select: { razonSocial: true, rut: true } });
+    const r = await asientoContable(companyId, year, month);
+    const txt = asientoTxt(r.lineas, r.totalDebe, r.totalHaber, company?.razonSocial ?? '', company?.rut ?? '', year, month);
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="asiento_sueldos_${String(month).padStart(2, '0')}${year}.txt"`);
+    res.send(txt);
   } catch (err) { next(err); }
 });
