@@ -11,7 +11,7 @@ import { parametersService } from './parameters.service';
 import { resolverContratoEnMes, diasTrabajadosEnMes, datosLaboralesEfectivos } from './contract.service';
 import { evaluarConcepto, valorUnitarioConcepto, ConceptoContext } from './concept.engine';
 import { calcularAguinaldoBrutoSemestre } from './aguinaldo.service';
-import { correspondeHerramientas, esEmpresaConstruccion, ensureConceptosConstruccion, jornalHoraVigente, recuadroDeEmpresa } from './construccion.service';
+import { correspondeHerramientas, esEmpresaConstruccion, ensureConceptosConstruccion, grupoConsejoDeEmpresa, jornalHoraVigente, recuadroDeEmpresa } from './construccion.service';
 import { AppError } from '../middleware/errorHandler';
 
 // Días hábiles de licencia GOZADA (LeaveRequest aprobada/pendiente) que caen
@@ -56,6 +56,30 @@ export async function valorJornalFalta(liquidationId: string): Promise<bigint> {
   return labor.salaryType === 'MENSUAL'
     ? salarioProporcional(labor.salarioNominal, 1, 30)
     : (labor.jornal ?? salarioProporcional(labor.salarioNominal, 1, 30));
+}
+
+// PRIMA POR ANTIGÜEDAD grupo 21 (Consejo de Salarios): 0,5% del sueldo básico
+// del mes por cada año COMPLETO de trabajo desde la fecha de ingreso, con tope
+// del 5% (a los 10 años). Los años se computan cumplidos al último día del mes
+// liquidado. Devuelve null si todavía no hay un año completo.
+export function calcularPrimaAntiguedad(
+  fechaIngreso: Date, year: number, month: number, sueldoBasicoMes: bigint,
+): { anios: number; rate: number; amount: bigint; descripcion: string } | null {
+  const finMes = new Date(year, month, 0);
+  const ing = new Date(fechaIngreso);
+  let anios = finMes.getFullYear() - ing.getFullYear();
+  const aniversario = new Date(ing);
+  aniversario.setFullYear(finMes.getFullYear());
+  if (aniversario > finMes) anios--;
+  const aniosComputados = Math.min(Math.max(anios, 0), 10);
+  const rate = aniosComputados * 50; // 0,5% por año en basis points (tope 500 = 5%)
+  if (rate <= 0) return null;
+  return {
+    anios,
+    rate,
+    amount: applyRate(sueldoBasicoMes, rate),
+    descripcion: `Prima por Antigüedad (${anios} ${anios === 1 ? 'año' : 'años'})`,
+  };
 }
 
 export interface LiquidacionInput {
@@ -242,40 +266,28 @@ export async function generarLiquidacionMensual(
     });
   }
 
-  // GRUPO 21 (Consejo de Salarios): PRIMA POR ANTIGÜEDAD automática — 0,5% del
-  // sueldo básico por cada año COMPLETO de trabajo desde la fecha de ingreso,
-  // con tope del 5% (a los 10 años). Los años se computan cumplidos al último
-  // día del mes que se liquida, sobre la fecha de ingreso del contrato.
-  if (period.company.grupoActividadNum === 21) {
+  // GRUPO 21 (Consejo de Salarios): la PRIMA POR ANTIGÜEDAD viene PRECARGADA
+  // junto con el sueldo — 0,5% del sueldo básico por año completo, tope 5%.
+  if (grupoConsejoDeEmpresa(period.company) === 21) {
     const ingreso = contrato?.fechaIngreso ?? employee.fechaIngreso;
-    if (ingreso) {
-      const finMes = new Date(input.year, input.month, 0);
-      const ing = new Date(ingreso);
-      let aniosAntiguedad = finMes.getFullYear() - ing.getFullYear();
-      const aniversario = new Date(ing);
-      aniversario.setFullYear(finMes.getFullYear());
-      if (aniversario > finMes) aniosAntiguedad--;
-      const aniosComputados = Math.min(Math.max(aniosAntiguedad, 0), 10);
-      const primaRate = aniosComputados * 50; // 0,5% por año en basis points (tope 500 = 5%)
-      if (primaRate > 0) {
-        items.push({
-          employeeId: input.employeeId,
-          itemType: ItemType.HABER,
-          concepto: 'PRIMA_ANTIGUEDAD',
-          descripcion: `Prima por Antigüedad (${aniosAntiguedad} ${aniosAntiguedad === 1 ? 'año' : 'años'})`,
-          baseCalculo: salarioBase,
-          rate: primaRate,
-          amount: applyRate(salarioBase, primaRate),
-          calculationDetail: {
-            grupo: 21,
-            aniosAntiguedad,
-            aniosComputados,
-            fechaIngreso: ing.toISOString(),
-            rateBp: primaRate,
-            topeBp: 500,
-          } as unknown as Prisma.JsonValue,
-        });
-      }
+    const prima = ingreso ? calcularPrimaAntiguedad(ingreso, input.year, input.month, salarioBase) : null;
+    if (prima) {
+      items.push({
+        employeeId: input.employeeId,
+        itemType: ItemType.HABER,
+        concepto: 'PRIMA_ANTIGUEDAD',
+        descripcion: prima.descripcion,
+        baseCalculo: salarioBase,
+        rate: prima.rate,
+        amount: prima.amount,
+        calculationDetail: {
+          grupo: 21,
+          aniosAntiguedad: prima.anios,
+          fechaIngreso: new Date(ingreso!).toISOString(),
+          rateBp: prima.rate,
+          topeBp: 500,
+        } as unknown as Prisma.JsonValue,
+      });
     }
   }
 

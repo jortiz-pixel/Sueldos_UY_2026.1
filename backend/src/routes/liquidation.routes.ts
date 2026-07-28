@@ -5,7 +5,8 @@ import { prisma } from '../utils/prisma';
 import { authenticate, requireRole } from '../middleware/auth';
 import { assertCompanyAccess } from '../middleware/tenancy';
 import { AppError, NotFoundError } from '../middleware/errorHandler';
-import { generarLiquidacionMensual, confirmarLiquidacion, valorJornalFalta } from '../services/liquidation.service';
+import { generarLiquidacionMensual, confirmarLiquidacion, valorJornalFalta, calcularPrimaAntiguedad } from '../services/liquidation.service';
+import { grupoConsejoDeEmpresa } from '../services/construccion.service';
 import { divRoundHalfUp } from '../utils/money';
 import { calcularAguinaldo, calcularAguinaldoBrutoSemestre } from '../services/aguinaldo.service';
 import { calcularLiquidacionLicencia, calcularLiquidacionFinal } from '../services/vacation.service';
@@ -568,6 +569,37 @@ async function recalcularLiquidacion(liquidationId: string): Promise<void> {
     : [];
   const gravadoPorCodigo = new Map(conceptos.map((c) => [c.codigo, c.gravado]));
 
+  // Contrato vigente del mes (seguro de salud del adicional FONASA y fecha de
+  // ingreso de la prima por antigüedad).
+  const contratoMes = companyId ? await resolverContratoEnMes(liq.employeeId, liq.year, liq.month, companyId) : null;
+
+  // GRUPO 21: la PRIMA POR ANTIGÜEDAD viene precargada junto con el sueldo.
+  // Si la liquidación se generó sin ella (borradores previos) o cambió el
+  // sueldo básico, acá se crea o se actualiza con el porcentaje correcto
+  // (0,5% por año completo, tope 5%) antes de recalcular los aportes.
+  if (liq.period?.company && grupoConsejoDeEmpresa(liq.period.company) === 21) {
+    const ingreso = contratoMes?.fechaIngreso ?? employee.fechaIngreso;
+    const baseSueldo = liq.items
+      .filter((i) => i.itemType === ItemType.HABER && (i.concepto === 'SUELDO_BASICO' || i.concepto === 'LICENCIA_GOZADA'))
+      .reduce((sum, i) => sum + i.amount, 0n);
+    const prima = ingreso && baseSueldo > 0n
+      ? calcularPrimaAntiguedad(ingreso, liq.year, liq.month, baseSueldo)
+      : null;
+    const primaItem = liq.items.find((i) => i.concepto === 'PRIMA_ANTIGUEDAD');
+    if (prima) {
+      const data = { descripcion: prima.descripcion, baseCalculo: baseSueldo, rate: prima.rate, amount: prima.amount };
+      if (primaItem) {
+        await prisma.payrollItem.update({ where: { id: primaItem.id }, data });
+        primaItem.amount = prima.amount; // que la base gravada de abajo use el valor nuevo
+      } else {
+        const creado = await prisma.payrollItem.create({
+          data: { liquidationId, employeeId: liq.employeeId, itemType: ItemType.HABER, concepto: 'PRIMA_ANTIGUEDAD', ...data },
+        });
+        liq.items.push(creado);
+      }
+    }
+  }
+
   // Base gravada = suma de los HABER gravados (incluye los manuales por defecto).
   let baseGravada = 0n;
   for (const it of liq.items) {
@@ -591,7 +623,6 @@ async function recalcularLiquidacion(liquidationId: string): Promise<void> {
 
   // Adicional FONASA según el Seguro de Salud (Tabla 8) del contrato vigente del
   // mes; si el código no lo determina, se usan los datos del empleado.
-  const contratoMes = companyId ? await resolverContratoEnMes(liq.employeeId, liq.year, liq.month, companyId) : null;
   const cargasFonasa = fonasaCargasDeSeguroSalud(contratoMes?.seguroSalud);
   const fonasaHijos = cargasFonasa ? (cargasFonasa.hijos ? 1 : 0) : employee.hijosACargo;
   const fonasaConyuge = cargasFonasa ? cargasFonasa.conyuge : employee.conyugeACargo;

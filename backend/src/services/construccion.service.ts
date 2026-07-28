@@ -35,6 +35,21 @@ export function esEmpresaConstruccion(co?: {
     || /construc/i.test(co.actividadPrincipal ?? '');
 }
 
+/**
+ * Grupo de Consejos de Salarios de la empresa: el campo numérico oficial o,
+ * para empresas cargadas antes del desplegable de grupos, el número que figura
+ * al inicio del texto libre ("21", "Grupo 21 — Servicio doméstico").
+ */
+export function grupoConsejoDeEmpresa(co?: {
+  grupoActividadNum?: number | null;
+  grupoActividad?: string | null;
+} | null): number | null {
+  if (!co) return null;
+  if (co.grupoActividadNum != null) return co.grupoActividadNum;
+  const m = /(?:grupo\s*)?(\d{1,2})\b/i.exec(co.grupoActividad ?? '');
+  return m ? Number(m[1]) : null;
+}
+
 interface ConceptoConstruccion {
   codigo: string;
   nombre: string;
