@@ -39,3 +39,6 @@ coverage/
 # Uploads & generated files
 uploads/
 tmp/
+
+# Lockfiles (el repo no los versiona; el deploy usa npm install)
+package-lock.json
