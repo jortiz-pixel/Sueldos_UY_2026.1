@@ -944,6 +944,18 @@ async function generarLiquidacionTitularUnipersonal(
       calculationDetail: { titular: true, cuotaFija: true, seguroSalud: contrato.seguroSalud ?? null } as unknown as Prisma.JsonValue,
     },
     {
+      // Estilo GNS: el Adicional FONASA figura SIEMPRE, aun en 0 (el titular
+      // paga el FONASA por cuota fija, sin adicional).
+      employeeId: input.employeeId,
+      itemType: ItemType.DESCUENTO_OBRERO,
+      concepto: 'FONASA_ADICIONAL',
+      descripcion: 'Adicional FONASA',
+      baseCalculo: ficto,
+      rate: 0,
+      amount: 0n,
+      calculationDetail: { titular: true, cuotaFija: true } as unknown as Prisma.JsonValue,
+    },
+    {
       employeeId: input.employeeId,
       itemType: ItemType.DESCUENTO_OBRERO,
       concepto: 'FRL',
@@ -951,6 +963,18 @@ async function generarLiquidacionTitularUnipersonal(
       baseCalculo: ficto,
       rate: frlRate,
       amount: frl,
+      calculationDetail: { titular: true } as unknown as Prisma.JsonValue,
+    },
+    {
+      // Estilo GNS: el IRPF figura SIEMPRE, aun en 0,00 (el ficto patronal no
+      // tributa IRPF Cat. II por esta vía).
+      employeeId: input.employeeId,
+      itemType: ItemType.DESCUENTO_OBRERO,
+      concepto: 'IRPF',
+      descripcion: 'IRPF — Impuesto a la Renta de las Personas Físicas (Cat. II)',
+      baseCalculo: ficto,
+      rate: null,
+      amount: 0n,
       calculationDetail: { titular: true } as unknown as Prisma.JsonValue,
     },
   ];
