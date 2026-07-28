@@ -631,7 +631,7 @@ export async function generarLiquidacionMensual(
     // El Reintegro de Gastos (y los ajustes no gravados) quedan FUERA de la
     // base ApliAFondos: no son materia gravada de los fondos de la construcción.
     const haberesParaFondos = items
-      .filter((i) => i.itemType === ItemType.HABER && i.concepto !== 'REINTEGRO_GASTOS' && i.concepto !== 'AJUSTE_NO_GRAVADO')
+      .filter((i) => i.itemType === ItemType.HABER && !['REINTEGRO_GASTOS', 'AJUSTE_NO_GRAVADO', 'VIATICOS'].includes(i.concepto))
       .reduce((sum, i) => sum + i.amount, 0n);
     const rateFonasaFrl = BigInt(
       aportesObreros.detail.fonasaSeguroRate + aportesObreros.detail.fonasaAdicionalRate + params.frlObreroRate,

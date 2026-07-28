@@ -152,6 +152,13 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
   fondos) y NO se declara en la nómina BPS. Se agrega a mano en la liquidación
   ("Agregar concepto" → Reintegro de Gastos, o cualquier descripción con la
   palabra "reintegro"); editable y borrable como los ajustes manuales.
+- **VIÁTICOS** (conceptos manuales de haberes, desplegable "Agregar haberes"):
+  `VIATICOS_GRAVADOS` ("Viáticos Gravados") integra la base de TODOS los
+  descuentos (aportes + IRPF) y se declara en nómina BPS bajo el concepto 1 ·
+  `VIATICOS` ("Viáticos") es NO GRAVADO: suma al líquido sin descuentos, queda
+  fuera de la base ApliAFondos y NO se declara en la nómina. Detección por
+  descripción (/viático/, con "grav" → gravado); editables/borrables como
+  ajustes manuales.
 - **PRIMA POR ANTIGÜEDAD grupo 21** (Consejo de Salarios 21): automática en la
   mensualidad — 0,5% del SUELDO BÁSICO del mes por cada año COMPLETO de trabajo
   (fecha de ingreso del contrato), tope 5% a los 10 años. Años cumplidos al

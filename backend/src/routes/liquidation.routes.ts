@@ -541,7 +541,7 @@ async function recalcularTotales(liquidationId: string): Promise<void> {
 }
 
 // Conceptos HABER que NO entran a la base de aportes (no gravados).
-const HABER_NO_GRAVADO = new Set(['SALARIO_VACACIONAL', 'AJUSTE_NO_GRAVADO', 'REINTEGRO_GASTOS']);
+const HABER_NO_GRAVADO = new Set(['SALARIO_VACACIONAL', 'AJUSTE_NO_GRAVADO', 'REINTEGRO_GASTOS', 'VIATICOS']);
 
 // Para liquidaciones MENSUALES, recomputa los aportes legales (BPS/FONASA/FRL/
 // IRPF + patronales) sobre la base gravada ACTUAL — así los conceptos manuales
@@ -706,7 +706,7 @@ async function recalcularLiquidacion(liquidationId: string): Promise<void> {
     // El Reintegro de Gastos (y los ajustes no gravados) quedan FUERA de la
     // base ApliAFondos: no son materia gravada de los fondos de la construcción.
     const totalHaberesMes = liq.items
-      .filter((i) => i.itemType === ItemType.HABER && i.concepto !== 'REINTEGRO_GASTOS' && i.concepto !== 'AJUSTE_NO_GRAVADO')
+      .filter((i) => i.itemType === ItemType.HABER && !['REINTEGRO_GASTOS', 'AJUSTE_NO_GRAVADO', 'VIATICOS'].includes(i.concepto))
       .reduce((s, i) => s + i.amount, 0n);
     const rateFonasaFrl = BigInt(obreros.detail.fonasaSeguroRate + obreros.detail.fonasaAdicionalRate + params.frlObreroRate);
     const apliAFondos = divRoundHalfUp(
@@ -792,6 +792,12 @@ liquidationRouter.post('/:id/item', authenticate, requireRole(UserRole.ADMIN, Us
     // percibir pero queda fuera de la base de aportes, IRPF y fondos.
     const esReintegro = data.itemType === 'HABER' && /\breintegros?\b/i.test(data.descripcion);
 
+    // VIÁTICOS: dos variantes — "Viáticos Gravados" integra la base de los
+    // descuentos (aportes + IRPF); "Viáticos" a secas es NO gravado (suma al
+    // líquido sin descuentos). Se detectan por la descripción.
+    const esViatico = data.itemType === 'HABER' && /vi[aá]ticos?/i.test(data.descripcion);
+    const esViaticoGravado = esViatico && /grav/i.test(data.descripcion);
+
     // Importe del ítem. Para faltas con cantidad, se calcula automáticamente:
     // valor de una falta (mensual: nominal/30 · jornalero: jornal) × cantidad.
     let centesimos: bigint;
@@ -815,7 +821,11 @@ liquidationRouter.post('/:id/item', authenticate, requireRole(UserRole.ADMIN, Us
         liquidationId: liquidation.id,
         employeeId: liquidation.employeeId,
         itemType: esFalta ? ItemType.HABER : data.itemType,
-        concepto: esFalta ? 'FALTAS' : esReintegro ? 'REINTEGRO_GASTOS' : (noGravado ? 'AJUSTE_NO_GRAVADO' : 'AJUSTE'),
+        concepto: esFalta ? 'FALTAS'
+          : esReintegro ? 'REINTEGRO_GASTOS'
+          : esViaticoGravado ? 'VIATICOS_GRAVADOS'
+          : esViatico ? 'VIATICOS'
+          : (noGravado ? 'AJUSTE_NO_GRAVADO' : 'AJUSTE'),
         descripcion: descripcionFinal,
         amount: esFalta ? -centesimos : centesimos, // la falta siempre resta
       },
@@ -838,7 +848,7 @@ liquidationRouter.delete('/:id/item/:itemId', authenticate, requireRole(UserRole
     if (!item || item.liquidationId !== liquidation.id) throw new NotFoundError('Concepto');
     // Solo los conceptos agregados a mano: ajustes (AJUSTE/AJUSTE_NO_GRAVADO) y
     // faltas (FALTAS). Los aportes legales se recalculan, no se borran.
-    const esManual = item.concepto.startsWith('AJUSTE') || item.concepto === 'FALTAS' || item.concepto === 'REINTEGRO_GASTOS' || item.concepto === 'PRIMA_ANTIGUEDAD';
+    const esManual = item.concepto.startsWith('AJUSTE') || ['FALTAS', 'REINTEGRO_GASTOS', 'PRIMA_ANTIGUEDAD', 'VIATICOS', 'VIATICOS_GRAVADOS'].includes(item.concepto);
     if (!esManual) {
       throw new AppError(409, 'Solo se pueden quitar los conceptos agregados manualmente');
     }

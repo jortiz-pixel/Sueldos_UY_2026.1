@@ -169,7 +169,7 @@ export async function generarNominaBps(companyId: string, year: number, month: n
         // + ropa + transporte + herramientas sumadas bajo el concepto 5). Los
         // reintegros de gastos y ajustes no gravados no se declaran.
         if (cfg && !cfg.gravado && cfg.codBps == null) continue;
-        if (item.concepto === 'REINTEGRO_GASTOS' || item.concepto === 'AJUSTE_NO_GRAVADO') continue;
+        if (['REINTEGRO_GASTOS', 'AJUSTE_NO_GRAVADO', 'VIATICOS'].includes(item.concepto)) continue;
         const code = codigoConceptoBps(item.concepto, cfg?.codBps);
         if (code == null) continue; // partida indemnizatoria
         porConcepto.set(code, (porConcepto.get(code) ?? 0n) + item.amount);

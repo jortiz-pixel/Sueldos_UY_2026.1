@@ -16,6 +16,8 @@ export const CONCEPTOS_SISTEMA: ConceptoSistema[] = [
   { nombre: 'Aguinaldo', tipo: 'HABER', calculo: '1/12 de los haberes del semestre (confirmados)', gravado: 'Sí' },
   { nombre: 'Salario de licencia', tipo: 'HABER', calculo: 'Promedio 12 meses / 30 × días', gravado: 'Sí' },
   { nombre: 'Salario vacacional', tipo: 'HABER', calculo: 'Jornal líquido × días', gravado: 'No (exento CESS)' },
+  { nombre: 'Viáticos Gravados', tipo: 'HABER', calculo: 'Monto manual — integra la base de aportes e IRPF', gravado: 'Sí' },
+  { nombre: 'Viáticos', tipo: 'HABER', calculo: 'Monto manual — suma al líquido SIN descuentos', gravado: 'No' },
   { nombre: 'BPS Jubilatorio', tipo: 'DESCUENTO_OBRERO', calculo: '15% sobre el gravado', gravado: '—' },
   { nombre: 'FONASA (Seguro por Enfermedad)', tipo: 'DESCUENTO_OBRERO', calculo: '3% fijo sobre el total de haberes', gravado: '—' },
   { nombre: 'Adicional FONASA', tipo: 'DESCUENTO_OBRERO', calculo: 'Complemento según seguro de salud (escalón >2,5 BPC + hijos + cónyuge)', gravado: '—' },
