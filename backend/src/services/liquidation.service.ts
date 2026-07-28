@@ -203,6 +203,13 @@ export async function generarLiquidacionMensual(
     ? Math.round((horasConstruccion / 8) * 100) / 100
     : undefined;
 
+  // Días que quedan en la liquidación (y se declaran en la nómina BPS): en
+  // construcción por horas son los JORNALES efectivos (horas ÷ 8, criterio
+  // GNS: 8 hs → 1 día · sin horas → 0 días), no los días del contrato.
+  const diasDeclarados = esConstruccion && labor.salaryType === 'JORNALERO' && horasConstruccion !== undefined
+    ? Math.ceil(horasConstruccion / 8)
+    : diasTrabajados;
+
   const salarioBase = labor.salaryType === 'MENSUAL'
     ? salarioProporcional(labor.salarioNominal, diasTrabajados, 30)
     : esConstruccion && horasConstruccion !== undefined
@@ -825,7 +832,7 @@ export async function generarLiquidacionMensual(
       status: LiquidationStatus.BORRADOR,
       year: input.year,
       month: input.month,
-      diasTrabajados,
+      diasTrabajados: diasDeclarados,
       totalHaberes,
       totalDescuentos,
       totalPatronal,
@@ -834,7 +841,7 @@ export async function generarLiquidacionMensual(
     },
     update: {
       status: LiquidationStatus.BORRADOR,
-      diasTrabajados,
+      diasTrabajados: diasDeclarados,
       totalHaberes,
       totalDescuentos,
       totalPatronal,

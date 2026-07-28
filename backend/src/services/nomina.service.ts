@@ -15,6 +15,7 @@
 
 import { prisma } from '../utils/prisma';
 import { LiquidationStatus, ItemType } from '@prisma/client';
+import { esEmpresaConstruccion } from './construccion.service';
 
 // ── Formateo ─────────────────────────────────────────────────────
 function ddmmaaaa(d: Date | null | undefined): string {
@@ -25,6 +26,11 @@ function ddmmaaaa(d: Date | null | undefined): string {
 
 function monto(cents: bigint): string {
   return (Number(cents) / 100).toFixed(2);
+}
+
+// Monto de registro 7 al estilo GNS: sin ceros finales ("27719.4", "0", "4075.15").
+function monto7(cents: bigint): string {
+  return monto(cents).replace(/\.?0+$/, '') || '0';
 }
 
 function soloDigitos(s: string): string {
@@ -157,8 +163,15 @@ export async function generarNominaBps(companyId: string, year: number, month: n
     const diasTrabajados = liqConDias?.diasTrabajados ?? 0;
 
     // Conceptos (registro 7): agrupar ítems HABER por código BPS.
+    // El concepto 1 siempre se declara (aunque sea 0); para los JORNALEROS de
+    // CONSTRUCCIÓN, GNS declara también el 5 (partidas exentas) aunque sea 0.
     const porConcepto = new Map<number, bigint>();
-    porConcepto.set(1, 0n); // el concepto 1 siempre se declara (aunque sea 0)
+    const siempreDeclarados = new Set<number>([1]);
+    porConcepto.set(1, 0n);
+    if (esEmpresaConstruccion(company) && contrato.salaryType === 'JORNALERO') {
+      porConcepto.set(5, 0n);
+      siempreDeclarados.add(5);
+    }
     for (const liq of liqsPersona) {
       for (const item of liq.items) {
         if (item.itemType !== ItemType.HABER) continue;
@@ -217,8 +230,8 @@ export async function generarNominaBps(companyId: string, year: number, month: n
     // Registros 7 — remuneraciones por concepto (jornal y otros haberes: solo CT)
     const conceptosOrdenados = [...porConcepto.entries()].sort((a, b) => a[0] - b[0]);
     for (const [code, amount] of conceptosOrdenados) {
-      if (code !== 1 && amount === 0n) continue;
-      lineas5a7.push(['7', '', String(paisDoc), tipoDoc, doc, String(al), String(code), monto(amount), '', ''].join('|'));
+      if (!siempreDeclarados.has(code) && amount === 0n) continue;
+      lineas5a7.push(['7', '', String(paisDoc), tipoDoc, doc, String(al), String(code), monto7(amount), '', ''].join('|'));
       totalNomina += amount;
     }
 
@@ -228,14 +241,15 @@ export async function generarNominaBps(companyId: string, year: number, month: n
       diasTrabajados,
       seguroSalud: contrato.seguroSalud,
       vinculoFuncional: contrato.vinculoFuncional,
-      conceptos: conceptosOrdenados.filter(([c, a]) => c === 1 || a !== 0n).map(([c, a]) => ({ codigo: c, monto: monto(a) })),
+      conceptos: conceptosOrdenados.filter(([c, a]) => siempreDeclarados.has(c) || a !== 0n).map(([c, a]) => ({ codigo: c, monto: monto7(a) })),
       egreso,
     });
   }
 
   // ── Registros 1, 4 y 12 ────────────────────────────────────────
-  const nroEmpresa = soloDigitos(company.numeroBps ?? '');
-  const nroContribuyente = soloDigitos(company.rut ?? '');
+  // GNS no incluye ceros a la izquierda en Nº de empresa ni RUT.
+  const nroEmpresa = soloDigitos(company.numeroBps ?? '').replace(/^0+(?=\d)/, '');
+  const nroContribuyente = soloDigitos(company.rut ?? '').replace(/^0+(?=\d)/, '');
   const linea1 = [
     '1', 'N', '3.0', 'AsysTax Sueldos',
     nroEmpresa, nroContribuyente,
@@ -246,7 +260,10 @@ export async function generarNominaBps(companyId: string, year: number, month: n
   ].join('|');
 
   const mesCargo = `${String(month).padStart(2, '0')}${year}`;
-  const linea4 = ['4', mesCargo, String(company.tipoContribuyente ?? ''), monto(totalNomina), '', ''].join('|');
+  // El monto total del cabezal va REDONDEADO al peso (criterio GNS, validado
+  // contra los archivos reales: 37160.42 → 37160.00 · 32240.61 → 32241.00).
+  const totalRedondeado = BigInt(Math.round(Number(totalNomina) / 100)) * 100n;
+  const linea4 = ['4', mesCargo, String(company.tipoContribuyente ?? ''), monto(totalRedondeado), '', ''].join('|');
 
   const linea12 = [
     '12',
