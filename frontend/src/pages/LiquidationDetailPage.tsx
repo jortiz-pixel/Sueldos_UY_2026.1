@@ -28,7 +28,7 @@ function ItemRow({ item, editable, onEdit, onDelete }: {
   onDelete?: (id: string) => void;
 }) {
   // Conceptos agregados a mano (ajustes y faltas): se pueden editar y eliminar.
-  const manual = item.concepto.startsWith('AJUSTE') || item.concepto === 'FALTAS' || item.concepto === 'REINTEGRO_GASTOS';
+  const manual = item.concepto.startsWith('AJUSTE') || item.concepto === 'FALTAS' || item.concepto === 'REINTEGRO_GASTOS' || item.concepto === 'PRIMA_ANTIGUEDAD';
   const [editing, setEditing] = useState(false);
   const [d, setD] = useState(item.descripcion);
   const [m, setM] = useState(Number(item.amount) / 100);
@@ -92,6 +92,9 @@ function Section({ title, items, total, colorClass, opciones, editable, onAdd, o
 
   const nombreSel = sel === 'OTRO' ? desc : (opciones?.find((x) => x.key === sel)?.nombre ?? desc);
   const esFalta = /\bfaltas?\b/i.test(nombreSel);
+  // La prima por antigüedad se calcula sola en el backend (0,5% del sueldo por
+  // año completo, tope 5%): no se pide monto.
+  const esPrima = /prima.*antig/i.test(nombreSel);
 
   const onSel = (value: string) => {
     setSel(value);
@@ -112,6 +115,8 @@ function Section({ title, items, total, colorClass, opciones, editable, onAdd, o
     if (!d.trim()) return;
     if (esFalta) {
       if (cantidad > 0) { onAdd?.(d.trim(), 0, cantidad); reset(); }
+    } else if (esPrima) {
+      onAdd?.(d.trim(), 0); reset();
     } else if (monto > 0) {
       onAdd?.(d.trim(), monto); reset();
     }
@@ -153,8 +158,9 @@ function Section({ title, items, total, colorClass, opciones, editable, onAdd, o
                   {sel && esFalta && (
                     <input type="number" step="0.01" min="0" value={cantidad || ''} onChange={(e) => setCantidad(Number(e.target.value))} placeholder="N° de faltas" className="border border-gray-300 rounded-lg px-2 py-1 text-sm w-32" />
                   )}
-                  {sel && !esFalta && <input type="number" value={monto || ''} onChange={(e) => setMonto(Number(e.target.value))} placeholder="Monto $" className="border border-gray-300 rounded-lg px-2 py-1 text-sm w-28" />}
+                  {sel && !esFalta && !esPrima && <input type="number" value={monto || ''} onChange={(e) => setMonto(Number(e.target.value))} placeholder="Monto $" className="border border-gray-300 rounded-lg px-2 py-1 text-sm w-28" />}
                   {sel && esFalta && <span className="text-xs text-gray-500">el monto se calcula solo (básico ÷ 30 × faltas)</span>}
+                  {sel && esPrima && <span className="text-xs text-gray-500">se calcula sola: 0,5% del sueldo por año de antigüedad (tope 5%)</span>}
                   {sel && <button type="button" onClick={agregar} className="btn-primary btn-sm">Agregar</button>}
                 </div>
               </td>
@@ -452,7 +458,7 @@ export default function LiquidationDetailPage() {
           colorClass="bg-green-50 text-green-800"
           opciones={haberOptions}
           editable={puedeEditar}
-          onAdd={(descripcion, monto, cantidad) => addItemMutation.mutate({ descripcion, ...(cantidad ? { cantidad } : { monto }), itemType: 'HABER' })}
+          onAdd={(descripcion, monto, cantidad) => addItemMutation.mutate({ descripcion, ...(cantidad ? { cantidad } : monto ? { monto } : {}), itemType: 'HABER' })}
           onEdit={(itemId, dd) => updateItemMutation.mutate({ itemId, ...dd })}
           onDelete={puedeEditar ? deleteItemMutation.mutate : undefined}
         />
@@ -463,7 +469,7 @@ export default function LiquidationDetailPage() {
           colorClass="bg-red-50 text-red-800"
           opciones={descuentoOptions}
           editable={puedeEditar}
-          onAdd={(descripcion, monto, cantidad) => addItemMutation.mutate({ descripcion, ...(cantidad ? { cantidad } : { monto }), itemType: 'DESCUENTO_OBRERO' })}
+          onAdd={(descripcion, monto, cantidad) => addItemMutation.mutate({ descripcion, ...(cantidad ? { cantidad } : monto ? { monto } : {}), itemType: 'DESCUENTO_OBRERO' })}
           onEdit={(itemId, dd) => updateItemMutation.mutate({ itemId, ...dd })}
           onDelete={puedeEditar ? deleteItemMutation.mutate : undefined}
         />

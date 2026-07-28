@@ -746,6 +746,42 @@ liquidationRouter.post('/:id/item', authenticate, requireRole(UserRole.ADMIN, Us
       throw new AppError(409, 'Solo se pueden agregar conceptos a liquidaciones en BORRADOR. Desconfirmá primero.');
     }
 
+    // PRIMA POR ANTIGÜEDAD: al elegirla del desplegable NO se pide monto — se
+    // calcula sola (0,5% del sueldo básico del mes por año completo desde la
+    // fecha de ingreso del contrato, tope 5%), en cualquier empresa.
+    if (data.itemType === 'HABER' && /prima.*antig/i.test(data.descripcion)) {
+      const liqFull = await prisma.liquidation.findUnique({
+        where: { id: liquidation.id },
+        include: { items: true, period: true },
+      });
+      const empleado = await prisma.employee.findUnique({ where: { id: liquidation.employeeId } });
+      const contratoMes = liqFull?.period
+        ? await resolverContratoEnMes(liquidation.employeeId, liquidation.year, liquidation.month, liqFull.period.companyId)
+        : null;
+      const ingreso = contratoMes?.fechaIngreso ?? empleado?.fechaIngreso;
+      if (!ingreso) throw new AppError(400, 'El contrato no tiene fecha de ingreso: cargala para calcular la prima por antigüedad.');
+      const baseSueldo = (liqFull?.items ?? [])
+        .filter((i) => i.itemType === ItemType.HABER && (i.concepto === 'SUELDO_BASICO' || i.concepto === 'LICENCIA_GOZADA'))
+        .reduce((sum, i) => sum + i.amount, 0n);
+      const prima = calcularPrimaAntiguedad(ingreso, liquidation.year, liquidation.month, baseSueldo);
+      const existente = (liqFull?.items ?? []).find((i) => i.concepto === 'PRIMA_ANTIGUEDAD');
+      const dataItem = { descripcion: prima.descripcion, baseCalculo: baseSueldo, rate: prima.rate, amount: prima.amount };
+      if (existente) {
+        await prisma.payrollItem.update({ where: { id: existente.id }, data: dataItem });
+      } else {
+        await prisma.payrollItem.create({
+          data: { liquidationId: liquidation.id, employeeId: liquidation.employeeId, itemType: ItemType.HABER, concepto: 'PRIMA_ANTIGUEDAD', ...dataItem },
+        });
+      }
+      await recalcularLiquidacion(liquidation.id);
+      res.status(201).json({
+        message: prima.rate > 0
+          ? `Prima por antigüedad calculada: ${prima.rate / 100}% (${prima.anios} años)`
+          : 'Prima en 0: el trabajador aún no cumplió un año de antigüedad',
+      });
+      return;
+    }
+
     // FALTAS: aunque se elijan desde la columna de Descuentos, van del lado de
     // los HABERES como un haber NEGATIVO (estilo GNS). Así el "Total de Haberes"
     // sale NETO de faltas y sobre ese neto se calculan TODOS los aportes e IRPF.
@@ -802,7 +838,7 @@ liquidationRouter.delete('/:id/item/:itemId', authenticate, requireRole(UserRole
     if (!item || item.liquidationId !== liquidation.id) throw new NotFoundError('Concepto');
     // Solo los conceptos agregados a mano: ajustes (AJUSTE/AJUSTE_NO_GRAVADO) y
     // faltas (FALTAS). Los aportes legales se recalculan, no se borran.
-    const esManual = item.concepto.startsWith('AJUSTE') || item.concepto === 'FALTAS' || item.concepto === 'REINTEGRO_GASTOS';
+    const esManual = item.concepto.startsWith('AJUSTE') || item.concepto === 'FALTAS' || item.concepto === 'REINTEGRO_GASTOS' || item.concepto === 'PRIMA_ANTIGUEDAD';
     if (!esManual) {
       throw new AppError(409, 'Solo se pueden quitar los conceptos agregados manualmente');
     }
