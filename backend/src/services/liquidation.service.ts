@@ -58,11 +58,12 @@ export async function valorJornalFalta(liquidationId: string): Promise<bigint> {
     : (labor.jornal ?? salarioProporcional(labor.salarioNominal, 1, 30));
 }
 
-// PRIMA POR ANTIGÜEDAD grupo 21 (Consejo de Salarios): 0,5% del sueldo básico
-// del mes por cada año COMPLETO de trabajo desde la fecha de ingreso, con tope
-// del 5% (a los 10 años). Los años se computan cumplidos al último día del mes
-// liquidado. Con menos de un año devuelve la línea en 0% (visible en 0, estilo
-// GNS, igual que el Adicional FONASA): así se ve que la regla está activa.
+// PRIMA POR ANTIGÜEDAD grupo 21 (Consejo de Salarios): rige DESPUÉS del primer
+// año de trabajo — el 1er año no genera prima; a partir de ahí, 0,5% del sueldo
+// básico del mes por cada año completo ADICIONAL (2 años → 0,5% · 10 años →
+// 4,5%, caso Ilda Villagrán confirmado por el usuario), con tope del 5%. Los
+// años se computan cumplidos al último día del mes liquidado. Mientras no
+// corresponda, la línea figura en 0% (visible en 0, estilo GNS).
 export function calcularPrimaAntiguedad(
   fechaIngreso: Date, year: number, month: number, sueldoBasicoMes: bigint,
 ): { anios: number; rate: number; amount: bigint; descripcion: string } {
@@ -72,13 +73,15 @@ export function calcularPrimaAntiguedad(
   const aniversario = new Date(ing);
   aniversario.setFullYear(finMes.getFullYear());
   if (aniversario > finMes) anios--;
-  const aniosComputados = Math.min(Math.max(anios, 0), 10);
-  const rate = aniosComputados * 50; // 0,5% por año en basis points (tope 500 = 5%)
+  anios = Math.max(anios, 0);
+  // Tramos que pagan: los años completos DESPUÉS del primero, hasta 10 (5%).
+  const tramos = Math.min(Math.max(anios - 1, 0), 10);
+  const rate = tramos * 50; // 0,5% por año en basis points (tope 500 = 5%)
   return {
-    anios: aniosComputados,
+    anios,
     rate,
     amount: applyRate(sueldoBasicoMes, rate),
-    descripcion: `Prima por Antigüedad (${aniosComputados} ${aniosComputados === 1 ? 'año' : 'años'})`,
+    descripcion: `Prima por Antigüedad (${anios} ${anios === 1 ? 'año' : 'años'})`,
   };
 }
 

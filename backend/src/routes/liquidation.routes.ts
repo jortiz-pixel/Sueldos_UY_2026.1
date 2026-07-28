@@ -777,7 +777,7 @@ liquidationRouter.post('/:id/item', authenticate, requireRole(UserRole.ADMIN, Us
       res.status(201).json({
         message: prima.rate > 0
           ? `Prima por antigüedad calculada: ${prima.rate / 100}% (${prima.anios} años)`
-          : 'Prima en 0: el trabajador aún no cumplió un año de antigüedad',
+          : 'Prima en 0: rige a partir del segundo año de trabajo (el primer año no genera prima)',
       });
       return;
     }

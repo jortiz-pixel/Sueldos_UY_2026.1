@@ -160,10 +160,13 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
   descripción (/viático/, con "grav" → gravado); editables/borrables como
   ajustes manuales.
 - **PRIMA POR ANTIGÜEDAD grupo 21** (Consejo de Salarios 21): automática en la
-  mensualidad — 0,5% del SUELDO BÁSICO del mes por cada año COMPLETO de trabajo
-  (fecha de ingreso del contrato), tope 5% a los 10 años. Años cumplidos al
-  último día del mes liquidado. Ítem `PRIMA_ANTIGUEDAD`, gravado; el rate del
-  ítem lleva los bp (años × 50). Solo si la empresa tiene grupoActividadNum 21.
+  mensualidad. RIGE DESPUÉS DEL PRIMER AÑO: el 1er año no genera prima; desde
+  ahí 0,5% del SUELDO BÁSICO del mes por cada año completo ADICIONAL (2 años →
+  0,5% · 10 años → 4,5%, caso Ilda Villagrán confirmado por el usuario), tope
+  5%. Años cumplidos al último día del mes liquidado (fecha de ingreso del
+  contrato). Ítem `PRIMA_ANTIGUEDAD`, gravado; rate en bp ((años−1) × 50).
+  Automática si la empresa es grupo 21 (`grupoConsejoDeEmpresa`); en cualquier
+  empresa se puede elegir del desplegable y se calcula sola (sin pedir monto).
 - **FALTAS** (estilo GNS, recibo Belén Martínez): figuran del lado de los
   HABERES como un haber NEGATIVO (días × jornal). Así el "Total de Haberes" ya
   sale NETO de faltas y sobre ese neto se calculan TODOS los descuentos (aportes
