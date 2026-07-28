@@ -194,7 +194,7 @@ export function generateReciboPDF(
     const liqCent = liquidation.liquidoPercibir;
     const liqEnteroPesos = Math.round(Number(liqCent) / 100);
     const redondeoCent = BigInt(liqEnteroPesos) * 100n - liqCent;
-    const letras = numeroALetras(liqEnteroPesos);
+    const letras = numeroALetras(Math.abs(liqEnteroPesos)); // el titular unipersonal tiene líquido negativo
 
     // ── Dibuja UNA copia a partir de originY ────────────────────────
     const X0 = 24;

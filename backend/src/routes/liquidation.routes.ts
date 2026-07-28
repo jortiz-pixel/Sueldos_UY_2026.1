@@ -558,8 +558,10 @@ async function recalcularLiquidacion(liquidationId: string): Promise<void> {
   // Liquidación de TITULAR unipersonal (sueldo ficto): los aportes son los del
   // régimen patronal (22,5% + FRL + cuota fija FONASA) — NO se recalculan con
   // las tasas de dependientes; solo se rehacen los totales.
+  // (No se tocan ni los ítems ni los totales: en el titular el Total de
+  // Haberes queda en 0 con líquido negativo — recalcular totales lo rompería.)
   const snapTitular = liq.parametersSnapshot as { titularUnipersonal?: boolean } | null;
-  if (snapTitular?.titularUnipersonal) { await recalcularTotales(liquidationId); return; }
+  if (snapTitular?.titularUnipersonal) return;
 
   const employee = await prisma.employee.findUnique({ where: { id: liq.employeeId } });
   if (!employee) { await recalcularTotales(liquidationId); return; }

@@ -93,18 +93,22 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
 - **Contrato a prueba** = modalidad de 90 días rescindible sin IPD (no es un borrador).
 - **TITULAR DE EMPRESA UNIPERSONAL** (contrato con vínculo funcional 1 —
   Patrón unipersonal, caso José Lambrechts): NO se liquida como dependiente.
-  Aporta sobre un SUELDO FICTO por categoría elegida en el contrato
-  (`fictoCategoria` 1.ª–10.ª = 11/15/20/25/30/36/42/48/54/60 BFC; BFC 2026 =
-  $1.847,96, parámetro `BFC_UNIPERSONAL`; Cat. 2.ª = 27.719,40 = lo que GNS
-  declara en nómina). Liquidación: HABER `SUELDO_FICTO` + descuentos Aporte
-  Jubilatorio patronal unificado 22,5% + FRL 0,10% + FONASA/SNIS por CUOTA
-  FIJA según seguro de salud (2026: SS1 4.908 · SS15 4.239 · SS16 5.801 ·
-  SS17 5.132 · SS 2/28/29/30 550, parámetros `FONASA_TITULAR_*`). Sin IRPF ni
-  patronales aparte. Validado contra la tabla BPS 2026 (fórmula: ficto×22,6%
-  + cuota fija = todas las celdas ±$1 por redondeo de la tabla). El recálculo
-  NO pisa estas liquidaciones (flag `titularUnipersonal` en el snapshot). Sin
-  categoría elegida se usa el sueldo del contrato como ficto. En la nómina BPS
-  el ficto va como concepto 1 con 30 días (igual al archivo real de GNS).
+  Réplica EXACTA de la pantalla GNS (validada 7/7 contra Lambrechts 07/2026):
+  el SUELDO FICTO de la categoría del contrato (`fictoCategoria` 1.ª–10.ª =
+  11/15/20/25/30/36/42/48/54/60 BFC; BFC 2026 = $1.847,96, parámetro
+  `BFC_UNIPERSONAL`; Cat. 2.ª = 27.719,40) figura como haber INFORMATIVO
+  "Aporta (Para BPS)" con TOTAL DE HABERES 0; descuentos: Aporte Jubilatorio
+  15% del ficto (4.157,91) + FRL 0,10% (27,72) + FONASA sobre base de 6,5 BPC
+  (parámetro `FONASA_TITULAR_BASE_BPC`; 2026: 44.616): Seguro x Enfermedad 3%
+  (1.338,48) + Adicional según seguro de salud del contrato (escalón 1,5% +
+  hijos 1,5% + cónyuge 2%; SS1 → 3% = 1.338,48) + I.R.P.F. vacío. LÍQUIDO
+  NEGATIVO (−6.862,59 = lo que el titular aporta). El recálculo NO toca estas
+  liquidaciones (flag `titularUnipersonal` en el snapshot; recalcular totales
+  rompería el total 0). Sin categoría elegida se usa el sueldo del contrato
+  como ficto. En la nómina BPS el ficto se declara como concepto 1 con 30 días
+  (27719.4 = igual al archivo real de GNS). La tabla de "aportes de titulares"
+  de BPS (ficto×22,6% + cuota fija por seguro) es la FACTURA total de BPS —
+  no la liquidación GNS, que muestra 15% + FONASA 6,5 BPC.
 - **CONSTRUCCIÓN**: una empresa es de construcción si su GRUPO de Consejos de
   Salarios es 9 (marcador canónico: la aportación puede ser CT=4 o Industria y
   Comercio) o tipoAporte=4 o actividad "construc" (`esEmpresaConstruccion`).

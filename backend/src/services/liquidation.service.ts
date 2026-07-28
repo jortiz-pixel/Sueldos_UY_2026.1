@@ -145,15 +145,15 @@ export async function generarLiquidacionMensual(
   const fonasaPatronalRate = 500;
 
   // TITULAR DE EMPRESA UNIPERSONAL (vínculo funcional 1 — Patrón unipersonal):
-  // NO se liquida como dependiente. Aporta sobre un SUELDO FICTO por categoría
-  // (1.ª–10.ª = 11/15/20/25/30/36/42/48/54/60 BFC; BFC 2026 = 1.847,96 →
-  // Categoría 2.ª = 27.719,40, el monto que GNS declara para Lambrechts):
-  // Aporte Jubilatorio patronal unificado 22,5% + FRL 0,10% sobre el ficto y
-  // FONASA/SNIS por CUOTA FIJA según el seguro de salud del contrato (tabla
-  // BPS 2026: SS1 4.908 · SS15 4.239 · SS16 5.801 · SS17 5.132 · SS 2/28/29/
-  // 30 → 550). Sin IRPF y sin patronales aparte (ya integrados en la cuota).
+  // NO se liquida como dependiente. Réplica EXACTA de la pantalla GNS (José
+  // Lambrechts 07/2026): el ficto de la categoría (2.ª = 27.719,40) figura
+  // como haber INFORMATIVO "Aporta (Para BPS)" con Total de Haberes 0;
+  // descuentos: Aporte Jubilatorio 15% del ficto (4.157,91) + FRL 0,10%
+  // (27,72) + Seguro x Enfermedad 3% de 6,5 BPC (44.616 → 1.338,48) +
+  // Adicional según seguro de salud sobre 6,5 BPC (SS1: 3% → 1.338,48) +
+  // IRPF 0,00. Líquido NEGATIVO (−6.862,59 = lo que el titular paga).
   if (contrato.vinculoFuncional === 1) {
-    return generarLiquidacionTitularUnipersonal(input, period.companyId, contrato, labor.salarioNominal, asOfDate, params.frlObreroRate);
+    return generarLiquidacionTitularUnipersonal(input, period.companyId, contrato, labor.salarioNominal, asOfDate, params, employee);
   }
 
   // Días trabajados: los indicados, o los que surgen del solapamiento del
@@ -875,29 +875,14 @@ export async function generarLiquidacionMensual(
 // unidades de BFC (Base Ficta de Contribución).
 const UNIDADES_BFC = [11, 15, 20, 25, 30, 36, 42, 48, 54, 60];
 
-// Cuota fija mensual de FONASA/SNIS del titular según su seguro de salud
-// (Tabla 8): sin cónyuge con hijos (1) · sin cónyuge sin hijos (15) · con
-// cónyuge con hijos (16) · con cónyuge sin hijos (17) · con aporte al SNIS por
-// actividad dependiente (2/28/29/30). Valores 2026, pisables por parámetros.
-async function cuotaFonasaTitular(seguroSalud: number | null | undefined, asOfDate: Date): Promise<bigint> {
-  const get = async (key: string, def: number) =>
-    toCtms((await parametersService.getParam<number>(key, asOfDate)) ?? def);
-  switch (seguroSalud) {
-    case 1: return get('FONASA_TITULAR_SS1', 4908);
-    case 16: return get('FONASA_TITULAR_SS16', 5801);
-    case 17: return get('FONASA_TITULAR_SS17', 5132);
-    case 2: case 28: case 29: case 30: return get('FONASA_TITULAR_SS_DEP', 550);
-    case 15: default: return get('FONASA_TITULAR_SS15', 4239);
-  }
-}
-
 async function generarLiquidacionTitularUnipersonal(
   input: LiquidacionInput,
   companyId: string,
   contrato: { id: string; fictoCategoria: number | null; seguroSalud: number | null },
   salarioNominalContrato: bigint,
   asOfDate: Date,
-  frlRate: number,
+  params: Awaited<ReturnType<typeof parametersService.getPayrollParameters>>,
+  employee: { hijosACargo: number; conyugeACargo: boolean },
 ): Promise<LiquidacionResult> {
   const bfc = toCtms((await parametersService.getParam<number>('BFC_UNIPERSONAL', asOfDate)) ?? 1847.96);
   const cat = contrato.fictoCategoria && contrato.fictoCategoria >= 1 && contrato.fictoCategoria <= 10
@@ -907,81 +892,98 @@ async function generarLiquidacionTitularUnipersonal(
   // Sin categoría elegida, se usa el sueldo del contrato como ficto.
   const ficto = unidades ? bfc * BigInt(unidades) : salarioNominalContrato;
 
-  const jubRate = 2250; // 22,5% — aporte jubilatorio patronal unificado (15% + 7,5%)
-  const jubilatorio = applyRate(ficto, jubRate);
-  const frl = applyRate(ficto, frlRate);
-  const fonasa = await cuotaFonasaTitular(contrato.seguroSalud, asOfDate);
+  // Aporte Jubilatorio personal 15% + FRL 0,10% sobre el ficto (criterio GNS).
+  const jubilatorio = applyRate(ficto, params.bpsJubilatorioRate);
+  const frl = applyRate(ficto, params.frlObreroRate);
+
+  // FONASA del titular: sobre una base de 6,5 BPC (2026: 44.616), Seguro por
+  // Enfermedad 3% + Adicional según el seguro de salud del contrato (escalón
+  // 1,5% + hijos 1,5% + cónyuge 2%) — GNS SS1: 3% + 3% = 1.338,48 + 1.338,48.
+  const baseFonasaBpc = (await parametersService.getParam<number>('FONASA_TITULAR_BASE_BPC', asOfDate)) ?? 6.5;
+  const baseFonasa = divRoundHalfUp(params.bpc * BigInt(Math.round(baseFonasaBpc * 100)), 100n);
+  const cargas = fonasaCargasDeSeguroSalud(contrato.seguroSalud);
+  const conHijos = cargas ? cargas.hijos : employee.hijosACargo > 0;
+  const conConyuge = cargas ? cargas.conyuge : employee.conyugeACargo;
+  const seguroRate = params.fonasaBasicRate; // 3%
+  const adicionalRate = (params.fonasaBasicHighRate - params.fonasaBasicRate)
+    + (conHijos ? params.fonasaHijosRate : 0)
+    + (conConyuge ? params.fonasaConyugeRate : 0);
+  const fonasaSeguro = applyRate(baseFonasa, seguroRate);
+  const fonasaAdicional = applyRate(baseFonasa, adicionalRate);
 
   const items: Omit<PayrollItem, 'id' | 'liquidationId' | 'createdAt'>[] = [
     {
+      // Igual que GNS: el ficto figura como haber INFORMATIVO "Aporta (Para
+      // BPS)" — se declara en la nómina como concepto 1, pero NO suma al Total
+      // de Haberes (que queda en 0: el titular no cobra sueldo por acá).
       employeeId: input.employeeId,
       itemType: ItemType.HABER,
       concepto: 'SUELDO_FICTO',
-      descripcion: cat ? `Sueldo Ficto Patronal (Categoría ${cat}.ª — ${unidades} BFC)` : 'Sueldo Ficto Patronal',
+      descripcion: cat ? `Aporta (Para BPS) — Cat. ${cat}.ª (${unidades} BFC)` : 'Aporta (Para BPS)',
       baseCalculo: bfc,
       rate: null,
       amount: ficto,
-      calculationDetail: { titular: true, categoria: cat, unidadesBfc: unidades, bfc: bfc.toString(), contratoId: contrato.id } as unknown as Prisma.JsonValue,
+      calculationDetail: { titular: true, informativo: true, categoria: cat, unidadesBfc: unidades, bfc: bfc.toString(), contratoId: contrato.id } as unknown as Prisma.JsonValue,
     },
     {
       employeeId: input.employeeId,
       itemType: ItemType.DESCUENTO_OBRERO,
       concepto: 'BPS_JUBILATORIO',
-      descripcion: 'Aporte Jubilatorio Patronal Unificado',
+      descripcion: 'Aporte Jubilatorio',
       baseCalculo: ficto,
-      rate: jubRate,
+      rate: params.bpsJubilatorioRate,
       amount: jubilatorio,
-      calculationDetail: { titular: true, rateBp: jubRate } as unknown as Prisma.JsonValue,
-    },
-    {
-      employeeId: input.employeeId,
-      itemType: ItemType.DESCUENTO_OBRERO,
-      concepto: 'FONASA',
-      descripcion: 'FONASA/SNIS del titular (cuota fija según seguro de salud)',
-      baseCalculo: null,
-      rate: null,
-      amount: fonasa,
-      calculationDetail: { titular: true, cuotaFija: true, seguroSalud: contrato.seguroSalud ?? null } as unknown as Prisma.JsonValue,
-    },
-    {
-      // Estilo GNS: el Adicional FONASA figura SIEMPRE, aun en 0 (el titular
-      // paga el FONASA por cuota fija, sin adicional).
-      employeeId: input.employeeId,
-      itemType: ItemType.DESCUENTO_OBRERO,
-      concepto: 'FONASA_ADICIONAL',
-      descripcion: 'Adicional FONASA',
-      baseCalculo: ficto,
-      rate: 0,
-      amount: 0n,
-      calculationDetail: { titular: true, cuotaFija: true } as unknown as Prisma.JsonValue,
+      calculationDetail: { titular: true, rateBp: params.bpsJubilatorioRate } as unknown as Prisma.JsonValue,
     },
     {
       employeeId: input.employeeId,
       itemType: ItemType.DESCUENTO_OBRERO,
       concepto: 'FRL',
-      descripcion: 'Fondo de Reconversión Laboral',
+      descripcion: 'FRL',
       baseCalculo: ficto,
-      rate: frlRate,
+      rate: params.frlObreroRate,
       amount: frl,
       calculationDetail: { titular: true } as unknown as Prisma.JsonValue,
     },
     {
-      // Estilo GNS: el IRPF figura SIEMPRE, aun en 0,00 (el ficto patronal no
+      employeeId: input.employeeId,
+      itemType: ItemType.DESCUENTO_OBRERO,
+      concepto: 'FONASA',
+      descripcion: 'Seguro x Enfermedad',
+      baseCalculo: baseFonasa,
+      rate: seguroRate,
+      amount: fonasaSeguro,
+      calculationDetail: { titular: true, baseBpc: baseFonasaBpc, rateBp: seguroRate } as unknown as Prisma.JsonValue,
+    },
+    {
+      employeeId: input.employeeId,
+      itemType: ItemType.DESCUENTO_OBRERO,
+      concepto: 'FONASA_ADICIONAL',
+      descripcion: 'Adicional Sist. Nac. Int. de Salud',
+      baseCalculo: baseFonasa,
+      rate: adicionalRate,
+      amount: fonasaAdicional,
+      calculationDetail: { titular: true, baseBpc: baseFonasaBpc, rateBp: adicionalRate, hijos: conHijos, conyuge: conConyuge, seguroSalud: contrato.seguroSalud ?? null } as unknown as Prisma.JsonValue,
+    },
+    {
+      // Estilo GNS: el IRPF figura SIEMPRE, aun vacío (el ficto patronal no
       // tributa IRPF Cat. II por esta vía).
       employeeId: input.employeeId,
       itemType: ItemType.DESCUENTO_OBRERO,
       concepto: 'IRPF',
-      descripcion: 'IRPF — Impuesto a la Renta de las Personas Físicas (Cat. II)',
-      baseCalculo: ficto,
+      descripcion: 'I.R.P.F.',
+      baseCalculo: null,
       rate: null,
       amount: 0n,
       calculationDetail: { titular: true } as unknown as Prisma.JsonValue,
     },
   ];
 
-  const totalHaberes = ficto;
-  const totalDescuentos = jubilatorio + fonasa + frl;
-  const liquidoPercibir = totalHaberes - totalDescuentos;
+  // Igual que GNS: Total de Haberes 0 (el ficto es informativo) y líquido
+  // NEGATIVO = lo que el titular debe aportar.
+  const totalHaberes = 0n;
+  const totalDescuentos = jubilatorio + frl + fonasaSeguro + fonasaAdicional;
+  const liquidoPercibir = -totalDescuentos;
 
   const parametersSnapshot = {
     asOfDate: asOfDate.toISOString(),
@@ -991,10 +993,14 @@ async function generarLiquidacionTitularUnipersonal(
     bfc: bfc.toString(),
     categoriaFicto: cat,
     unidadesBfc: unidades,
+    ficto: ficto.toString(),
+    baseFonasa: baseFonasa.toString(),
+    baseFonasaBpc,
     seguroSalud: contrato.seguroSalud ?? null,
-    jubRateBp: jubRate,
-    frlRateBp: frlRate,
-    cuotaFonasa: fonasa.toString(),
+    jubRateBp: params.bpsJubilatorioRate,
+    frlRateBp: params.frlObreroRate,
+    fonasaSeguroRateBp: seguroRate,
+    fonasaAdicionalRateBp: adicionalRate,
   };
 
   const liquidacion = await prisma.liquidation.upsert({
