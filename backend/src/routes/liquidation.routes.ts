@@ -794,6 +794,11 @@ liquidationRouter.post('/:id/item', authenticate, requireRole(UserRole.ADMIN, Us
     // la CANTIDAD de horas y el monto sale solo.
     const esHorasTarde = /\bhoras?\s+tardes?\b|\bllegadas?\s+tardes?\b/i.test(data.descripcion);
 
+    // DESCANSOS TRABAJADOS (haber): cada descanso trabajado equivale a UN DÍA
+    // MÁS de trabajo — se carga la cantidad y el monto sale solo: cantidad ×
+    // jornal (mensual: nominal/30 · jornalero: el jornal). Gravado.
+    const esDescansoTrabajado = data.itemType === 'HABER' && /\bdescansos?\s+trabajados?\b/i.test(data.descripcion);
+
     // REINTEGRO DE GASTOS (grupo 9): haber NO GRAVADO que suma al total a
     // percibir pero queda fuera de la base de aportes, IRPF y fondos.
     const esReintegro = data.itemType === 'HABER' && /\breintegros?\b/i.test(data.descripcion);
@@ -819,6 +824,11 @@ liquidationRouter.post('/:id/item', authenticate, requireRole(UserRole.ADMIN, Us
       centesimos = BigInt(Math.round(Number(horaCent) * data.cantidad));
       const horaTxt = (Number(horaCent) / 100).toFixed(2);
       descripcionFinal = `Horas Tardes ${data.cantidad} x ${horaTxt}`;
+    } else if (esDescansoTrabajado && data.cantidad !== undefined) {
+      const jornalCent = await valorJornalFalta(liquidation.id);
+      centesimos = BigInt(Math.round(Number(jornalCent) * data.cantidad));
+      const jornalTxt = (Number(jornalCent) / 100).toFixed(2);
+      descripcionFinal = `Descansos Trabajados ${data.cantidad} x ${jornalTxt}`;
     } else if (data.monto !== undefined) {
       centesimos = BigInt(Math.round(data.monto * 100));
     } else {
@@ -835,6 +845,7 @@ liquidationRouter.post('/:id/item', authenticate, requireRole(UserRole.ADMIN, Us
         itemType: (esFalta || esHorasTarde) ? ItemType.HABER : data.itemType,
         concepto: esFalta ? 'FALTAS'
           : esHorasTarde ? 'HORAS_TARDE'
+          : esDescansoTrabajado ? 'DESCANSO_TRABAJADO'
           : esReintegro ? 'REINTEGRO_GASTOS'
           : esViaticoGravado ? 'VIATICOS_GRAVADOS'
           : esViatico ? 'VIATICOS'
@@ -861,7 +872,7 @@ liquidationRouter.delete('/:id/item/:itemId', authenticate, requireRole(UserRole
     if (!item || item.liquidationId !== liquidation.id) throw new NotFoundError('Concepto');
     // Solo los conceptos agregados a mano: ajustes (AJUSTE/AJUSTE_NO_GRAVADO) y
     // faltas (FALTAS). Los aportes legales se recalculan, no se borran.
-    const esManual = item.concepto.startsWith('AJUSTE') || ['FALTAS', 'HORAS_TARDE', 'REINTEGRO_GASTOS', 'PRIMA_ANTIGUEDAD', 'VIATICOS', 'VIATICOS_GRAVADOS'].includes(item.concepto);
+    const esManual = item.concepto.startsWith('AJUSTE') || ['FALTAS', 'HORAS_TARDE', 'DESCANSO_TRABAJADO', 'REINTEGRO_GASTOS', 'PRIMA_ANTIGUEDAD', 'VIATICOS', 'VIATICOS_GRAVADOS'].includes(item.concepto);
     if (!esManual) {
       throw new AppError(409, 'Solo se pueden quitar los conceptos agregados manualmente');
     }

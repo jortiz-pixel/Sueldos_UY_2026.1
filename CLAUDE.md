@@ -179,6 +179,10 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
   desplegable de descuentos, pedido LA CHICHARRA): mismo tratamiento que las
   faltas pero por HORA — un jornal = 8 hs → hora = jornal ÷ 8; se carga la
   cantidad de horas y el monto sale solo (`Horas Tardes N x hora`).
+  DESCANSOS TRABAJADOS (`DESCANSO_TRABAJADO`, desplegable de haberes): cada
+  descanso trabajado equivale a UN DÍA MÁS — se carga la cantidad y el monto
+  sale solo: cantidad × jornal (mensual nominal/30 · jornalero jornal), haber
+  GRAVADO con descripción `Descansos Trabajados N x jornal`.
 - **Licencias**: Ley 12.590 (20/25/30 días por antigüedad; proporcional 1er año);
   días sin domingos; anticipos permitidos con confirmación. Al liquidar (estilo
   GNS): la licencia GOZADA se paga en la MENSUALIDAD, desglosando el sueldo en

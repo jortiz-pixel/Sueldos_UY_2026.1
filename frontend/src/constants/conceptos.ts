@@ -16,6 +16,7 @@ export const CONCEPTOS_SISTEMA: ConceptoSistema[] = [
   { nombre: 'Aguinaldo', tipo: 'HABER', calculo: '1/12 de los haberes del semestre (confirmados)', gravado: 'Sí' },
   { nombre: 'Salario de licencia', tipo: 'HABER', calculo: 'Promedio 12 meses / 30 × días', gravado: 'Sí' },
   { nombre: 'Salario vacacional', tipo: 'HABER', calculo: 'Jornal líquido × días', gravado: 'No (exento CESS)' },
+  { nombre: 'Descansos Trabajados', tipo: 'HABER', calculo: 'Cantidad × jornal — cada descanso trabajado equivale a un día más', gravado: 'Sí' },
   { nombre: 'Viáticos Gravados', tipo: 'HABER', calculo: 'Monto manual — integra la base de aportes e IRPF', gravado: 'Sí' },
   { nombre: 'Viáticos', tipo: 'HABER', calculo: 'Monto manual — suma al líquido SIN descuentos', gravado: 'No' },
   { nombre: 'Horas Tardes', tipo: 'DESCUENTO_OBRERO', calculo: 'Cantidad de horas × (jornal ÷ 8) — netea los haberes como las faltas', gravado: '—' },

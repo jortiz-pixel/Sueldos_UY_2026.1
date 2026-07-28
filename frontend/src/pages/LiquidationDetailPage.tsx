@@ -28,7 +28,7 @@ function ItemRow({ item, editable, onEdit, onDelete }: {
   onDelete?: (id: string) => void;
 }) {
   // Conceptos agregados a mano (ajustes y faltas): se pueden editar y eliminar.
-  const manual = item.concepto.startsWith('AJUSTE') || ['FALTAS', 'HORAS_TARDE', 'REINTEGRO_GASTOS', 'PRIMA_ANTIGUEDAD', 'VIATICOS', 'VIATICOS_GRAVADOS'].includes(item.concepto);
+  const manual = item.concepto.startsWith('AJUSTE') || ['FALTAS', 'HORAS_TARDE', 'DESCANSO_TRABAJADO', 'REINTEGRO_GASTOS', 'PRIMA_ANTIGUEDAD', 'VIATICOS', 'VIATICOS_GRAVADOS'].includes(item.concepto);
   const [editing, setEditing] = useState(false);
   const [d, setD] = useState(item.descripcion);
   const [m, setM] = useState(Number(item.amount) / 100);
@@ -95,6 +95,9 @@ function Section({ title, items, total, colorClass, opciones, editable, onAdd, o
   // Horas tardes: se carga la CANTIDAD de horas y el monto sale solo
   // (jornal ÷ 8 × horas); resta de los haberes igual que las faltas.
   const esHorasTarde = /\bhoras?\s+tardes?\b|\bllegadas?\s+tardes?\b/i.test(nombreSel);
+  // Descansos trabajados: se carga la CANTIDAD y el monto sale solo
+  // (cantidad × jornal — un día más por cada descanso trabajado).
+  const esDescanso = /\bdescansos?\s+trabajados?\b/i.test(nombreSel);
   // La prima por antigüedad se calcula sola en el backend (0,5% del sueldo por
   // año completo, tope 5%): no se pide monto.
   const esPrima = /prima.*antig/i.test(nombreSel);
@@ -116,7 +119,7 @@ function Section({ title, items, total, colorClass, opciones, editable, onAdd, o
   const agregar = () => {
     const d = nombreSel;
     if (!d.trim()) return;
-    if (esFalta || esHorasTarde) {
+    if (esFalta || esHorasTarde || esDescanso) {
       if (cantidad > 0) { onAdd?.(d.trim(), 0, cantidad); reset(); }
     } else if (esPrima) {
       onAdd?.(d.trim(), 0); reset();
@@ -158,12 +161,13 @@ function Section({ title, items, total, colorClass, opciones, editable, onAdd, o
                     <option value="OTRO">Otro (escribir)</option>
                   </select>
                   {sel === 'OTRO' && <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Descripción" className="border border-gray-300 rounded-lg px-2 py-1 text-sm flex-1 min-w-[140px]" />}
-                  {sel && (esFalta || esHorasTarde) && (
-                    <input type="number" step="0.01" min="0" value={cantidad || ''} onChange={(e) => setCantidad(Number(e.target.value))} placeholder={esFalta ? 'N° de faltas' : 'N° de horas'} className="border border-gray-300 rounded-lg px-2 py-1 text-sm w-32" />
+                  {sel && (esFalta || esHorasTarde || esDescanso) && (
+                    <input type="number" step="0.01" min="0" value={cantidad || ''} onChange={(e) => setCantidad(Number(e.target.value))} placeholder={esFalta ? 'N° de faltas' : esHorasTarde ? 'N° de horas' : 'N° de descansos'} className="border border-gray-300 rounded-lg px-2 py-1 text-sm w-32" />
                   )}
-                  {sel && !esFalta && !esHorasTarde && !esPrima && <input type="number" value={monto || ''} onChange={(e) => setMonto(Number(e.target.value))} placeholder="Monto $" className="border border-gray-300 rounded-lg px-2 py-1 text-sm w-28" />}
+                  {sel && !esFalta && !esHorasTarde && !esDescanso && !esPrima && <input type="number" value={monto || ''} onChange={(e) => setMonto(Number(e.target.value))} placeholder="Monto $" className="border border-gray-300 rounded-lg px-2 py-1 text-sm w-28" />}
                   {sel && esFalta && <span className="text-xs text-gray-500">el monto se calcula solo (básico ÷ 30 × faltas)</span>}
                   {sel && esHorasTarde && <span className="text-xs text-gray-500">el monto se calcula solo (jornal ÷ 8 × horas)</span>}
+                  {sel && esDescanso && <span className="text-xs text-gray-500">el monto se calcula solo (un jornal por descanso trabajado)</span>}
                   {sel && esPrima && <span className="text-xs text-gray-500">se calcula sola: 0,5% del sueldo por año de antigüedad (tope 5%)</span>}
                   {sel && <button type="button" onClick={agregar} className="btn-primary btn-sm">Agregar</button>}
                 </div>
