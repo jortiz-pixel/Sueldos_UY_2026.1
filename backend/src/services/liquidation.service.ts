@@ -4,7 +4,7 @@
 
 import { LiquidationType, LiquidationStatus, ItemType, PayrollItem, Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
-import { salarioProporcional, divRoundHalfUp, applyRate } from '../utils/money';
+import { salarioProporcional, divRoundHalfUp, applyRate, toCtms } from '../utils/money';
 import { calcularAportesObreros, calcularAportesPatronales, calcularHorasExtra, fonasaCargasDeSeguroSalud } from './bps.service';
 import { calcularIrpfMensual, calcularIrpfSimplificado } from './irpf.service';
 import { parametersService } from './parameters.service';
@@ -143,6 +143,18 @@ export async function generarLiquidacionMensual(
   const params = await parametersService.getPayrollParameters(asOfDate);
   const bseRate = period.company.bseRate;
   const fonasaPatronalRate = 500;
+
+  // TITULAR DE EMPRESA UNIPERSONAL (vínculo funcional 1 — Patrón unipersonal):
+  // NO se liquida como dependiente. Aporta sobre un SUELDO FICTO por categoría
+  // (1.ª–10.ª = 11/15/20/25/30/36/42/48/54/60 BFC; BFC 2026 = 1.847,96 →
+  // Categoría 2.ª = 27.719,40, el monto que GNS declara para Lambrechts):
+  // Aporte Jubilatorio patronal unificado 22,5% + FRL 0,10% sobre el ficto y
+  // FONASA/SNIS por CUOTA FIJA según el seguro de salud del contrato (tabla
+  // BPS 2026: SS1 4.908 · SS15 4.239 · SS16 5.801 · SS17 5.132 · SS 2/28/29/
+  // 30 → 550). Sin IRPF y sin patronales aparte (ya integrados en la cuota).
+  if (contrato.vinculoFuncional === 1) {
+    return generarLiquidacionTitularUnipersonal(input, period.companyId, contrato, labor.salarioNominal, asOfDate, params.frlObreroRate);
+  }
 
   // Días trabajados: los indicados, o los que surgen del solapamiento del
   // contrato con el mes (alta/baja a mitad de mes → liquidación parcial).
@@ -854,6 +866,168 @@ export async function generarLiquidacionMensual(
     totalHaberes,
     totalDescuentos,
     totalPatronal,
+    liquidoPercibir,
+    parametersSnapshot,
+  };
+}
+
+// Categorías de aportación ficta del titular unipersonal (1.ª a 10.ª), en
+// unidades de BFC (Base Ficta de Contribución).
+const UNIDADES_BFC = [11, 15, 20, 25, 30, 36, 42, 48, 54, 60];
+
+// Cuota fija mensual de FONASA/SNIS del titular según su seguro de salud
+// (Tabla 8): sin cónyuge con hijos (1) · sin cónyuge sin hijos (15) · con
+// cónyuge con hijos (16) · con cónyuge sin hijos (17) · con aporte al SNIS por
+// actividad dependiente (2/28/29/30). Valores 2026, pisables por parámetros.
+async function cuotaFonasaTitular(seguroSalud: number | null | undefined, asOfDate: Date): Promise<bigint> {
+  const get = async (key: string, def: number) =>
+    toCtms((await parametersService.getParam<number>(key, asOfDate)) ?? def);
+  switch (seguroSalud) {
+    case 1: return get('FONASA_TITULAR_SS1', 4908);
+    case 16: return get('FONASA_TITULAR_SS16', 5801);
+    case 17: return get('FONASA_TITULAR_SS17', 5132);
+    case 2: case 28: case 29: case 30: return get('FONASA_TITULAR_SS_DEP', 550);
+    case 15: default: return get('FONASA_TITULAR_SS15', 4239);
+  }
+}
+
+async function generarLiquidacionTitularUnipersonal(
+  input: LiquidacionInput,
+  companyId: string,
+  contrato: { id: string; fictoCategoria: number | null; seguroSalud: number | null },
+  salarioNominalContrato: bigint,
+  asOfDate: Date,
+  frlRate: number,
+): Promise<LiquidacionResult> {
+  const bfc = toCtms((await parametersService.getParam<number>('BFC_UNIPERSONAL', asOfDate)) ?? 1847.96);
+  const cat = contrato.fictoCategoria && contrato.fictoCategoria >= 1 && contrato.fictoCategoria <= 10
+    ? contrato.fictoCategoria
+    : null;
+  const unidades = cat ? UNIDADES_BFC[cat - 1] : null;
+  // Sin categoría elegida, se usa el sueldo del contrato como ficto.
+  const ficto = unidades ? bfc * BigInt(unidades) : salarioNominalContrato;
+
+  const jubRate = 2250; // 22,5% — aporte jubilatorio patronal unificado (15% + 7,5%)
+  const jubilatorio = applyRate(ficto, jubRate);
+  const frl = applyRate(ficto, frlRate);
+  const fonasa = await cuotaFonasaTitular(contrato.seguroSalud, asOfDate);
+
+  const items: Omit<PayrollItem, 'id' | 'liquidationId' | 'createdAt'>[] = [
+    {
+      employeeId: input.employeeId,
+      itemType: ItemType.HABER,
+      concepto: 'SUELDO_FICTO',
+      descripcion: cat ? `Sueldo Ficto Patronal (Categoría ${cat}.ª — ${unidades} BFC)` : 'Sueldo Ficto Patronal',
+      baseCalculo: bfc,
+      rate: null,
+      amount: ficto,
+      calculationDetail: { titular: true, categoria: cat, unidadesBfc: unidades, bfc: bfc.toString(), contratoId: contrato.id } as unknown as Prisma.JsonValue,
+    },
+    {
+      employeeId: input.employeeId,
+      itemType: ItemType.DESCUENTO_OBRERO,
+      concepto: 'BPS_JUBILATORIO',
+      descripcion: 'Aporte Jubilatorio Patronal Unificado',
+      baseCalculo: ficto,
+      rate: jubRate,
+      amount: jubilatorio,
+      calculationDetail: { titular: true, rateBp: jubRate } as unknown as Prisma.JsonValue,
+    },
+    {
+      employeeId: input.employeeId,
+      itemType: ItemType.DESCUENTO_OBRERO,
+      concepto: 'FONASA',
+      descripcion: 'FONASA/SNIS del titular (cuota fija según seguro de salud)',
+      baseCalculo: null,
+      rate: null,
+      amount: fonasa,
+      calculationDetail: { titular: true, cuotaFija: true, seguroSalud: contrato.seguroSalud ?? null } as unknown as Prisma.JsonValue,
+    },
+    {
+      employeeId: input.employeeId,
+      itemType: ItemType.DESCUENTO_OBRERO,
+      concepto: 'FRL',
+      descripcion: 'Fondo de Reconversión Laboral',
+      baseCalculo: ficto,
+      rate: frlRate,
+      amount: frl,
+      calculationDetail: { titular: true } as unknown as Prisma.JsonValue,
+    },
+  ];
+
+  const totalHaberes = ficto;
+  const totalDescuentos = jubilatorio + fonasa + frl;
+  const liquidoPercibir = totalHaberes - totalDescuentos;
+
+  const parametersSnapshot = {
+    asOfDate: asOfDate.toISOString(),
+    companyId,
+    contratoId: contrato.id,
+    titularUnipersonal: true,
+    bfc: bfc.toString(),
+    categoriaFicto: cat,
+    unidadesBfc: unidades,
+    seguroSalud: contrato.seguroSalud ?? null,
+    jubRateBp: jubRate,
+    frlRateBp: frlRate,
+    cuotaFonasa: fonasa.toString(),
+  };
+
+  const liquidacion = await prisma.liquidation.upsert({
+    where: {
+      periodId_employeeId_type: {
+        periodId: input.periodId,
+        employeeId: input.employeeId,
+        type: LiquidationType.MENSUAL,
+      },
+    },
+    create: {
+      periodId: input.periodId,
+      employeeId: input.employeeId,
+      type: LiquidationType.MENSUAL,
+      status: LiquidationStatus.BORRADOR,
+      year: input.year,
+      month: input.month,
+      diasTrabajados: 30,
+      totalHaberes,
+      totalDescuentos,
+      totalPatronal: 0n,
+      liquidoPercibir,
+      parametersSnapshot: parametersSnapshot as unknown as Prisma.InputJsonValue,
+    },
+    update: {
+      status: LiquidationStatus.BORRADOR,
+      diasTrabajados: 30,
+      totalHaberes,
+      totalDescuentos,
+      totalPatronal: 0n,
+      liquidoPercibir,
+      parametersSnapshot: parametersSnapshot as unknown as Prisma.InputJsonValue,
+    },
+  });
+
+  await prisma.payrollItem.deleteMany({ where: { liquidationId: liquidacion.id } });
+  await prisma.payrollItem.createMany({
+    data: items.map((item) => {
+      const { calculationDetail, baseCalculo, ...rest } = item;
+      return {
+        ...rest,
+        liquidationId: liquidacion.id,
+        baseCalculo: baseCalculo ?? null,
+        calculationDetail: calculationDetail !== null
+          ? calculationDetail as unknown as Prisma.InputJsonValue
+          : Prisma.DbNull,
+      };
+    }),
+  });
+
+  return {
+    liquidacionId: liquidacion.id,
+    employeeId: input.employeeId,
+    items,
+    totalHaberes,
+    totalDescuentos,
+    totalPatronal: 0n,
     liquidoPercibir,
     parametersSnapshot,
   };

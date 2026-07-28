@@ -27,6 +27,7 @@ interface ContractForm {
   cuentaSueldos?: string;
   // Historia Laboral BPS
   vinculoFuncional?: string;
+  fictoCategoria?: string;
   seguroSalud?: string;
   computosEspeciales?: string;
   exoneracionAporte?: string;
@@ -110,7 +111,7 @@ export default function ContractsPage() {
     setEditing(null);
     setFormError('');
     const hoy = new Date().toISOString().slice(0, 10);
-    reset({ personId: '', vigenciaDesde: hoy, fechaIngreso: hoy, fechaFin: '', salaryType: 'MENSUAL', salarioNominalPesos: 0, cargo: '', categoria: '', nivel: '', tipoContrato: '', sucursal: '', cuentaSueldos: '', observacion: '', vinculoFuncional: '12', seguroSalud: '', computosEspeciales: '99', exoneracionAporte: '9', horasSemanales: 44 });
+    reset({ personId: '', vigenciaDesde: hoy, fechaIngreso: hoy, fechaFin: '', salaryType: 'MENSUAL', salarioNominalPesos: 0, cargo: '', categoria: '', nivel: '', tipoContrato: '', sucursal: '', cuentaSueldos: '', observacion: '', vinculoFuncional: '12', fictoCategoria: '', seguroSalud: '', computosEspeciales: '99', exoneracionAporte: '9', horasSemanales: 44 });
     setModalOpen(true);
   };
 
@@ -129,6 +130,7 @@ export default function ContractsPage() {
       jornalPesos: c.jornal ? Number(c.jornal) / 100 : undefined,
       sucursal: c.sucursal ?? '', cuentaSueldos: c.cuentaSueldos ?? '', observacion: c.observacion ?? '',
       vinculoFuncional: c.vinculoFuncional != null ? String(c.vinculoFuncional) : '12',
+      fictoCategoria: (c as unknown as { fictoCategoria?: number | null }).fictoCategoria != null ? String((c as unknown as { fictoCategoria?: number | null }).fictoCategoria) : '',
       seguroSalud: c.seguroSalud != null ? String(c.seguroSalud) : '',
       computosEspeciales: c.computosEspeciales != null ? String(c.computosEspeciales) : '99',
       exoneracionAporte: c.exoneracionAporte != null ? String(c.exoneracionAporte) : '9',
@@ -154,6 +156,7 @@ export default function ContractsPage() {
         sucursal: data.sucursal || undefined,
         cuentaSueldos: data.cuentaSueldos || undefined,
         vinculoFuncional: data.vinculoFuncional ? Number(data.vinculoFuncional) : undefined,
+        fictoCategoria: data.fictoCategoria ? Number(data.fictoCategoria) : null,
         seguroSalud: data.seguroSalud ? Number(data.seguroSalud) : undefined,
         computosEspeciales: data.computosEspeciales ? Number(data.computosEspeciales) : undefined,
         exoneracionAporte: data.exoneracionAporte ? Number(data.exoneracionAporte) : undefined,
@@ -420,6 +423,21 @@ export default function ContractsPage() {
                         {vinculos?.map((v) => <option key={v.codigo} value={v.codigo}>{v.codigo} — {v.nombre}</option>)}
                       </select>
                     </div>
+                    {watch('vinculoFuncional') === '1' && (
+                      <div>
+                        <label className="form-label">Categoría de aporte del titular (sueldo ficto)</label>
+                        <select {...register('fictoCategoria')} className="form-input">
+                          <option value="">— Usar el sueldo del contrato —</option>
+                          {[
+                            [1, 11], [2, 15], [3, 20], [4, 25], [5, 30],
+                            [6, 36], [7, 42], [8, 48], [9, 54], [10, 60],
+                          ].map(([cat, bfc]) => (
+                            <option key={cat} value={cat}>{cat}.ª — {bfc} BFC (${(bfc * 1847.96).toLocaleString('es-UY', { maximumFractionDigits: 0 })})</option>
+                          ))}
+                        </select>
+                        <p className="text-xs text-gray-400 mt-1">El titular unipersonal aporta sobre el ficto: 22,5% jubilatorio + FRL + cuota fija FONASA según seguro de salud.</p>
+                      </div>
+                    )}
                     <div>
                       <label className="form-label">Seguro de salud (Tabla 8)</label>
                       <select {...register('seguroSalud')} className="form-input">

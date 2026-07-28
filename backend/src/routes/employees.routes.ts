@@ -67,6 +67,8 @@ const contratoFields = {
   subgrupo: z.string().optional(),
   // Historia Laboral BPS
   vinculoFuncional: z.number().int().optional().nullable(),
+  // Titular unipersonal (vínculo 1): categoría de aportación ficta 1..10
+  fictoCategoria: z.number().int().min(1).max(10).optional().nullable(),
   seguroSalud: z.number().int().optional().nullable(),
   computosEspeciales: z.number().int().optional().nullable(),
   exoneracionAporte: z.number().int().optional().nullable(),
@@ -319,6 +321,7 @@ employeesRouter.post('/', authenticate, requireRole(UserRole.ADMIN, UserRole.OPE
         subgrupo: c.subgrupo,
         // Historia Laboral BPS: lo indicado o los defaults típicos.
         vinculoFuncional: c.vinculoFuncional ?? 12,
+        fictoCategoria: c.fictoCategoria ?? undefined,
         seguroSalud: c.seguroSalud ?? seguroSaludPorDefecto(data.hijosACargo, data.conyugeACargo),
         computosEspeciales: c.computosEspeciales ?? 99,
         exoneracionAporte: c.exoneracionAporte ?? 9,
@@ -468,6 +471,7 @@ employeesRouter.post('/:id/contracts', authenticate, requireRole(UserRole.ADMIN,
         subgrupo: data.subgrupo,
         // Historia Laboral BPS: lo indicado o los defaults típicos.
         vinculoFuncional: data.vinculoFuncional ?? 12,
+        fictoCategoria: data.fictoCategoria ?? undefined,
         seguroSalud: data.seguroSalud ?? seguroSaludPorDefecto(employee.hijosACargo, employee.conyugeACargo),
         computosEspeciales: data.computosEspeciales ?? 99,
         exoneracionAporte: data.exoneracionAporte ?? 9,

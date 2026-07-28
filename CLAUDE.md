@@ -91,6 +91,20 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
   despido (causal 2); voluntario/término no llevan. PREAVISO NO APLICA en
   Uruguay: no existe esa partida en ninguna liquidación.
 - **Contrato a prueba** = modalidad de 90 días rescindible sin IPD (no es un borrador).
+- **TITULAR DE EMPRESA UNIPERSONAL** (contrato con vínculo funcional 1 —
+  Patrón unipersonal, caso José Lambrechts): NO se liquida como dependiente.
+  Aporta sobre un SUELDO FICTO por categoría elegida en el contrato
+  (`fictoCategoria` 1.ª–10.ª = 11/15/20/25/30/36/42/48/54/60 BFC; BFC 2026 =
+  $1.847,96, parámetro `BFC_UNIPERSONAL`; Cat. 2.ª = 27.719,40 = lo que GNS
+  declara en nómina). Liquidación: HABER `SUELDO_FICTO` + descuentos Aporte
+  Jubilatorio patronal unificado 22,5% + FRL 0,10% + FONASA/SNIS por CUOTA
+  FIJA según seguro de salud (2026: SS1 4.908 · SS15 4.239 · SS16 5.801 ·
+  SS17 5.132 · SS 2/28/29/30 550, parámetros `FONASA_TITULAR_*`). Sin IRPF ni
+  patronales aparte. Validado contra la tabla BPS 2026 (fórmula: ficto×22,6%
+  + cuota fija = todas las celdas ±$1 por redondeo de la tabla). El recálculo
+  NO pisa estas liquidaciones (flag `titularUnipersonal` en el snapshot). Sin
+  categoría elegida se usa el sueldo del contrato como ficto. En la nómina BPS
+  el ficto va como concepto 1 con 30 días (igual al archivo real de GNS).
 - **CONSTRUCCIÓN**: una empresa es de construcción si su GRUPO de Consejos de
   Salarios es 9 (marcador canónico: la aportación puede ser CT=4 o Industria y
   Comercio) o tipoAporte=4 o actividad "construc" (`esEmpresaConstruccion`).
