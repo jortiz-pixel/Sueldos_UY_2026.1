@@ -608,7 +608,7 @@ async function recalcularLiquidacion(liquidationId: string): Promise<void> {
     // FALTAS es un haber negativo que SÍ integra la base imponible: reduce el
     // nominal sobre el que se calculan los aportes (aunque el catálogo la marque
     // como no gravada, porque ahí figura del lado de los descuentos).
-    if (it.concepto === 'FALTAS') gravado = true;
+    if (it.concepto === 'FALTAS' || it.concepto === 'HORAS_TARDE') gravado = true;
     else if (HABER_NO_GRAVADO.has(it.concepto)) gravado = false;
     else if (gravadoPorCodigo.has(it.concepto)) gravado = gravadoPorCodigo.get(it.concepto)!;
     else gravado = true;
@@ -788,6 +788,12 @@ liquidationRouter.post('/:id/item', authenticate, requireRole(UserRole.ADMIN, Us
     // Se detectan por la descripción (concepto FALTAS del catálogo).
     const esFalta = /\bfaltas?\b/i.test(data.descripcion);
 
+    // HORAS TARDES (llegadas tarde): mismo tratamiento que las faltas (haber
+    // negativo que netea la base de aportes), pero el valor de la unidad es la
+    // HORA de trabajo: un jornal equivale a 8 hs → hora = jornal ÷ 8. Se carga
+    // la CANTIDAD de horas y el monto sale solo.
+    const esHorasTarde = /\bhoras?\s+tardes?\b|\bllegadas?\s+tardes?\b/i.test(data.descripcion);
+
     // REINTEGRO DE GASTOS (grupo 9): haber NO GRAVADO que suma al total a
     // percibir pero queda fuera de la base de aportes, IRPF y fondos.
     const esReintegro = data.itemType === 'HABER' && /\breintegros?\b/i.test(data.descripcion);
@@ -798,8 +804,9 @@ liquidationRouter.post('/:id/item', authenticate, requireRole(UserRole.ADMIN, Us
     const esViatico = data.itemType === 'HABER' && /vi[aá]ticos?/i.test(data.descripcion);
     const esViaticoGravado = esViatico && /grav/i.test(data.descripcion);
 
-    // Importe del ítem. Para faltas con cantidad, se calcula automáticamente:
-    // valor de una falta (mensual: nominal/30 · jornalero: jornal) × cantidad.
+    // Importe del ítem. Para faltas u horas tardes con cantidad, se calcula
+    // automáticamente: falta = un jornal (mensual: nominal/30 · jornalero: el
+    // jornal) × cantidad; hora tarde = jornal ÷ 8 × cantidad.
     let centesimos: bigint;
     let descripcionFinal = data.descripcion;
     if (esFalta && data.cantidad !== undefined) {
@@ -807,10 +814,15 @@ liquidationRouter.post('/:id/item', authenticate, requireRole(UserRole.ADMIN, Us
       centesimos = BigInt(Math.round(Number(jornalCent) * data.cantidad));
       const jornalTxt = (Number(jornalCent) / 100).toFixed(2);
       descripcionFinal = `Faltas ${data.cantidad} x ${jornalTxt}`;
+    } else if (esHorasTarde && data.cantidad !== undefined) {
+      const horaCent = divRoundHalfUp(await valorJornalFalta(liquidation.id), 8n);
+      centesimos = BigInt(Math.round(Number(horaCent) * data.cantidad));
+      const horaTxt = (Number(horaCent) / 100).toFixed(2);
+      descripcionFinal = `Horas Tardes ${data.cantidad} x ${horaTxt}`;
     } else if (data.monto !== undefined) {
       centesimos = BigInt(Math.round(data.monto * 100));
     } else {
-      throw new AppError(400, 'Indicá el monto o la cantidad de faltas.');
+      throw new AppError(400, 'Indicá el monto o la cantidad.');
     }
 
     // Un haber manual es gravado por defecto (entra al imponible). Si se marca
@@ -820,14 +832,15 @@ liquidationRouter.post('/:id/item', authenticate, requireRole(UserRole.ADMIN, Us
       data: {
         liquidationId: liquidation.id,
         employeeId: liquidation.employeeId,
-        itemType: esFalta ? ItemType.HABER : data.itemType,
+        itemType: (esFalta || esHorasTarde) ? ItemType.HABER : data.itemType,
         concepto: esFalta ? 'FALTAS'
+          : esHorasTarde ? 'HORAS_TARDE'
           : esReintegro ? 'REINTEGRO_GASTOS'
           : esViaticoGravado ? 'VIATICOS_GRAVADOS'
           : esViatico ? 'VIATICOS'
           : (noGravado ? 'AJUSTE_NO_GRAVADO' : 'AJUSTE'),
         descripcion: descripcionFinal,
-        amount: esFalta ? -centesimos : centesimos, // la falta siempre resta
+        amount: (esFalta || esHorasTarde) ? -centesimos : centesimos, // faltas y horas tardes siempre restan
       },
     });
     await recalcularLiquidacion(liquidation.id);
@@ -848,7 +861,7 @@ liquidationRouter.delete('/:id/item/:itemId', authenticate, requireRole(UserRole
     if (!item || item.liquidationId !== liquidation.id) throw new NotFoundError('Concepto');
     // Solo los conceptos agregados a mano: ajustes (AJUSTE/AJUSTE_NO_GRAVADO) y
     // faltas (FALTAS). Los aportes legales se recalculan, no se borran.
-    const esManual = item.concepto.startsWith('AJUSTE') || ['FALTAS', 'REINTEGRO_GASTOS', 'PRIMA_ANTIGUEDAD', 'VIATICOS', 'VIATICOS_GRAVADOS'].includes(item.concepto);
+    const esManual = item.concepto.startsWith('AJUSTE') || ['FALTAS', 'HORAS_TARDE', 'REINTEGRO_GASTOS', 'PRIMA_ANTIGUEDAD', 'VIATICOS', 'VIATICOS_GRAVADOS'].includes(item.concepto);
     if (!esManual) {
       throw new AppError(409, 'Solo se pueden quitar los conceptos agregados manualmente');
     }
@@ -880,7 +893,7 @@ liquidationRouter.patch('/:id/item/:itemId', authenticate, requireRole(UserRole.
     let nuevoMonto: bigint | undefined;
     if (data.monto !== undefined) {
       const centesimos = BigInt(Math.round(data.monto * 100));
-      nuevoMonto = item.concepto === 'FALTAS' ? -(centesimos < 0n ? -centesimos : centesimos) : centesimos;
+      nuevoMonto = (item.concepto === 'FALTAS' || item.concepto === 'HORAS_TARDE') ? -(centesimos < 0n ? -centesimos : centesimos) : centesimos;
     }
 
     await prisma.payrollItem.update({

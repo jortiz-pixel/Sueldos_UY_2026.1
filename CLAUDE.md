@@ -175,7 +175,10 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
   descuentos") o desde el motor de conceptos. NO van en la columna de descuentos.
   Se puede cargar la CANTIDAD de faltas y el monto se calcula solo: valor de una
   falta (mensual = nominal/30, ficto 30; jornalero = jornal) × cantidad.
-  Descripción estilo GNS `Faltas N x jornal`.
+  Descripción estilo GNS `Faltas N x jornal`. HORAS TARDES (`HORAS_TARDE`,
+  desplegable de descuentos, pedido LA CHICHARRA): mismo tratamiento que las
+  faltas pero por HORA — un jornal = 8 hs → hora = jornal ÷ 8; se carga la
+  cantidad de horas y el monto sale solo (`Horas Tardes N x hora`).
 - **Licencias**: Ley 12.590 (20/25/30 días por antigüedad; proporcional 1er año);
   días sin domingos; anticipos permitidos con confirmación. Al liquidar (estilo
   GNS): la licencia GOZADA se paga en la MENSUALIDAD, desglosando el sueldo en
