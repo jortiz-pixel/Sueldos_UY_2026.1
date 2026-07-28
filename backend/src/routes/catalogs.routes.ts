@@ -15,7 +15,7 @@ catalogsRouter.get('/tipos-aporte', authenticate, async (_req: Request, res: Res
 // GET /api/catalogs/tipos-contribuyente
 catalogsRouter.get('/tipos-contribuyente', authenticate, async (_req: Request, res: Response, next: NextFunction) => {
   try {
-    const data = await prisma.tipoContribuyente.findMany({ orderBy: { codigo: 'asc' } });
+    const data = await prisma.tipoContribuyente.findMany({ orderBy: [{ tipoAporte: 'asc' }, { codigo: 'asc' }] });
     res.json(data);
   } catch (err) { next(err); }
 });

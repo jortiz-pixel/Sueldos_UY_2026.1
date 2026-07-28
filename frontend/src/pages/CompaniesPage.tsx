@@ -73,7 +73,7 @@ export default function CompaniesPage() {
   const { data: tiposContribuyente } = useQuery({ queryKey: ['tiposContribuyente'], queryFn: () => catalogsApi.tiposContribuyente() });
   const { data: gruposActividad } = useQuery({ queryKey: ['gruposActividad'], queryFn: () => catalogsApi.gruposActividad() });
 
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<CompanyForm>({
+  const { register, handleSubmit, reset, watch, formState: { errors } } = useForm<CompanyForm>({
     defaultValues: emptyForm,
   });
 
@@ -402,9 +402,14 @@ export default function CompaniesPage() {
                   </div>
                   <div>
                     <label className="form-label">Tipo de Contribuyente</label>
+                    {/* Codificador BPS Tabla 1: los códigos van POR APORTACIÓN — se
+                        filtran según el tipo de aporte elegido (IC muestra el 26
+                        "Unipersonal con dependientes con cobertura médica", etc.). */}
                     <select {...register('tipoContribuyente')} className="form-input">
                       <option value="">— Seleccionar —</option>
-                      {tiposContribuyente?.map((t) => <option key={t.codigo} value={t.codigo}>{t.codigo} - {t.nombre}</option>)}
+                      {tiposContribuyente
+                        ?.filter((t) => !watch('tipoAporte') || t.tipoAporte === Number(watch('tipoAporte')))
+                        .map((t) => <option key={`${t.tipoAporte}-${t.codigo}`} value={t.codigo}>{t.codigo} - {t.nombre}</option>)}
                     </select>
                   </div>
                   <div>

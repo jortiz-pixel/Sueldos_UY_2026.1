@@ -4,7 +4,7 @@
 
 import { LiquidationType, LiquidationStatus, ItemType, PayrollItem, Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
-import { salarioProporcional, divRoundHalfUp } from '../utils/money';
+import { salarioProporcional, divRoundHalfUp, applyRate } from '../utils/money';
 import { calcularAportesObreros, calcularAportesPatronales, calcularHorasExtra, fonasaCargasDeSeguroSalud } from './bps.service';
 import { calcularIrpfMensual, calcularIrpfSimplificado } from './irpf.service';
 import { parametersService } from './parameters.service';
@@ -240,6 +240,43 @@ export async function generarLiquidacionMensual(
         contratoId: contrato?.id ?? null,
       } as unknown as Prisma.JsonValue,
     });
+  }
+
+  // GRUPO 21 (Consejo de Salarios): PRIMA POR ANTIGÜEDAD automática — 0,5% del
+  // sueldo básico por cada año COMPLETO de trabajo desde la fecha de ingreso,
+  // con tope del 5% (a los 10 años). Los años se computan cumplidos al último
+  // día del mes que se liquida, sobre la fecha de ingreso del contrato.
+  if (period.company.grupoActividadNum === 21) {
+    const ingreso = contrato?.fechaIngreso ?? employee.fechaIngreso;
+    if (ingreso) {
+      const finMes = new Date(input.year, input.month, 0);
+      const ing = new Date(ingreso);
+      let aniosAntiguedad = finMes.getFullYear() - ing.getFullYear();
+      const aniversario = new Date(ing);
+      aniversario.setFullYear(finMes.getFullYear());
+      if (aniversario > finMes) aniosAntiguedad--;
+      const aniosComputados = Math.min(Math.max(aniosAntiguedad, 0), 10);
+      const primaRate = aniosComputados * 50; // 0,5% por año en basis points (tope 500 = 5%)
+      if (primaRate > 0) {
+        items.push({
+          employeeId: input.employeeId,
+          itemType: ItemType.HABER,
+          concepto: 'PRIMA_ANTIGUEDAD',
+          descripcion: `Prima por Antigüedad (${aniosAntiguedad} ${aniosAntiguedad === 1 ? 'año' : 'años'})`,
+          baseCalculo: salarioBase,
+          rate: primaRate,
+          amount: applyRate(salarioBase, primaRate),
+          calculationDetail: {
+            grupo: 21,
+            aniosAntiguedad,
+            aniosComputados,
+            fechaIngreso: ing.toISOString(),
+            rateBp: primaRate,
+            topeBp: 500,
+          } as unknown as Prisma.JsonValue,
+        });
+      }
+    }
   }
 
   if ((input.horasExtraDiurnas ?? 0) > 0 || (input.horasExtraNocturnas ?? 0) > 0) {
@@ -579,11 +616,16 @@ export async function generarLiquidacionMensual(
   // → Fondo Social 22,94 y Fondo de Vivienda 0,99 exactos.
   let baseFondoConstruccion: bigint | undefined;
   if (esConstruccion) {
+    // El Reintegro de Gastos (y los ajustes no gravados) quedan FUERA de la
+    // base ApliAFondos: no son materia gravada de los fondos de la construcción.
+    const haberesParaFondos = items
+      .filter((i) => i.itemType === ItemType.HABER && i.concepto !== 'REINTEGRO_GASTOS' && i.concepto !== 'AJUSTE_NO_GRAVADO')
+      .reduce((sum, i) => sum + i.amount, 0n);
     const rateFonasaFrl = BigInt(
       aportesObreros.detail.fonasaSeguroRate + aportesObreros.detail.fonasaAdicionalRate + params.frlObreroRate,
     );
     const apliAFondos = divRoundHalfUp(
-      totalHaberes * 10000n
+      haberesParaFondos * 10000n
         - aportesObreros.baseJubilatorio * BigInt(params.bpsJubilatorioRate)
         - baseGravada * rateFonasaFrl
         - irpfRetencion * 10000n,

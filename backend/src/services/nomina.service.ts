@@ -163,7 +163,13 @@ export async function generarNominaBps(companyId: string, year: number, month: n
       for (const item of liq.items) {
         if (item.itemType !== ItemType.HABER) continue;
         const cfg = codBpsPorCodigo.get(item.concepto);
-        if (cfg && !cfg.gravado) continue; // haber no gravado: no se declara
+        // Haber no gravado: solo se declara si tiene concepto BPS configurado
+        // (codBps). Las partidas exentas del laudo de la construcción van con
+        // codBps 5 "Monto Imponible Adicional IRPF" (criterio GNS: medias horas
+        // + ropa + transporte + herramientas sumadas bajo el concepto 5). Los
+        // reintegros de gastos y ajustes no gravados no se declaran.
+        if (cfg && !cfg.gravado && cfg.codBps == null) continue;
+        if (item.concepto === 'REINTEGRO_GASTOS' || item.concepto === 'AJUSTE_NO_GRAVADO') continue;
         const code = codigoConceptoBps(item.concepto, cfg?.codBps);
         if (code == null) continue; // partida indemnizatoria
         porConcepto.set(code, (porConcepto.get(code) ?? 0n) + item.amount);
@@ -257,7 +263,8 @@ export async function generarNominaBps(companyId: string, year: number, month: n
   // Nombre estilo GNS: N_MMAA_XXXX_NROEMPRESA.txt
   const sigla = (company.nombreFantasia || company.razonSocial || 'EMP')
     .replace(/[^A-Za-z]/g, '').toUpperCase().slice(0, 4) || 'EMP';
-  const filename = `N_${String(month).padStart(2, '0')}${String(year).slice(-2)}_${sigla}_${nroEmpresa || 'SINBPS'}.txt`;
+  // Extensión .bps, igual que los archivos que emite GNS y espera BPS.
+  const filename = `N_${String(month).padStart(2, '0')}${String(year).slice(-2)}_${sigla}_${nroEmpresa || 'SINBPS'}.bps`;
 
   return { filename, contenido, montoTotal: monto(totalNomina), personas: personasOut, errores, advertencias };
 }

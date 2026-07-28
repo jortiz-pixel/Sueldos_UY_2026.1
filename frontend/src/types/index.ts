@@ -21,7 +21,7 @@ export interface User {
 }
 
 export interface TipoAporte { codigo: number; nombre: string; }
-export interface TipoContribuyente { codigo: number; nombre: string; }
+export interface TipoContribuyente { tipoAporte: number; codigo: number; nombre: string; }
 export interface SubgrupoActividad { id: string; grupoNumero: number; numero: number; nombre: string; }
 export interface GrupoActividad { numero: number; nombre: string; subgrupos?: SubgrupoActividad[]; }
 

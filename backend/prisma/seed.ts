@@ -23,15 +23,29 @@ async function main() {
   ];
   for (const t of tiposAporte) await prisma.tipoAporte.upsert({ where: { codigo: t.codigo }, update: { nombre: t.nombre }, create: t });
 
+  // Tipos de contribuyente OFICIALES (Codificador BPS v37, Tabla 1): el código
+  // va POR APORTACIÓN. La lista completa la carga la migración
+  // 20260728090000_nomina_bps_gns_exacta; acá va un subconjunto representativo.
   const tiposContribuyente = [
-    { codigo: 1, nombre: 'Empresa Unipersonal' },
-    { codigo: 2, nombre: 'SRL — Sociedad de Responsabilidad Limitada' }, { codigo: 3, nombre: 'SA — Sociedad Anónima' },
-    { codigo: 4, nombre: 'Sociedad de hecho' }, { codigo: 5, nombre: 'Sociedad Colectiva' },
-    { codigo: 6, nombre: 'Sociedad en Comandita' }, { codigo: 7, nombre: 'Capital e Industria' },
-    { codigo: 8, nombre: 'Sociedad Civil' }, { codigo: 9, nombre: 'Asociación Civil' },
-    { codigo: 10, nombre: 'Cooperativa' }, { codigo: 84, nombre: 'SAS — Sociedad por Acciones Simplificada (con dependientes)' },
+    { tipoAporte: 1, codigo: 1, nombre: 'Propietario individual o Empresa Unipersonal' },
+    { tipoAporte: 1, codigo: 2, nombre: 'Sociedad de Responsabilidad Limitada' },
+    { tipoAporte: 1, codigo: 3, nombre: 'Sociedad Anónima' },
+    { tipoAporte: 1, codigo: 4, nombre: 'Sociedad de Hecho' },
+    { tipoAporte: 1, codigo: 26, nombre: 'Unipersonal con hasta 5 dependientes con cobertura médica' },
+    { tipoAporte: 1, codigo: 31, nombre: 'Unipersonal con hasta 5 dependientes sin cobertura médica' },
+    { tipoAporte: 1, codigo: 41, nombre: 'Unipersonal sin dependientes, sin cuota mutual' },
+    { tipoAporte: 1, codigo: 84, nombre: 'Sociedad Accionista Simplificada con dependientes' },
+    { tipoAporte: 4, codigo: 1, nombre: 'Administración total (titular)' },
+    { tipoAporte: 4, codigo: 2, nombre: 'Obra por Contrato' },
+    { tipoAporte: 4, codigo: 17, nombre: 'Obra de Menor Cuantía' },
   ];
-  for (const t of tiposContribuyente) await prisma.tipoContribuyente.upsert({ where: { codigo: t.codigo }, update: { nombre: t.nombre }, create: t });
+  for (const t of tiposContribuyente) {
+    await prisma.tipoContribuyente.upsert({
+      where: { tipoAporte_codigo: { tipoAporte: t.tipoAporte, codigo: t.codigo } },
+      update: { nombre: t.nombre },
+      create: t,
+    });
+  }
 
   const grupos = [
     { numero: 1, nombre: 'Procesamiento y conservación de alimentos, bebidas y tabaco' },

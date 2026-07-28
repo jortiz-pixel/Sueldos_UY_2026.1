@@ -28,7 +28,7 @@ function ItemRow({ item, editable, onEdit, onDelete }: {
   onDelete?: (id: string) => void;
 }) {
   // Conceptos agregados a mano (ajustes y faltas): se pueden editar y eliminar.
-  const manual = item.concepto.startsWith('AJUSTE') || item.concepto === 'FALTAS';
+  const manual = item.concepto.startsWith('AJUSTE') || item.concepto === 'FALTAS' || item.concepto === 'REINTEGRO_GASTOS';
   const [editing, setEditing] = useState(false);
   const [d, setD] = useState(item.descripcion);
   const [m, setM] = useState(Number(item.amount) / 100);

@@ -72,9 +72,11 @@ nominaRouter.get('/archivo', authenticate, async (req: Request, res: Response, n
       BigInt(Math.round(Number(nomina.montoTotal) * 100)), req.user!.userId,
     );
 
-    res.setHeader('Content-Type', 'text/plain; charset=ascii');
+    // BPS espera ANSI/ISO-8859-1 (el archivo real de GNS codifica los acentos
+    // en Latin-1, no UTF-8): se envía como buffer Latin-1.
+    res.setHeader('Content-Type', 'text/plain; charset=iso-8859-1');
     res.setHeader('Content-Disposition', `attachment; filename="${nomina.filename}"`);
-    res.send(nomina.contenido);
+    res.send(Buffer.from(nomina.contenido, 'latin1'));
   } catch (err) { next(err); }
 });
 
@@ -114,9 +116,9 @@ nominaRouter.get('/rectificativa/archivo', authenticate, async (req: Request, re
       BigInt(Math.round(Number(rect.montoTotal) * 100)), req.user!.userId,
     );
 
-    res.setHeader('Content-Type', 'text/plain; charset=ascii');
+    res.setHeader('Content-Type', 'text/plain; charset=iso-8859-1');
     res.setHeader('Content-Disposition', `attachment; filename="${rect.filename}"`);
-    res.send(rect.contenido);
+    res.send(Buffer.from(rect.contenido, 'latin1'));
   } catch (err) { next(err); }
 });
 

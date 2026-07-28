@@ -45,6 +45,7 @@ interface ConceptoConstruccion {
   valorRate?: number;
   valorFijo?: bigint;
   gravado: boolean;
+  codBps?: number; // concepto BPS (Tabla 15) con el que se declara en la nómina
 }
 
 // Valores vigentes 01/2026 (recibo GNS Oficial Albañil — jornal hora 444,85).
@@ -55,16 +56,25 @@ const CONCEPTOS: ConceptoConstruccion[] = [
   { codigo: 'PRESENTISMO_OBRA', nombre: 'Incentivo Presentismo', orden: 61, tipoOperacion: 'HABER', tipoCalculo: 'PORCENTAJE', baseCalculo: 'HORAS_LAUDO', valorRate: 1042, valorFijo: 42139n, gravado: true },
   { codigo: 'PRES_MES_COMPLETO', nombre: 'Presentismo por Trabajo Completo en el Mes', orden: 62, tipoOperacion: 'HABER', tipoCalculo: 'PORCENTAJE', baseCalculo: 'HORAS_LAUDO', valorRate: 500, valorFijo: 42139n, gravado: true },
   { codigo: 'TICKET_ALIMENTACION', nombre: 'Ticket Alimentación Gravado', orden: 63, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 18416n, gravado: true },
-  { codigo: 'MEDIAS_HORAS', nombre: 'Medias Horas', orden: 68, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', baseCalculo: 'MEDIA_HORA', valorFijo: 22242n, gravado: false },
+  // Las partidas EXENTAS de aportes se declaran en la nómina BPS bajo el
+  // concepto 5 "Monto Imponible Adicional IRPF" (codBps 5, criterio GNS:
+  // 222,40 + 103,44 + 90,48 + 41,36 = 457,68 en el archivo real de enero).
+  { codigo: 'MEDIAS_HORAS', nombre: 'Medias Horas', orden: 68, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', baseCalculo: 'MEDIA_HORA', valorFijo: 22242n, gravado: false, codBps: 5 },
   // Partidas extraordinarias EXENTAS: los valores del laudo son POR JORNADA DE
   // 8 HORAS EFECTIVAS; acá se cargan por HORA (valor/8) y el importe se calcula
   // horas × valor, igual que en el recibo GNS ("8 x 12.93").
   //  - Ropa: 103,44 c/8 hs (= 5% del jornal del medio oficial albañil) → 12,93/h. Todas las categorías obreras.
   //  - Herramientas: 41,36 c/8 hs → 5,17/h. SOLO desde Medio Oficial en adelante.
   //  - Transporte: jornaleros 90,50 c/8 hs → 11,31/h (los mensuales tienen otro régimen).
-  { codigo: 'DESGASTE_ROPA', nombre: 'Desgaste De Ropa', orden: 65, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 1293n, gravado: false },
-  { codigo: 'GASTOS_TRANSPORTE', nombre: 'Gastos De Transporte', orden: 66, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 1131n, gravado: false },
-  { codigo: 'DESGASTE_HERRAMIENTAS', nombre: 'Desgaste De Herramientas', orden: 67, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 517n, gravado: false },
+  { codigo: 'DESGASTE_ROPA', nombre: 'Desgaste De Ropa', orden: 65, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 1293n, gravado: false, codBps: 5 },
+  { codigo: 'GASTOS_TRANSPORTE', nombre: 'Gastos De Transporte', orden: 66, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 1131n, gravado: false, codBps: 5 },
+  { codigo: 'DESGASTE_HERRAMIENTAS', nombre: 'Desgaste De Herramientas', orden: 67, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 517n, gravado: false, codBps: 5 },
+  // REINTEGRO DE GASTOS (pedido del estudio): haber NO GRAVADO que suma al
+  // total a percibir pero queda FUERA de la base de todos los descuentos
+  // (aportes, IRPF y también de la base ApliAFondos de los fondos). No se
+  // declara en la nómina BPS (sin codBps). El importe se carga a mano en cada
+  // liquidación ("Agregar concepto" → Reintegro de Gastos).
+  { codigo: 'REINTEGRO_GASTOS', nombre: 'Reintegro de Gastos', orden: 69, tipoOperacion: 'HABER', tipoCalculo: 'VALOR_FIJO', valorFijo: 0n, gravado: false },
   { codigo: 'FONDO_SOCIAL', nombre: 'Fondo Social', orden: 220, tipoOperacion: 'DESCUENTO_OBRERO', tipoCalculo: 'PORCENTAJE_CIENMIL', baseCalculo: 'FONDO_CONSTRUCCION', valorRate: 5809, gravado: false },
   { codigo: 'FONDO_VIVIENDA', nombre: 'Fondo de Vivienda', orden: 221, tipoOperacion: 'DESCUENTO_OBRERO', tipoCalculo: 'PORCENTAJE_CIENMIL', baseCalculo: 'FONDO_CONSTRUCCION', valorRate: 250, gravado: false },
 ];
@@ -198,13 +208,14 @@ export async function ensureConceptosConstruccion(companyId: string, quick = fal
   if (quick) {
     const existentes = await prisma.concepto.findMany({
       where: { companyId, codigo: { in: CONCEPTOS.map((c) => c.codigo) } },
-      select: { codigo: true, nombre: true, orden: true, tipoCalculo: true, baseCalculo: true, activo: true },
+      select: { codigo: true, nombre: true, orden: true, tipoCalculo: true, baseCalculo: true, activo: true, codBps: true },
     });
     const porCodigo = new Map(existentes.map((e) => [e.codigo, e]));
     const alDia = CONCEPTOS.every((c) => {
       const e = porCodigo.get(c.codigo);
       return !!e && e.activo && e.nombre === c.nombre && e.orden === c.orden
-        && e.tipoCalculo === c.tipoCalculo && (e.baseCalculo ?? null) === (c.baseCalculo ?? null);
+        && e.tipoCalculo === c.tipoCalculo && (e.baseCalculo ?? null) === (c.baseCalculo ?? null)
+        && (e.codBps ?? null) === (c.codBps ?? null);
     });
     if (alDia) return 0;
   }
@@ -223,6 +234,7 @@ export async function ensureConceptosConstruccion(companyId: string, quick = fal
           orden: c.orden,
           tipoCalculo: c.tipoCalculo,
           baseCalculo: c.baseCalculo ?? null,
+          codBps: c.codBps ?? null,
           activo: true,
           valorRate: existing.valorRate ?? c.valorRate ?? null,
           valorFijo: existing.valorFijo ?? c.valorFijo ?? null,
@@ -242,6 +254,7 @@ export async function ensureConceptosConstruccion(companyId: string, quick = fal
         valorRate: c.valorRate ?? null,
         valorFijo: c.valorFijo ?? null,
         gravado: c.gravado,
+        codBps: c.codBps ?? null,
         activo: true,
       },
     });

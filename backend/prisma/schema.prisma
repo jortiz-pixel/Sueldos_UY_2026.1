@@ -20,9 +20,13 @@ model TipoAporte {
 }
 
 model TipoContribuyente {
-  codigo Int    @id
-  nombre String
+  // Codificador BPS Tabla 1: el código de tipo de contribuyente va POR
+  // APORTACIÓN (el mismo número significa cosas distintas en IC, CT, RU...).
+  tipoAporte Int    @default(1)
+  codigo     Int
+  nombre     String
 
+  @@id([tipoAporte, codigo])
   @@map("tipos_contribuyente")
 }
 

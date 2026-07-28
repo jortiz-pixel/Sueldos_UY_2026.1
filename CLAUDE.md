@@ -146,6 +146,17 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
   laudo mínimo. Al vencer el convenio sin vigencia nueva, el panel de jornales
   muestra alerta con link al MTSS (no hay auto-scraping: MTSS publica PDF
   escaneado; el flujo es alerta → cargar acta nueva en Parámetros).
+  REINTEGRO DE GASTOS (concepto `REINTEGRO_GASTOS`, en el catálogo G9): haber
+  NO GRAVADO que suma al total a percibir pero queda FUERA de la base de todos
+  los descuentos (aportes, IRPF y también de la base ApliAFondos de los
+  fondos) y NO se declara en la nómina BPS. Se agrega a mano en la liquidación
+  ("Agregar concepto" → Reintegro de Gastos, o cualquier descripción con la
+  palabra "reintegro"); editable y borrable como los ajustes manuales.
+- **PRIMA POR ANTIGÜEDAD grupo 21** (Consejo de Salarios 21): automática en la
+  mensualidad — 0,5% del SUELDO BÁSICO del mes por cada año COMPLETO de trabajo
+  (fecha de ingreso del contrato), tope 5% a los 10 años. Años cumplidos al
+  último día del mes liquidado. Ítem `PRIMA_ANTIGUEDAD`, gravado; el rate del
+  ítem lleva los bp (años × 50). Solo si la empresa tiene grupoActividadNum 21.
 - **FALTAS** (estilo GNS, recibo Belén Martínez): figuran del lado de los
   HABERES como un haber NEGATIVO (días × jornal). Así el "Total de Haberes" ya
   sale NETO de faltas y sobre ese neto se calculan TODOS los descuentos (aportes
@@ -167,12 +178,24 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
   licencia gozada (jornal nominal − descuentos) y el del salario vacacional
   (jornal líquido) coinciden por día. Admite días FRACCIONADOS (ej. 8,33): las
   columnas de días (liquidación y saldo de vacaciones) son Float.
-- **Nómina BPS (ATYR v3.0)**: generador validado byte a byte contra archivo real
-  de GNS (`N_0626_AMIG_8269951`). Registros 1/4/5/6/7/12; en nóminas el mes de
-  cargo va NULO en 6/7 (en rectificativas va lleno y el reg. 4 sin mes).
-  Conceptos Tabla 15: 1 imponible · 2 aguinaldo · 5 licencia no gozada · 41 salario
-  vacacional; IPD/preaviso no se declaran. Rectificativas = diff contra la "foto"
-  guardada al descargar (tabla `nomina_declaraciones`), conceptos 1X suma / 2X resta.
+- **Nómina BPS (ATYR v3.0)**: generador validado byte a byte contra archivos
+  reales de GNS (`N_0626_AMIG_8269951` y `N_0126_JOSE_5667352.bps`, construcción
+  IC grupo 9). Registros 1/4/5/6/7/12; en nóminas el mes de cargo va NULO en
+  6/7 (en rectificativas va lleno y el reg. 4 sin mes). Conceptos Tabla 15:
+  1 imponible · 2 aguinaldo · 5 "Monto Imponible Adicional IRPF" (licencia no
+  gozada Y las partidas EXENTAS del laudo G9 — medias horas + ropa + transporte
+  + herramientas se declaran SUMADAS bajo el 5 vía `codBps` del concepto,
+  criterio GNS: 457,68 en el archivo real) · 41 salario vacacional; IPD/preaviso,
+  reintegros de gastos y ajustes no gravados NO se declaran. Registro 4 campo 3
+  = TIPO DE CONTRIBUYENTE del Codificador Tabla 1, código POR APORTACIÓN
+  (Lambrechts: IC 26 "Unipersonal con hasta 5 dependientes con cobertura
+  médica") — catálogo oficial en `tipos_contribuyente` con PK compuesta
+  (tipoAporte, codigo), el desplegable de la empresa filtra por su aportación.
+  Archivo con extensión `.bps` y codificación ISO-8859-1 (Latin-1, como GNS).
+  Seguro salud 9 en reg. 6 = no beneficiario mutual (<13 jornales o <1,25 BPC,
+  lo determina el operador en el contrato). Rectificativas = diff contra la
+  "foto" guardada al descargar (tabla `nomina_declaraciones`), conceptos 1X
+  suma / 2X resta.
 - **Codificador BPS v37** cargado como catálogos (tablas 1,2,3,8,9,10,12,15,22)
   con endpoints `/api/catalogs/*`. Recibos estilo GNS (dos copias por hoja).
 
