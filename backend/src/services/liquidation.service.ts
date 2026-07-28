@@ -61,10 +61,11 @@ export async function valorJornalFalta(liquidationId: string): Promise<bigint> {
 // PRIMA POR ANTIGÜEDAD grupo 21 (Consejo de Salarios): 0,5% del sueldo básico
 // del mes por cada año COMPLETO de trabajo desde la fecha de ingreso, con tope
 // del 5% (a los 10 años). Los años se computan cumplidos al último día del mes
-// liquidado. Devuelve null si todavía no hay un año completo.
+// liquidado. Con menos de un año devuelve la línea en 0% (visible en 0, estilo
+// GNS, igual que el Adicional FONASA): así se ve que la regla está activa.
 export function calcularPrimaAntiguedad(
   fechaIngreso: Date, year: number, month: number, sueldoBasicoMes: bigint,
-): { anios: number; rate: number; amount: bigint; descripcion: string } | null {
+): { anios: number; rate: number; amount: bigint; descripcion: string } {
   const finMes = new Date(year, month, 0);
   const ing = new Date(fechaIngreso);
   let anios = finMes.getFullYear() - ing.getFullYear();
@@ -73,12 +74,11 @@ export function calcularPrimaAntiguedad(
   if (aniversario > finMes) anios--;
   const aniosComputados = Math.min(Math.max(anios, 0), 10);
   const rate = aniosComputados * 50; // 0,5% por año en basis points (tope 500 = 5%)
-  if (rate <= 0) return null;
   return {
-    anios,
+    anios: aniosComputados,
     rate,
     amount: applyRate(sueldoBasicoMes, rate),
-    descripcion: `Prima por Antigüedad (${anios} ${anios === 1 ? 'año' : 'años'})`,
+    descripcion: `Prima por Antigüedad (${aniosComputados} ${aniosComputados === 1 ? 'año' : 'años'})`,
   };
 }
 
