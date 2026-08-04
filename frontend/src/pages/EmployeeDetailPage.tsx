@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Calendar, User, DollarSign, FileText, Briefcase, Plus, X, AlertCircle, UserMinus, Pencil, FileDown, Printer } from 'lucide-react';
 import { useForm } from 'react-hook-form';
@@ -50,6 +50,7 @@ export default function EmployeeDetailPage() {
   const { user, isOperator } = useAuth();
   const { activeCompanyId } = useCompany();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [modalOpen, setModalOpen] = useState(false);
   const [editingContract, setEditingContract] = useState<Contrato | null>(null);
   const [formError, setFormError] = useState('');
@@ -172,13 +173,17 @@ export default function EmployeeDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['employee-contracts', id] });
       queryClient.invalidateQueries({ queryKey: ['employee', id] });
       queryClient.invalidateQueries({ queryKey: ['employee-liquidations', id] });
-      if (data?.aviso) {
+      // Cerrar los modales (baja o edición) tras la baja.
+      setBajaContract(null);
+      setModalOpen(false);
+      setEditingContract(null);
+      if (data?.liquidacionFinalId) {
+        // Baja OK con final generada: ir directo a la liquidación final.
+        navigate(`/liquidation/${data.liquidacionFinalId}`);
+      } else if (data?.aviso) {
         alert(data.aviso);
-      } else if (data?.liquidacionFinalId) {
-        alert(
-          'Baja registrada. Se generó la liquidación final (egreso) en estado BORRADOR — revisala en Liquidaciones.'
-          + (data.desvinculadaTotal ? '\nLa persona quedó inactiva (sin contratos vigentes en ninguna empresa).' : ''),
-        );
+      } else {
+        alert('Baja registrada.');
       }
     },
     onError: (err: unknown) => {
@@ -215,6 +220,9 @@ export default function EmployeeDetailPage() {
   const openEditContract = (c: Contrato) => {
     setEditingContract(c);
     setFormError('');
+    setBajaFecha(new Date().toISOString().slice(0, 10));
+    setBajaCausal('');
+    setBajaMotivo('');
     reset({
       companyId: c.companyId ?? '',
       vigenciaDesde: c.vigenciaDesde ? c.vigenciaDesde.slice(0, 10) : '',
@@ -252,15 +260,30 @@ export default function EmployeeDetailPage() {
     if (!bajaContract) return;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(bajaFecha)) { alert('Indicá la fecha de egreso.'); return; }
     if (!bajaCausal) { alert('Seleccioná la causal de egreso.'); return; }
-    bajaMutation.mutate(
-      {
-        contractId: bajaContract.id,
-        fechaEgreso: bajaFecha,
-        causalEgresoCod: Number(bajaCausal),
-        motivo: bajaMotivo.trim() || undefined,
-      },
-      { onSuccess: () => setBajaContract(null) },
-    );
+    bajaMutation.mutate({
+      contractId: bajaContract.id,
+      fechaEgreso: bajaFecha,
+      causalEgresoCod: Number(bajaCausal),
+      motivo: bajaMotivo.trim() || undefined,
+    });
+  };
+
+  // Baja desde el propio modal de edición del contrato.
+  const confirmarBajaEdit = () => {
+    if (!editingContract) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(bajaFecha)) { alert('Indicá la fecha de egreso.'); return; }
+    if (!bajaCausal) { alert('Seleccioná la causal de egreso.'); return; }
+    const causalTxt = causales?.find((c) => String(c.codigo) === bajaCausal)?.nombre;
+    const msg = `¿Dar de baja el contrato Nº ${editingContract.numero} con egreso el ${bajaFecha}`
+      + (causalTxt ? ` (causal: ${causalTxt})` : '')
+      + '? Se cerrará el contrato y se generará automáticamente la liquidación final por egreso.';
+    if (!confirm(msg)) return;
+    bajaMutation.mutate({
+      contractId: editingContract.id,
+      fechaEgreso: bajaFecha,
+      causalEgresoCod: Number(bajaCausal),
+      motivo: bajaMotivo.trim() || undefined,
+    });
   };
 
   const openNew = () => {
@@ -648,6 +671,39 @@ export default function EmployeeDetailPage() {
                   <label className="form-label">Observación</label>
                   <input {...register('observacion')} className="form-input" />
                 </div>
+                {editingContract && (
+                  <div className="col-span-2 pt-3 mt-1 border-t border-red-100">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-red-600 mb-1">Dar de baja (egreso)</p>
+                    <p className="text-xs text-gray-500 mb-3">Cierra el contrato a la fecha de egreso con la causal BPS y genera automáticamente la liquidación final por egreso (te lleva directo a ella).</p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="form-label">Fecha de egreso</label>
+                        <input type="date" value={bajaFecha} onChange={(e) => setBajaFecha(e.target.value)} className="form-input" />
+                      </div>
+                      <div>
+                        <label className="form-label">Causal de egreso (Tabla 9 BPS)</label>
+                        <select value={bajaCausal} onChange={(e) => setBajaCausal(e.target.value)} className="form-input">
+                          <option value="">— Seleccionar causal —</option>
+                          {causales?.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} — {c.nombre}</option>)}
+                        </select>
+                      </div>
+                      <div className="col-span-2">
+                        <label className="form-label">Motivo (opcional)</label>
+                        <input value={bajaMotivo} onChange={(e) => setBajaMotivo(e.target.value)} className="form-input" placeholder="Detalle interno de la baja" />
+                      </div>
+                      <div className="col-span-2">
+                        <button
+                          type="button"
+                          disabled={!bajaFecha || !bajaCausal || bajaMutation.isPending}
+                          onClick={confirmarBajaEdit}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+                        >
+                          {bajaMutation.isPending ? 'Procesando…' : 'Dar de baja y generar liquidación final'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
                 <button type="button" onClick={() => setModalOpen(false)} className="btn-secondary">Cancelar</button>
