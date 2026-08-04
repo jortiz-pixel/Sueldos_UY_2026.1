@@ -6,8 +6,8 @@ import { authenticate, requireRole } from '../middleware/auth';
 import { assertCompanyAccess } from '../middleware/tenancy';
 import { AppError, NotFoundError } from '../middleware/errorHandler';
 import { generarLiquidacionMensual, confirmarLiquidacion, valorJornalFalta, calcularPrimaAntiguedad } from '../services/liquidation.service';
-import { grupoConsejoDeEmpresa } from '../services/construccion.service';
-import { divRoundHalfUp } from '../utils/money';
+import { esMiCasaSA, grupoConsejoDeEmpresa } from '../services/construccion.service';
+import { applyRate, divRoundHalfUp } from '../utils/money';
 import { calcularAguinaldo, calcularAguinaldoBrutoSemestre } from '../services/aguinaldo.service';
 import { calcularLiquidacionLicencia, calcularLiquidacionFinal } from '../services/vacation.service';
 import { calcularAportesObreros, calcularAportesPatronales, fonasaCargasDeSeguroSalud } from '../services/bps.service';
@@ -599,6 +599,30 @@ async function recalcularLiquidacion(liquidationId: string): Promise<void> {
       if (primaItem) {
         await prisma.payrollItem.update({ where: { id: primaItem.id }, data });
         primaItem.amount = prima.amount; // que la base gravada de abajo use el valor nuevo
+      } else {
+        const creado = await prisma.payrollItem.create({
+          data: { liquidationId, employeeId: liq.employeeId, itemType: ItemType.HABER, concepto: 'PRIMA_ANTIGUEDAD', ...data },
+        });
+        liq.items.push(creado);
+      }
+    }
+  }
+
+  // MI CASA SOCIEDAD ANÓNIMA: PRIMA POR ANTIGÜEDAD fija del 10% del sueldo
+  // básico. Si el borrador no la tiene o cambió el básico, se crea/actualiza
+  // acá con el 10% antes de recalcular los aportes (aplica solo a esta empresa;
+  // no toca la prima progresiva del grupo 21).
+  if (liq.period?.company && esMiCasaSA(liq.period.company)) {
+    const baseSueldo = liq.items
+      .filter((i) => i.itemType === ItemType.HABER && (i.concepto === 'SUELDO_BASICO' || i.concepto === 'LICENCIA_GOZADA'))
+      .reduce((sum, i) => sum + i.amount, 0n);
+    if (baseSueldo > 0n) {
+      const primaRate = 1000; // 10%
+      const data = { descripcion: 'Prima por Antigüedad (10%)', baseCalculo: baseSueldo, rate: primaRate, amount: applyRate(baseSueldo, primaRate) };
+      const primaItem = liq.items.find((i) => i.concepto === 'PRIMA_ANTIGUEDAD');
+      if (primaItem) {
+        await prisma.payrollItem.update({ where: { id: primaItem.id }, data });
+        primaItem.amount = data.amount; // que la base gravada de abajo use el valor nuevo
       } else {
         const creado = await prisma.payrollItem.create({
           data: { liquidationId, employeeId: liq.employeeId, itemType: ItemType.HABER, concepto: 'PRIMA_ANTIGUEDAD', ...data },

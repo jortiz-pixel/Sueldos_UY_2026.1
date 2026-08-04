@@ -50,6 +50,31 @@ export function grupoConsejoDeEmpresa(co?: {
   return m ? Number(m[1]) : null;
 }
 
+/**
+ * MI CASA SOCIEDAD ANÓNIMA: empresa con una PRIMA POR ANTIGÜEDAD fija del 10%
+ * del sueldo básico, precargada junto con el sueldo en la mensualidad (pedido
+ * del estudio). Aplica SOLO a esta empresa; no altera la prima progresiva del
+ * grupo 21 ni ningún otro concepto. El match es tolerante a acentos, puntos y
+ * variantes "S.A." / "SA" / "SOCIEDAD ANONIMA".
+ */
+export function esMiCasaSA(co?: {
+  razonSocial?: string | null;
+  nombreFantasia?: string | null;
+} | null): boolean {
+  if (!co) return false;
+  const norm = (s?: string | null): string =>
+    (s ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase()
+      .replace(/\./g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  return [norm(co.razonSocial), norm(co.nombreFantasia)].some(
+    (t) => t.includes('MI CASA') && (t.includes('SOCIEDAD ANONIMA') || /\bSA\b/.test(t)),
+  );
+}
+
 interface ConceptoConstruccion {
   codigo: string;
   nombre: string;

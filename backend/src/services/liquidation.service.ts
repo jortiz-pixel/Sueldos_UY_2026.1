@@ -11,7 +11,7 @@ import { parametersService } from './parameters.service';
 import { resolverContratoEnMes, diasTrabajadosEnMes, datosLaboralesEfectivos } from './contract.service';
 import { evaluarConcepto, valorUnitarioConcepto, ConceptoContext } from './concept.engine';
 import { calcularAguinaldoBrutoSemestre } from './aguinaldo.service';
-import { correspondeHerramientas, esEmpresaConstruccion, ensureConceptosConstruccion, grupoConsejoDeEmpresa, jornalHoraVigente, recuadroDeEmpresa } from './construccion.service';
+import { correspondeHerramientas, esEmpresaConstruccion, ensureConceptosConstruccion, esMiCasaSA, grupoConsejoDeEmpresa, jornalHoraVigente, recuadroDeEmpresa } from './construccion.service';
 import { AppError } from '../middleware/errorHandler';
 
 // Días hábiles de licencia GOZADA (LeaveRequest aprobada/pendiente) que caen
@@ -311,6 +311,28 @@ export async function generarLiquidacionMensual(
         } as unknown as Prisma.JsonValue,
       });
     }
+  }
+
+  // MI CASA SOCIEDAD ANÓNIMA: PRIMA POR ANTIGÜEDAD fija del 10% del sueldo
+  // básico, PRECARGADA junto con el sueldo (aplica SOLO a esta empresa; no
+  // altera la prima progresiva del grupo 21). Reusa el ítem PRIMA_ANTIGUEDAD
+  // (gravado, editable/borrable en la ficha). Guarda: solo si aún no se agregó
+  // una prima (evita duplicar si la empresa fuese además grupo 21).
+  if (esMiCasaSA(period.company) && !items.some((i) => i.concepto === 'PRIMA_ANTIGUEDAD')) {
+    const primaRate = 1000; // 10% en basis points
+    items.push({
+      employeeId: input.employeeId,
+      itemType: ItemType.HABER,
+      concepto: 'PRIMA_ANTIGUEDAD',
+      descripcion: 'Prima por Antigüedad (10%)',
+      baseCalculo: salarioBase,
+      rate: primaRate,
+      amount: applyRate(salarioBase, primaRate),
+      calculationDetail: {
+        empresaFija: 'MI CASA SOCIEDAD ANONIMA',
+        rateBp: primaRate,
+      } as unknown as Prisma.JsonValue,
+    });
   }
 
   if ((input.horasExtraDiurnas ?? 0) > 0 || (input.horasExtraNocturnas ?? 0) > 0) {
