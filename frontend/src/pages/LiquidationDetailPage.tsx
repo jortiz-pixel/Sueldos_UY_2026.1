@@ -24,16 +24,45 @@ function formatTasa(item: PayrollItem): string {
 function ItemRow({ item, editable, onEdit, onDelete }: {
   item: PayrollItem;
   editable?: boolean;
-  onEdit?: (itemId: string, data: { descripcion: string; monto: number }) => void;
+  onEdit?: (itemId: string, data: { descripcion: string; monto?: number; base?: number; porcentaje?: number }) => void;
   onDelete?: (id: string) => void;
 }) {
   // Conceptos agregados a mano (ajustes y faltas): se pueden editar y eliminar.
   const manual = item.concepto.startsWith('AJUSTE') || ['FALTAS', 'HORAS_TARDE', 'DESCANSO_TRABAJADO', 'REINTEGRO_GASTOS', 'PRIMA_ANTIGUEDAD', 'VIATICOS', 'VIATICOS_GRAVADOS'].includes(item.concepto);
+  // La prima por antigüedad se edita distinto: el usuario carga el monto BASE y
+  // el PORCENTAJE, y la prima sale sola (base × %).
+  const esPrima = item.concepto === 'PRIMA_ANTIGUEDAD';
   const [editing, setEditing] = useState(false);
   const [d, setD] = useState(item.descripcion);
   const [m, setM] = useState(Number(item.amount) / 100);
+  const [base, setBase] = useState(item.baseCalculo ? Number(item.baseCalculo) / 100 : 0);
+  const [pct, setPct] = useState(item.rate ? item.rate / 100 : 0);
 
   if (editing) {
+    if (esPrima) {
+      const primaCentesimos = Math.round(base * pct); // prima = base × % (en centésimos)
+      return (
+        <tr className="bg-amber-50/50">
+          <td className="px-4 py-2">
+            <input value={d} onChange={(e) => setD(e.target.value)} className="border border-gray-300 rounded px-2 py-1 text-sm w-full" />
+          </td>
+          <td className="px-4 py-2 text-right">
+            <input type="number" value={base} onChange={(e) => setBase(Number(e.target.value))} className="border border-gray-300 rounded px-2 py-1 text-sm w-28 text-right" title="Monto base" placeholder="Base" />
+          </td>
+          <td className="px-4 py-2 text-right">
+            <div className="inline-flex items-center">
+              <input type="number" step="0.01" value={pct} onChange={(e) => setPct(Number(e.target.value))} className="border border-gray-300 rounded px-2 py-1 text-sm w-16 text-right" title="Porcentaje" placeholder="%" />
+              <span className="ml-1 text-xs text-gray-500">%</span>
+            </div>
+          </td>
+          <td className="px-4 py-2 text-right whitespace-nowrap">
+            <span className="text-sm font-mono text-gray-600 align-middle" title="Prima = base × %">{formatPesos(String(primaCentesimos))}</span>
+            <button onClick={() => { onEdit?.(item.id, { descripcion: d, base, porcentaje: pct }); setEditing(false); }} className="ml-2 text-green-600 hover:text-green-700 align-middle" title="Guardar"><Check size={15} /></button>
+            <button onClick={() => { setD(item.descripcion); setBase(item.baseCalculo ? Number(item.baseCalculo) / 100 : 0); setPct(item.rate ? item.rate / 100 : 0); setEditing(false); }} className="ml-1 text-gray-400 hover:text-gray-600 align-middle" title="Cancelar"><X size={15} /></button>
+          </td>
+        </tr>
+      );
+    }
     return (
       <tr className="bg-amber-50/50">
         <td className="px-4 py-2">
@@ -82,7 +111,7 @@ function Section({ title, items, total, colorClass, opciones, editable, onAdd, o
   opciones?: OpcionConcepto[];
   editable?: boolean;
   onAdd?: (descripcion: string, monto: number, cantidad?: number) => void;
-  onEdit?: (itemId: string, data: { descripcion: string; monto: number }) => void;
+  onEdit?: (itemId: string, data: { descripcion: string; monto?: number; base?: number; porcentaje?: number }) => void;
   onDelete?: (id: string) => void;
 }) {
   const [sel, setSel] = useState('');
@@ -275,8 +304,8 @@ export default function LiquidationDetailPage() {
   });
 
   const updateItemMutation = useMutation({
-    mutationFn: (vars: { itemId: string; descripcion: string; monto: number }) =>
-      liquidationApi.updateItem(id!, vars.itemId, { descripcion: vars.descripcion, monto: vars.monto }),
+    mutationFn: (vars: { itemId: string; descripcion: string; monto?: number; base?: number; porcentaje?: number }) =>
+      liquidationApi.updateItem(id!, vars.itemId, { descripcion: vars.descripcion, monto: vars.monto, base: vars.base, porcentaje: vars.porcentaje }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['liquidation', id] }),
     onError: (e: unknown) => {
       const err = e as { response?: { data?: { error?: string } } };

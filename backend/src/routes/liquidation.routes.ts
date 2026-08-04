@@ -608,26 +608,32 @@ async function recalcularLiquidacion(liquidationId: string): Promise<void> {
     }
   }
 
-  // MI CASA SOCIEDAD ANÓNIMA: PRIMA POR ANTIGÜEDAD fija del 10% del sueldo
-  // básico. Si el borrador no la tiene o cambió el básico, se crea/actualiza
-  // acá con el 10% antes de recalcular los aportes (aplica solo a esta empresa;
-  // no toca la prima progresiva del grupo 21).
+  // MI CASA SOCIEDAD ANÓNIMA: PRIMA POR ANTIGÜEDAD, por defecto 10% del sueldo
+  // básico, precargada junto con el sueldo (aplica solo a esta empresa; no toca
+  // la prima progresiva del grupo 21). Si el usuario la editó a mano (fijó el
+  // monto base y el porcentaje desde la pantalla), la línea queda marcada como
+  // manual y NO se pisa: se respeta el valor cargado. Si no la editó, se
+  // crea/actualiza con el 10% del básico (útil si cambió el sueldo).
   if (liq.period?.company && esMiCasaSA(liq.period.company)) {
-    const baseSueldo = liq.items
-      .filter((i) => i.itemType === ItemType.HABER && (i.concepto === 'SUELDO_BASICO' || i.concepto === 'LICENCIA_GOZADA'))
-      .reduce((sum, i) => sum + i.amount, 0n);
-    if (baseSueldo > 0n) {
-      const primaRate = 1000; // 10%
-      const data = { descripcion: 'Prima por Antigüedad (10%)', baseCalculo: baseSueldo, rate: primaRate, amount: applyRate(baseSueldo, primaRate) };
-      const primaItem = liq.items.find((i) => i.concepto === 'PRIMA_ANTIGUEDAD');
-      if (primaItem) {
-        await prisma.payrollItem.update({ where: { id: primaItem.id }, data });
-        primaItem.amount = data.amount; // que la base gravada de abajo use el valor nuevo
-      } else {
-        const creado = await prisma.payrollItem.create({
-          data: { liquidationId, employeeId: liq.employeeId, itemType: ItemType.HABER, concepto: 'PRIMA_ANTIGUEDAD', ...data },
-        });
-        liq.items.push(creado);
+    const primaItem = liq.items.find((i) => i.concepto === 'PRIMA_ANTIGUEDAD');
+    const detalle = primaItem?.calculationDetail as { primaManual?: boolean } | null | undefined;
+    const editadaManual = detalle?.primaManual === true;
+    if (!editadaManual) {
+      const baseSueldo = liq.items
+        .filter((i) => i.itemType === ItemType.HABER && (i.concepto === 'SUELDO_BASICO' || i.concepto === 'LICENCIA_GOZADA'))
+        .reduce((sum, i) => sum + i.amount, 0n);
+      if (baseSueldo > 0n) {
+        const primaRate = 1000; // 10%
+        const data = { descripcion: 'Prima por Antigüedad (10%)', baseCalculo: baseSueldo, rate: primaRate, amount: applyRate(baseSueldo, primaRate) };
+        if (primaItem) {
+          await prisma.payrollItem.update({ where: { id: primaItem.id }, data });
+          primaItem.amount = data.amount; // que la base gravada de abajo use el valor nuevo
+        } else {
+          const creado = await prisma.payrollItem.create({
+            data: { liquidationId, employeeId: liq.employeeId, itemType: ItemType.HABER, concepto: 'PRIMA_ANTIGUEDAD', ...data },
+          });
+          liq.items.push(creado);
+        }
       }
     }
   }
@@ -920,6 +926,10 @@ liquidationRouter.patch('/:id/item/:itemId', authenticate, requireRole(UserRole.
     const schema = z.object({
       descripcion: z.string().min(1).optional(),
       monto: z.number().nonnegative().optional(),
+      // Solo para la PRIMA POR ANTIGÜEDAD: el usuario fija el monto BASE y el
+      // PORCENTAJE, y la prima se calcula sola (base × %).
+      base: z.number().nonnegative().optional(),
+      porcentaje: z.number().nonnegative().max(100).optional(),
     });
     const data = schema.parse(req.body);
 
@@ -931,6 +941,33 @@ liquidationRouter.patch('/:id/item/:itemId', authenticate, requireRole(UserRole.
     }
     const item = await prisma.payrollItem.findUnique({ where: { id: req.params.itemId } });
     if (!item || item.liquidationId !== liquidation.id) throw new NotFoundError('Concepto');
+
+    // PRIMA POR ANTIGÜEDAD editable: el usuario carga el monto BASE y el % — la
+    // prima = base × %. Se guarda baseCalculo y rate (bp) y se marca la línea
+    // como manual (primaManual) para que el recálculo NO la vuelva a pisar con
+    // el 10% por defecto.
+    if (item.concepto === 'PRIMA_ANTIGUEDAD' && (data.base !== undefined || data.porcentaje !== undefined)) {
+      const detActual = item.calculationDetail as { rateBp?: number } | null | undefined;
+      const baseCent = data.base !== undefined
+        ? BigInt(Math.round(data.base * 100))
+        : (item.baseCalculo ?? 0n);
+      const rateBp = data.porcentaje !== undefined
+        ? Math.round(data.porcentaje * 100)
+        : (detActual?.rateBp ?? item.rate ?? 0);
+      await prisma.payrollItem.update({
+        where: { id: item.id },
+        data: {
+          descripcion: data.descripcion ?? item.descripcion,
+          baseCalculo: baseCent,
+          rate: rateBp,
+          amount: applyRate(baseCent, rateBp),
+          calculationDetail: { primaManual: true, rateBp } as unknown as Prisma.InputJsonValue,
+        },
+      });
+      await recalcularLiquidacion(liquidation.id);
+      res.json({ message: 'Concepto actualizado' });
+      return;
+    }
 
     // Al editar el monto, la falta se mantiene como haber negativo.
     let nuevoMonto: bigint | undefined;
