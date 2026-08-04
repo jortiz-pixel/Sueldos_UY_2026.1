@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Eye, Plus, X, AlertCircle, Pencil, Printer, Trash2, Undo2 } from 'lucide-react';
 import { contractsApi, catalogsApi, companiesApi, construccionApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
@@ -52,6 +52,7 @@ export default function ContractsPage() {
   const { isOperator } = useAuth();
   const { activeCompanyId: companyId, companies } = useCompany();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<{ employeeId: string; contractId: string; persona: string } | null>(null);
   const [formError, setFormError] = useState('');
@@ -199,10 +200,12 @@ export default function ContractsPage() {
       queryClient.invalidateQueries({ queryKey: ['nomina-checklist'] });
       queryClient.invalidateQueries({ queryKey: ['liquidations'] });
       setModalOpen(false);
-      if (res?.aviso) {
+      if (res?.liquidacionFinalId) {
+        // Baja OK con final generada: ir directo a la liquidación final.
+        navigate(`/liquidation/${res.liquidacionFinalId}`);
+      } else if (res?.aviso) {
+        // La baja se registró pero la final no se pudo generar: avisar el motivo.
         alert(res.aviso);
-      } else if (res?.liquidacionFinalId) {
-        alert('Baja registrada. Se generó la liquidación final por egreso (en borrador). La encontrás en Liquidaciones.');
       } else {
         alert('Baja registrada.');
       }
