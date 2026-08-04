@@ -54,12 +54,11 @@ export default function ContractsPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState<{ employeeId: string; contractId: string; persona: string } | null>(null);
+  const [editing, setEditing] = useState<{ employeeId: string; contractId: string; persona: string; yaBaja: boolean } | null>(null);
   const [formError, setFormError] = useState('');
-  // Baja / egreso (dentro del modal de edición): fecha + causal (Tabla 9) + motivo.
-  const [bajaFecha, setBajaFecha] = useState('');
+  // Causal de baja (Tabla 9) elegida en el form de edición. La fecha de baja va
+  // por el campo fechaFin del form ("Dar de baja").
   const [bajaCausal, setBajaCausal] = useState('');
-  const [bajaMotivo, setBajaMotivo] = useState('');
 
   const empresaNombre = companies.find((c) => c.companyId === companyId)?.razonSocial ?? '';
 
@@ -113,21 +112,20 @@ export default function ContractsPage() {
     setValue('salaryType', 'JORNALERO');
   }, [categoriaActual, esConstruccion, recuadroEmpresa, jornalesLaudo, setValue]);
 
-  const resetBaja = () => { setBajaFecha(''); setBajaCausal(''); setBajaMotivo(''); };
-
   const openNew = () => {
     setEditing(null);
     setFormError('');
-    resetBaja();
+    setBajaCausal('');
     const hoy = new Date().toISOString().slice(0, 10);
     reset({ personId: '', vigenciaDesde: hoy, fechaIngreso: hoy, fechaFin: '', salaryType: 'MENSUAL', salarioNominalPesos: 0, cargo: '', categoria: '', nivel: '', tipoContrato: '', sucursal: '', cuentaSueldos: '', observacion: '', vinculoFuncional: '12', fictoCategoria: '', seguroSalud: '', computosEspeciales: '99', exoneracionAporte: '9', horasSemanales: 44 });
     setModalOpen(true);
   };
 
   const openEdit = (c: ContratoRow) => {
-    setEditing({ employeeId: c.employee.id, contractId: c.id, persona: `${c.employee.apellido}, ${c.employee.nombre}` });
+    setEditing({ employeeId: c.employee.id, contractId: c.id, persona: `${c.employee.apellido}, ${c.employee.nombre}`, yaBaja: !!c.fechaFin });
     setFormError('');
-    resetBaja();
+    const causalActual = (c as { causalEgresoCod?: number | null }).causalEgresoCod;
+    setBajaCausal(causalActual != null ? String(causalActual) : '');
     reset({
       personId: c.employee.id,
       vigenciaDesde: c.vigenciaDesde ? c.vigenciaDesde.slice(0, 10) : '',
@@ -191,9 +189,8 @@ export default function ContractsPage() {
   // Dar de baja el contrato: cierra el contrato a la fecha de egreso con la
   // causal (Tabla 9) y GENERA AUTOMÁTICAMENTE la liquidación final por egreso.
   const bajaMutation = useMutation({
-    mutationFn: () => contractsApi.baja(
-      editing!.employeeId, editing!.contractId, bajaFecha,
-      bajaMotivo || undefined, bajaCausal ? Number(bajaCausal) : undefined,
+    mutationFn: ({ fechaEgreso, causal }: { fechaEgreso: string; causal?: number }) => contractsApi.baja(
+      editing!.employeeId, editing!.contractId, fechaEgreso, undefined, causal,
     ),
     onSuccess: (res: { liquidacionFinalId?: string | null; aviso?: string; desvinculadaTotal?: boolean }) => {
       queryClient.invalidateQueries({ queryKey: ['contracts-company', companyId] });
@@ -216,13 +213,22 @@ export default function ContractsPage() {
     },
   });
 
-  const darDeBaja = () => {
-    if (!editing || !bajaFecha) return;
-    const causalTxt = bajaCausal ? causales?.find((c) => String(c.codigo) === bajaCausal)?.nombre : undefined;
-    const msg = `¿Dar de baja el contrato de ${editing.persona} con egreso el ${bajaFecha}`
-      + (causalTxt ? ` (causal: ${causalTxt})` : '')
-      + '? Se cerrará el contrato y se generará automáticamente la liquidación final por egreso.';
-    if (confirm(msg)) { setFormError(''); bajaMutation.mutate(); }
+  // Submit del form de edición/alta. Si es una edición y se cargó una fecha en
+  // "Dar de baja" (y el contrato no estaba ya dado de baja), se procesa la BAJA
+  // (cierra el contrato con la causal + genera la final + navega a ella). Si no,
+  // es un alta/edición normal.
+  const onSubmitForm = (d: ContractForm) => {
+    setFormError('');
+    if (editing && !editing.yaBaja && d.fechaFin) {
+      const causalTxt = bajaCausal ? causales?.find((c) => String(c.codigo) === bajaCausal)?.nombre : undefined;
+      const msg = `¿Dar de baja el contrato de ${editing.persona} con egreso el ${d.fechaFin}`
+        + (causalTxt ? ` (causal: ${causalTxt})` : '')
+        + '? Se cerrará el contrato y se generará automáticamente la liquidación final por egreso.';
+      if (!confirm(msg)) return;
+      bajaMutation.mutate({ fechaEgreso: d.fechaFin, causal: bajaCausal ? Number(bajaCausal) : undefined });
+    } else {
+      saveMutation.mutate(d);
+    }
   };
 
   const deleteMutation = useMutation({
@@ -377,7 +383,7 @@ export default function ContractsPage() {
               <h2 className="text-lg font-bold text-gray-900">{editing ? `Editar Contrato — ${editing.persona}` : `Nuevo Contrato — ${empresaNombre}`}</h2>
               <button onClick={() => setModalOpen(false)} className="p-1 text-gray-400 hover:text-gray-700"><X size={20} /></button>
             </div>
-            <form onSubmit={handleSubmit((d) => { setFormError(''); saveMutation.mutate(d); })} className="p-6 space-y-4">
+            <form onSubmit={handleSubmit(onSubmitForm)} className="p-6 space-y-4">
               {formError && (
                 <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
                   <AlertCircle size={16} className="flex-shrink-0" />{formError}
@@ -404,15 +410,38 @@ export default function ContractsPage() {
                   <input {...register('fechaIngreso', { required: 'Requerido' })} type="date" className="form-input" />
                   {errors.fechaIngreso && <p className="form-error">{errors.fechaIngreso.message}</p>}
                 </div>
-                <div>
-                  <label className="form-label">Fin de contrato</label>
-                  <input {...register('fechaFin')} type="date" className="form-input" />
-                  <p className="text-xs text-gray-400 mt-1">Dejá vacío si está vigente sin fecha de fin.</p>
-                </div>
-                <div>
-                  <label className="form-label">Tipo de contrato</label>
-                  <input {...register('tipoContrato')} className="form-input" placeholder="Permanente, Zafral..." />
-                </div>
+                {editing ? (
+                  <>
+                    <div>
+                      <label className="form-label text-red-600">Dar de baja (fecha de egreso)</label>
+                      <input {...register('fechaFin')} type="date" className="form-input" readOnly={editing.yaBaja} />
+                      <p className="text-xs text-gray-400 mt-1">
+                        {editing.yaBaja
+                          ? 'Contrato ya dado de baja. Usá "Cancelar baja" en la lista para revertir.'
+                          : 'Al guardar con una fecha acá, se da de baja el contrato y se genera la liquidación final por egreso.'}
+                      </p>
+                    </div>
+                    <div>
+                      <label className="form-label text-red-600">Causal de baja (Tabla 9 BPS)</label>
+                      <select value={bajaCausal} onChange={(e) => setBajaCausal(e.target.value)} className="form-input" disabled={editing.yaBaja}>
+                        <option value="">— Seleccionar causal —</option>
+                        {causales?.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} — {c.nombre}</option>)}
+                      </select>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <label className="form-label">Fin de contrato</label>
+                      <input {...register('fechaFin')} type="date" className="form-input" />
+                      <p className="text-xs text-gray-400 mt-1">Dejá vacío si está vigente sin fecha de fin.</p>
+                    </div>
+                    <div>
+                      <label className="form-label">Tipo de contrato</label>
+                      <input {...register('tipoContrato')} className="form-input" placeholder="Permanente, Zafral..." />
+                    </div>
+                  </>
+                )}
                 <div>
                   <label className="form-label">Cargo</label>
                   <input {...register('cargo')} className="form-input" />
@@ -517,44 +546,11 @@ export default function ContractsPage() {
                   <label className="form-label">Observación</label>
                   <input {...register('observacion')} className="form-input" />
                 </div>
-                {editing && (
-                  <div className="col-span-2 pt-3 mt-1 border-t border-red-100">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-red-600 mb-1">Dar de baja (egreso)</p>
-                    <p className="text-xs text-gray-500 mb-3">Cierra el contrato a la fecha de egreso con la causal BPS y genera automáticamente la liquidación final por egreso (en borrador).</p>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="form-label">Fecha de egreso</label>
-                        <input type="date" value={bajaFecha} onChange={(e) => setBajaFecha(e.target.value)} className="form-input" />
-                      </div>
-                      <div>
-                        <label className="form-label">Causal de egreso (Tabla 9 BPS)</label>
-                        <select value={bajaCausal} onChange={(e) => setBajaCausal(e.target.value)} className="form-input">
-                          <option value="">— Seleccionar causal —</option>
-                          {causales?.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} — {c.nombre}</option>)}
-                        </select>
-                      </div>
-                      <div className="col-span-2">
-                        <label className="form-label">Motivo (opcional)</label>
-                        <input value={bajaMotivo} onChange={(e) => setBajaMotivo(e.target.value)} className="form-input" placeholder="Detalle interno de la baja" />
-                      </div>
-                      <div className="col-span-2">
-                        <button
-                          type="button"
-                          disabled={!bajaFecha || bajaMutation.isPending}
-                          onClick={darDeBaja}
-                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50"
-                        >
-                          {bajaMutation.isPending ? 'Procesando…' : 'Dar de baja y generar liquidación final'}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
               <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
                 <button type="button" onClick={() => setModalOpen(false)} className="btn-secondary">Cancelar</button>
-                <button type="submit" disabled={saveMutation.isPending} className="btn-primary">
-                  {saveMutation.isPending ? 'Guardando...' : editing ? 'Guardar cambios' : 'Crear contrato'}
+                <button type="submit" disabled={saveMutation.isPending || bajaMutation.isPending} className="btn-primary">
+                  {bajaMutation.isPending ? 'Procesando baja…' : saveMutation.isPending ? 'Guardando...' : editing ? 'Guardar cambios' : 'Crear contrato'}
                 </button>
               </div>
             </form>
