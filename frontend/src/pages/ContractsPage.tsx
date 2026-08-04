@@ -55,6 +55,10 @@ export default function ContractsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<{ employeeId: string; contractId: string; persona: string } | null>(null);
   const [formError, setFormError] = useState('');
+  // Baja / egreso (dentro del modal de edición): fecha + causal (Tabla 9) + motivo.
+  const [bajaFecha, setBajaFecha] = useState('');
+  const [bajaCausal, setBajaCausal] = useState('');
+  const [bajaMotivo, setBajaMotivo] = useState('');
 
   const empresaNombre = companies.find((c) => c.companyId === companyId)?.razonSocial ?? '';
 
@@ -76,6 +80,7 @@ export default function ContractsPage() {
   const { data: segurosSalud } = useQuery({ queryKey: ['cat-seguros-salud'], queryFn: () => catalogsApi.segurosSalud(), staleTime: Infinity });
   const { data: computos } = useQuery({ queryKey: ['cat-computos'], queryFn: () => catalogsApi.computosEspeciales(), staleTime: Infinity });
   const { data: exoneraciones } = useQuery({ queryKey: ['cat-exoneraciones'], queryFn: () => catalogsApi.exoneracionesAporte(), staleTime: Infinity });
+  const { data: causales } = useQuery({ queryKey: ['cat-causales-egreso'], queryFn: () => catalogsApi.causalesEgreso(), staleTime: Infinity });
 
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<ContractForm>({
     defaultValues: { personId: '', vigenciaDesde: '', fechaIngreso: '', salaryType: 'MENSUAL', salarioNominalPesos: 0 },
@@ -107,9 +112,12 @@ export default function ContractsPage() {
     setValue('salaryType', 'JORNALERO');
   }, [categoriaActual, esConstruccion, recuadroEmpresa, jornalesLaudo, setValue]);
 
+  const resetBaja = () => { setBajaFecha(''); setBajaCausal(''); setBajaMotivo(''); };
+
   const openNew = () => {
     setEditing(null);
     setFormError('');
+    resetBaja();
     const hoy = new Date().toISOString().slice(0, 10);
     reset({ personId: '', vigenciaDesde: hoy, fechaIngreso: hoy, fechaFin: '', salaryType: 'MENSUAL', salarioNominalPesos: 0, cargo: '', categoria: '', nivel: '', tipoContrato: '', sucursal: '', cuentaSueldos: '', observacion: '', vinculoFuncional: '12', fictoCategoria: '', seguroSalud: '', computosEspeciales: '99', exoneracionAporte: '9', horasSemanales: 44 });
     setModalOpen(true);
@@ -118,6 +126,7 @@ export default function ContractsPage() {
   const openEdit = (c: ContratoRow) => {
     setEditing({ employeeId: c.employee.id, contractId: c.id, persona: `${c.employee.apellido}, ${c.employee.nombre}` });
     setFormError('');
+    resetBaja();
     reset({
       personId: c.employee.id,
       vigenciaDesde: c.vigenciaDesde ? c.vigenciaDesde.slice(0, 10) : '',
@@ -177,6 +186,41 @@ export default function ContractsPage() {
       setFormError(message || 'Error al guardar el contrato.');
     },
   });
+
+  // Dar de baja el contrato: cierra el contrato a la fecha de egreso con la
+  // causal (Tabla 9) y GENERA AUTOMÁTICAMENTE la liquidación final por egreso.
+  const bajaMutation = useMutation({
+    mutationFn: () => contractsApi.baja(
+      editing!.employeeId, editing!.contractId, bajaFecha,
+      bajaMotivo || undefined, bajaCausal ? Number(bajaCausal) : undefined,
+    ),
+    onSuccess: (res: { liquidacionFinalId?: string | null; aviso?: string; desvinculadaTotal?: boolean }) => {
+      queryClient.invalidateQueries({ queryKey: ['contracts-company', companyId] });
+      queryClient.invalidateQueries({ queryKey: ['nomina-checklist'] });
+      queryClient.invalidateQueries({ queryKey: ['liquidations'] });
+      setModalOpen(false);
+      if (res?.aviso) {
+        alert(res.aviso);
+      } else if (res?.liquidacionFinalId) {
+        alert('Baja registrada. Se generó la liquidación final por egreso (en borrador). La encontrás en Liquidaciones.');
+      } else {
+        alert('Baja registrada.');
+      }
+    },
+    onError: (err: unknown) => {
+      const message = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      setFormError(message || 'No se pudo dar de baja el contrato.');
+    },
+  });
+
+  const darDeBaja = () => {
+    if (!editing || !bajaFecha) return;
+    const causalTxt = bajaCausal ? causales?.find((c) => String(c.codigo) === bajaCausal)?.nombre : undefined;
+    const msg = `¿Dar de baja el contrato de ${editing.persona} con egreso el ${bajaFecha}`
+      + (causalTxt ? ` (causal: ${causalTxt})` : '')
+      + '? Se cerrará el contrato y se generará automáticamente la liquidación final por egreso.';
+    if (confirm(msg)) { setFormError(''); bajaMutation.mutate(); }
+  };
 
   const deleteMutation = useMutation({
     mutationFn: (c: ContratoRow) => contractsApi.remove(c.employee.id, c.id),
@@ -470,6 +514,39 @@ export default function ContractsPage() {
                   <label className="form-label">Observación</label>
                   <input {...register('observacion')} className="form-input" />
                 </div>
+                {editing && (
+                  <div className="col-span-2 pt-3 mt-1 border-t border-red-100">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-red-600 mb-1">Dar de baja (egreso)</p>
+                    <p className="text-xs text-gray-500 mb-3">Cierra el contrato a la fecha de egreso con la causal BPS y genera automáticamente la liquidación final por egreso (en borrador).</p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="form-label">Fecha de egreso</label>
+                        <input type="date" value={bajaFecha} onChange={(e) => setBajaFecha(e.target.value)} className="form-input" />
+                      </div>
+                      <div>
+                        <label className="form-label">Causal de egreso (Tabla 9 BPS)</label>
+                        <select value={bajaCausal} onChange={(e) => setBajaCausal(e.target.value)} className="form-input">
+                          <option value="">— Seleccionar causal —</option>
+                          {causales?.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} — {c.nombre}</option>)}
+                        </select>
+                      </div>
+                      <div className="col-span-2">
+                        <label className="form-label">Motivo (opcional)</label>
+                        <input value={bajaMotivo} onChange={(e) => setBajaMotivo(e.target.value)} className="form-input" placeholder="Detalle interno de la baja" />
+                      </div>
+                      <div className="col-span-2">
+                        <button
+                          type="button"
+                          disabled={!bajaFecha || bajaMutation.isPending}
+                          onClick={darDeBaja}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+                        >
+                          {bajaMutation.isPending ? 'Procesando…' : 'Dar de baja y generar liquidación final'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
                 <button type="button" onClick={() => setModalOpen(false)} className="btn-secondary">Cancelar</button>
