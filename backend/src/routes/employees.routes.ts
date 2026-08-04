@@ -635,8 +635,10 @@ employeesRouter.post('/:id/contracts/:contractId/baja', authenticate, requireRol
     }
     const notaBaja = [causalTexto, motivo].filter(Boolean).join('. ');
 
-    // 1) Cerrar el contrato a la fecha de egreso.
-    const updated = await prisma.contrato.update({
+    // 1) Cerrar el contrato a la fecha de egreso. Se mantiene activo POR AHORA
+    //    (se inactiva recién en el paso 2b): la generación de la final necesita
+    //    resolver el contrato vigente, que filtra por activo=true.
+    let updated = await prisma.contrato.update({
       where: { id: req.params.contractId },
       data: {
         fechaFin: fecha,
@@ -656,6 +658,13 @@ employeesRouter.post('/:id/contracts/:contractId/baja', authenticate, requireRol
     } catch (e) {
       avisoFinal = `El contrato se dio de baja, pero no se pudo generar la liquidación final: ${(e as Error).message}`;
     }
+
+    // 2b) Inactivar el CONTRATO (recién ahora, ya generada la final): la baja
+    //     deja el contrato inactivo. El botón "Cancelar baja" lo reactiva.
+    updated = await prisma.contrato.update({
+      where: { id: req.params.contractId },
+      data: { activo: false },
+    });
 
     // 3) Si no le quedan contratos vigentes en NINGUNA empresa, inactivar la persona.
     const otrosVigentes = await prisma.contrato.count({
