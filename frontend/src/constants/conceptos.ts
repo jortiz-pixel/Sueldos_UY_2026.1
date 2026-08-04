@@ -20,6 +20,7 @@ export const CONCEPTOS_SISTEMA: ConceptoSistema[] = [
   { nombre: 'Viáticos Gravados', tipo: 'HABER', calculo: 'Monto manual — integra la base de aportes e IRPF', gravado: 'Sí' },
   { nombre: 'Viáticos', tipo: 'HABER', calculo: 'Monto manual — suma al líquido SIN descuentos', gravado: 'No' },
   { nombre: 'Horas Tardes', tipo: 'DESCUENTO_OBRERO', calculo: 'Cantidad de horas × (jornal ÷ 8) — netea los haberes como las faltas', gravado: '—' },
+  { nombre: 'Retención Judicial', tipo: 'DESCUENTO_OBRERO', calculo: 'Porcentaje editable sobre el total de haberes (embargo)', gravado: '—' },
   { nombre: 'BPS Jubilatorio', tipo: 'DESCUENTO_OBRERO', calculo: '15% sobre el gravado', gravado: '—' },
   { nombre: 'FONASA (Seguro por Enfermedad)', tipo: 'DESCUENTO_OBRERO', calculo: '3% fijo sobre el total de haberes', gravado: '—' },
   { nombre: 'Adicional FONASA', tipo: 'DESCUENTO_OBRERO', calculo: 'Complemento según seguro de salud (escalón >2,5 BPC + hijos + cónyuge)', gravado: '—' },

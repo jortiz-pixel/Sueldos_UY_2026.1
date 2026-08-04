@@ -762,6 +762,23 @@ async function recalcularLiquidacion(liquidationId: string): Promise<void> {
     }
   }
 
+  // RETENCIÓN JUDICIAL (embargo): descuento = % × Total de Haberes. Se recalcula
+  // acá para seguir el total de haberes vigente (si cambian los haberes o se
+  // agregó/editó la prima, la retención se ajusta). No afecta la base gravada ni
+  // los aportes: se aplica sobre el líquido, después de impuestos.
+  const retenciones = liq.items.filter((i) => i.concepto === 'RETENCION_JUDICIAL');
+  if (retenciones.length > 0) {
+    const totalHaberes = liq.items
+      .filter((i) => i.itemType === ItemType.HABER)
+      .reduce((s, i) => s + i.amount, 0n);
+    for (const ret of retenciones) {
+      await prisma.payrollItem.update({
+        where: { id: ret.id },
+        data: { baseCalculo: totalHaberes, amount: applyRate(totalHaberes, ret.rate ?? 0) },
+      });
+    }
+  }
+
   await recalcularTotales(liquidationId);
 }
 
@@ -772,6 +789,7 @@ liquidationRouter.post('/:id/item', authenticate, requireRole(UserRole.ADMIN, Us
       descripcion: z.string().min(1),
       monto: z.number().positive().optional(),      // en pesos (o usar cantidad para faltas)
       cantidad: z.number().positive().optional(),   // cantidad de faltas (días); el monto se calcula solo
+      porcentaje: z.number().nonnegative().max(100).optional(), // retención judicial: % sobre el total de haberes
       itemType: z.enum(['HABER', 'DESCUENTO_OBRERO']),
       gravado: z.boolean().optional(),              // solo aplica a HABER; por defecto gravado
     });
@@ -817,6 +835,30 @@ liquidationRouter.post('/:id/item', authenticate, requireRole(UserRole.ADMIN, Us
           ? `Prima por antigüedad calculada: ${prima.rate / 100}% (${prima.anios} años)`
           : 'Prima en 0: rige a partir del segundo año de trabajo (el primer año no genera prima)',
       });
+      return;
+    }
+
+    // RETENCIÓN JUDICIAL (embargo): descuento con PORCENTAJE editable calculado
+    // sobre el TOTAL DE HABERES del mes. Se pide el %, y el monto = % × total de
+    // haberes. Se recalcula solo si cambian los haberes (ver recalcularLiquidación).
+    if (data.itemType === 'DESCUENTO_OBRERO' && /retenci[oó]n\s+judicial/i.test(data.descripcion)) {
+      if (data.porcentaje === undefined) throw new AppError(400, 'Indicá el porcentaje de la retención judicial.');
+      const liqFull = await prisma.liquidation.findUnique({ where: { id: liquidation.id }, include: { items: true } });
+      const totalHaberes = (liqFull?.items ?? [])
+        .filter((i) => i.itemType === ItemType.HABER)
+        .reduce((s, i) => s + i.amount, 0n);
+      const rateBp = Math.round(data.porcentaje * 100);
+      await prisma.payrollItem.create({
+        data: {
+          liquidationId: liquidation.id, employeeId: liquidation.employeeId,
+          itemType: ItemType.DESCUENTO_OBRERO, concepto: 'RETENCION_JUDICIAL',
+          descripcion: `Retención Judicial (${data.porcentaje}%)`,
+          baseCalculo: totalHaberes, rate: rateBp, amount: applyRate(totalHaberes, rateBp),
+          calculationDetail: { retencionJudicial: true, rateBp } as unknown as Prisma.InputJsonValue,
+        },
+      });
+      await recalcularLiquidacion(liquidation.id);
+      res.status(201).json({ message: `Retención judicial agregada: ${data.porcentaje}% del total de haberes` });
       return;
     }
 
@@ -910,7 +952,7 @@ liquidationRouter.delete('/:id/item/:itemId', authenticate, requireRole(UserRole
     if (!item || item.liquidationId !== liquidation.id) throw new NotFoundError('Concepto');
     // Solo los conceptos agregados a mano: ajustes (AJUSTE/AJUSTE_NO_GRAVADO) y
     // faltas (FALTAS). Los aportes legales se recalculan, no se borran.
-    const esManual = item.concepto.startsWith('AJUSTE') || ['FALTAS', 'HORAS_TARDE', 'DESCANSO_TRABAJADO', 'REINTEGRO_GASTOS', 'PRIMA_ANTIGUEDAD', 'VIATICOS', 'VIATICOS_GRAVADOS'].includes(item.concepto);
+    const esManual = item.concepto.startsWith('AJUSTE') || ['FALTAS', 'HORAS_TARDE', 'DESCANSO_TRABAJADO', 'REINTEGRO_GASTOS', 'PRIMA_ANTIGUEDAD', 'RETENCION_JUDICIAL', 'VIATICOS', 'VIATICOS_GRAVADOS'].includes(item.concepto);
     if (!esManual) {
       throw new AppError(409, 'Solo se pueden quitar los conceptos agregados manualmente');
     }
@@ -941,6 +983,30 @@ liquidationRouter.patch('/:id/item/:itemId', authenticate, requireRole(UserRole.
     }
     const item = await prisma.payrollItem.findUnique({ where: { id: req.params.itemId } });
     if (!item || item.liquidationId !== liquidation.id) throw new NotFoundError('Concepto');
+
+    // RETENCIÓN JUDICIAL editable: el usuario cambia el PORCENTAJE; la base es
+    // siempre el TOTAL DE HABERES del mes (no se ingresa). Monto = % × total.
+    if (item.concepto === 'RETENCION_JUDICIAL' && data.porcentaje !== undefined) {
+      const rateBp = Math.round(data.porcentaje * 100);
+      const haberItems = await prisma.payrollItem.findMany({
+        where: { liquidationId: liquidation.id, itemType: ItemType.HABER },
+        select: { amount: true },
+      });
+      const totalHaberes = haberItems.reduce((s, i) => s + i.amount, 0n);
+      await prisma.payrollItem.update({
+        where: { id: item.id },
+        data: {
+          descripcion: data.descripcion ?? `Retención Judicial (${data.porcentaje}%)`,
+          baseCalculo: totalHaberes,
+          rate: rateBp,
+          amount: applyRate(totalHaberes, rateBp),
+          calculationDetail: { retencionJudicial: true, rateBp } as unknown as Prisma.InputJsonValue,
+        },
+      });
+      await recalcularLiquidacion(liquidation.id);
+      res.json({ message: 'Concepto actualizado' });
+      return;
+    }
 
     // PRIMA POR ANTIGÜEDAD editable: el usuario carga el monto BASE y el % — la
     // prima = base × %. Se guarda baseCalculo y rate (bp) y se marca la línea

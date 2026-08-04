@@ -28,10 +28,13 @@ function ItemRow({ item, editable, onEdit, onDelete }: {
   onDelete?: (id: string) => void;
 }) {
   // Conceptos agregados a mano (ajustes y faltas): se pueden editar y eliminar.
-  const manual = item.concepto.startsWith('AJUSTE') || ['FALTAS', 'HORAS_TARDE', 'DESCANSO_TRABAJADO', 'REINTEGRO_GASTOS', 'PRIMA_ANTIGUEDAD', 'VIATICOS', 'VIATICOS_GRAVADOS'].includes(item.concepto);
+  const manual = item.concepto.startsWith('AJUSTE') || ['FALTAS', 'HORAS_TARDE', 'DESCANSO_TRABAJADO', 'REINTEGRO_GASTOS', 'PRIMA_ANTIGUEDAD', 'RETENCION_JUDICIAL', 'VIATICOS', 'VIATICOS_GRAVADOS'].includes(item.concepto);
   // La prima por antigüedad se edita distinto: el usuario carga el monto BASE y
   // el PORCENTAJE, y la prima sale sola (base × %).
   const esPrima = item.concepto === 'PRIMA_ANTIGUEDAD';
+  // La retención judicial: solo se edita el PORCENTAJE; la base es el total de
+  // haberes (no se ingresa) y el monto = % × total de haberes.
+  const esRetencion = item.concepto === 'RETENCION_JUDICIAL';
   const [editing, setEditing] = useState(false);
   const [d, setD] = useState(item.descripcion);
   const [m, setM] = useState(Number(item.amount) / 100);
@@ -65,6 +68,32 @@ function ItemRow({ item, editable, onEdit, onDelete }: {
             <span className="text-sm font-mono text-gray-600 align-middle" title="Prima = base × %">{formatPesos(String(primaCentesimos))}</span>
             <button onClick={() => { onEdit?.(item.id, { descripcion: d, base: baseNum, porcentaje: pctNum }); setEditing(false); }} className="ml-2 text-green-600 hover:text-green-700 align-middle" title="Guardar"><Check size={15} /></button>
             <button onClick={() => { setD(item.descripcion); setBaseStr(baseInicial); setPctStr(pctInicial); setEditing(false); }} className="ml-1 text-gray-400 hover:text-gray-600 align-middle" title="Cancelar"><X size={15} /></button>
+          </td>
+        </tr>
+      );
+    }
+    if (esRetencion) {
+      const baseNum = item.baseCalculo ? Number(item.baseCalculo) / 100 : 0; // total de haberes (fijo)
+      const pctNum = parseFloat(pctStr.replace(',', '.')) || 0;
+      const retCentesimos = Math.round(baseNum * pctNum); // retención = total de haberes × %
+      return (
+        <tr className="bg-amber-50/50">
+          <td className="px-4 py-2">
+            <input value={d} onChange={(e) => setD(e.target.value)} className="border border-gray-300 rounded px-2 py-1 text-sm w-full" />
+          </td>
+          <td className="px-4 py-2 text-right text-xs font-mono text-gray-500" title="Total de haberes (base)">
+            {item.baseCalculo ? formatPesos(item.baseCalculo) : '—'}
+          </td>
+          <td className="px-4 py-2 text-right">
+            <div className="inline-flex items-center">
+              <input type="text" inputMode="decimal" value={pctStr} onChange={(e) => setPctStr(e.target.value)} className="border border-gray-300 rounded px-2 py-1 text-sm w-16 text-right" title="Porcentaje" placeholder="%" />
+              <span className="ml-1 text-xs text-gray-500">%</span>
+            </div>
+          </td>
+          <td className="px-4 py-2 text-right whitespace-nowrap">
+            <span className="text-sm font-mono text-gray-600 align-middle" title="Retención = total de haberes × %">{formatPesos(String(retCentesimos))}</span>
+            <button onClick={() => { onEdit?.(item.id, { descripcion: d, porcentaje: pctNum }); setEditing(false); }} className="ml-2 text-green-600 hover:text-green-700 align-middle" title="Guardar"><Check size={15} /></button>
+            <button onClick={() => { setD(item.descripcion); setPctStr(pctInicial); setEditing(false); }} className="ml-1 text-gray-400 hover:text-gray-600 align-middle" title="Cancelar"><X size={15} /></button>
           </td>
         </tr>
       );
@@ -116,7 +145,7 @@ function Section({ title, items, total, colorClass, opciones, editable, onAdd, o
   colorClass: string;
   opciones?: OpcionConcepto[];
   editable?: boolean;
-  onAdd?: (descripcion: string, monto: number, cantidad?: number) => void;
+  onAdd?: (descripcion: string, monto: number, cantidad?: number, porcentaje?: number) => void;
   onEdit?: (itemId: string, data: { descripcion: string; monto?: number; base?: number; porcentaje?: number }) => void;
   onDelete?: (id: string) => void;
 }) {
@@ -124,9 +153,13 @@ function Section({ title, items, total, colorClass, opciones, editable, onAdd, o
   const [desc, setDesc] = useState('');
   const [monto, setMonto] = useState(0);
   const [cantidad, setCantidad] = useState(0);
+  const [porcentajeStr, setPorcentajeStr] = useState('');
 
   const nombreSel = sel === 'OTRO' ? desc : (opciones?.find((x) => x.key === sel)?.nombre ?? desc);
   const esFalta = /\bfaltas?\b/i.test(nombreSel);
+  // Retención judicial (embargo): descuento con % editable sobre el total de
+  // haberes. Se pide el porcentaje; el monto lo calcula el backend.
+  const esRetencion = /retenci[oó]n\s+judicial/i.test(nombreSel);
   // Horas tardes: se carga la CANTIDAD de horas y el monto sale solo
   // (jornal ÷ 8 × horas); resta de los haberes igual que las faltas.
   const esHorasTarde = /\bhoras?\s+tardes?\b|\bllegadas?\s+tardes?\b/i.test(nombreSel);
@@ -140,6 +173,7 @@ function Section({ title, items, total, colorClass, opciones, editable, onAdd, o
   const onSel = (value: string) => {
     setSel(value);
     setCantidad(0);
+    setPorcentajeStr('');
     if (value && value !== 'OTRO') {
       const o = opciones?.find((x) => x.key === value);
       setDesc(o?.nombre ?? '');
@@ -149,13 +183,16 @@ function Section({ title, items, total, colorClass, opciones, editable, onAdd, o
     }
   };
 
-  const reset = () => { setSel(''); setDesc(''); setMonto(0); setCantidad(0); };
+  const reset = () => { setSel(''); setDesc(''); setMonto(0); setCantidad(0); setPorcentajeStr(''); };
 
   const agregar = () => {
     const d = nombreSel;
     if (!d.trim()) return;
     if (esFalta || esHorasTarde || esDescanso) {
       if (cantidad > 0) { onAdd?.(d.trim(), 0, cantidad); reset(); }
+    } else if (esRetencion) {
+      const pct = parseFloat(porcentajeStr.replace(',', '.'));
+      if (pct > 0) { onAdd?.(d.trim(), 0, undefined, pct); reset(); }
     } else if (esPrima) {
       onAdd?.(d.trim(), 0); reset();
     } else if (monto > 0) {
@@ -199,7 +236,13 @@ function Section({ title, items, total, colorClass, opciones, editable, onAdd, o
                   {sel && (esFalta || esHorasTarde || esDescanso) && (
                     <input type="number" step="0.01" min="0" value={cantidad || ''} onChange={(e) => setCantidad(Number(e.target.value))} placeholder={esFalta ? 'N° de faltas' : esHorasTarde ? 'N° de horas' : 'N° de descansos'} className="border border-gray-300 rounded-lg px-2 py-1 text-sm w-32" />
                   )}
-                  {sel && !esFalta && !esHorasTarde && !esDescanso && !esPrima && <input type="number" value={monto || ''} onChange={(e) => setMonto(Number(e.target.value))} placeholder="Monto $" className="border border-gray-300 rounded-lg px-2 py-1 text-sm w-28" />}
+                  {sel && esRetencion && (
+                    <div className="inline-flex items-center">
+                      <input type="text" inputMode="decimal" value={porcentajeStr} onChange={(e) => setPorcentajeStr(e.target.value)} placeholder="%" className="border border-gray-300 rounded-lg px-2 py-1 text-sm w-20 text-right" />
+                      <span className="ml-1 text-xs text-gray-500">% del total de haberes</span>
+                    </div>
+                  )}
+                  {sel && !esFalta && !esHorasTarde && !esDescanso && !esPrima && !esRetencion && <input type="number" value={monto || ''} onChange={(e) => setMonto(Number(e.target.value))} placeholder="Monto $" className="border border-gray-300 rounded-lg px-2 py-1 text-sm w-28" />}
                   {sel && esFalta && <span className="text-xs text-gray-500">el monto se calcula solo (básico ÷ 30 × faltas)</span>}
                   {sel && esHorasTarde && <span className="text-xs text-gray-500">el monto se calcula solo (jornal ÷ 8 × horas)</span>}
                   {sel && esDescanso && <span className="text-xs text-gray-500">el monto se calcula solo (un jornal por descanso trabajado)</span>}
@@ -301,7 +344,7 @@ export default function LiquidationDetailPage() {
   });
 
   const addItemMutation = useMutation({
-    mutationFn: (vars: { descripcion: string; monto?: number; cantidad?: number; itemType: 'HABER' | 'DESCUENTO_OBRERO' }) => liquidationApi.addItem(id!, vars),
+    mutationFn: (vars: { descripcion: string; monto?: number; cantidad?: number; porcentaje?: number; itemType: 'HABER' | 'DESCUENTO_OBRERO' }) => liquidationApi.addItem(id!, vars),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['liquidation', id] }),
     onError: (e: unknown) => {
       const err = e as { response?: { data?: { error?: string } } };
@@ -512,7 +555,7 @@ export default function LiquidationDetailPage() {
           colorClass="bg-red-50 text-red-800"
           opciones={descuentoOptions}
           editable={puedeEditar}
-          onAdd={(descripcion, monto, cantidad) => addItemMutation.mutate({ descripcion, ...(cantidad ? { cantidad } : monto ? { monto } : {}), itemType: 'DESCUENTO_OBRERO' })}
+          onAdd={(descripcion, monto, cantidad, porcentaje) => addItemMutation.mutate({ descripcion, ...(porcentaje !== undefined ? { porcentaje } : cantidad ? { cantidad } : monto ? { monto } : {}), itemType: 'DESCUENTO_OBRERO' })}
           onEdit={(itemId, dd) => updateItemMutation.mutate({ itemId, ...dd })}
           onDelete={puedeEditar ? deleteItemMutation.mutate : undefined}
         />
