@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { Plus, Play, RefreshCw, CheckCircle, Eye, Download, RotateCcw, Trash2, Building2, Landmark, MapPin, Hash, X } from 'lucide-react';
-import { liquidationApi, companiesApi } from '../services/api';
+import { liquidationApi, companiesApi, employeesApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
 import { abrirBlobEnPestania } from '../utils/file';
@@ -158,6 +158,17 @@ export default function LiquidationPage() {
   const [espDias, setEspDias] = useState(10);
   const [espAnticipar, setEspAnticipar] = useState(false);
   const [espFecha, setEspFecha] = useState('');
+
+  // Salario vacacional: al elegir la persona se prellenan los días DISPONIBLES
+  // (los que le corresponden menos los tomados); quedan editables.
+  const { data: espVacInfo } = useQuery({
+    queryKey: ['esp-vac-disponibles', espEmpId, selectedYear, selectedPeriod?.month],
+    queryFn: () => employeesApi.vacacionDisponibles(espEmpId, selectedYear, selectedPeriod?.month ?? 12),
+    enabled: espTipo === 'LICENCIA' && !!espEmpId,
+  });
+  useEffect(() => {
+    if (espTipo === 'LICENCIA' && espVacInfo) setEspDias(espVacInfo.diasDisponibles);
+  }, [espVacInfo, espTipo]);
 
   const especialMutation = useMutation({
     mutationFn: () => {
@@ -476,6 +487,11 @@ export default function LiquidationPage() {
               <div>
                 <label className="form-label">Días hábiles de licencia a tomar</label>
                 <input type="number" min={0.01} max={31} step={0.01} value={espDias} onChange={(e) => setEspDias(Number(e.target.value))} className="form-input" />
+                {espVacInfo && (
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    Le corresponden {espVacInfo.diasCorresponden} · tomados {espVacInfo.diasTomados} · <b>disponibles {espVacInfo.diasDisponibles}</b> (prellenado; editá si no toma todo).
+                  </p>
+                )}
                 <p className="text-[11px] text-gray-400 mt-1">Admite días fraccionados (ej. 8,33).</p>
                 <label className="flex items-center gap-2 mt-2 text-sm text-gray-600">
                   <input type="checkbox" checked={espAnticipar} onChange={(e) => setEspAnticipar(e.target.checked)} className="rounded" />

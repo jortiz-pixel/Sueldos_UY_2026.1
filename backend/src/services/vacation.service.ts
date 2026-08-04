@@ -25,6 +25,24 @@ export interface LicenciaInput {
   anticipar?: boolean; // permite tomar más días que los disponibles (anticipo)
 }
 
+// Días de licencia que le CORRESPONDEN al empleado en un año y cuántos tiene
+// DISPONIBLES (corresponden − tomados). Sirve para prellenar los "días a gozar"
+// del salario vacacional (editable: si no se toma toda la licencia, se baja).
+export async function vacacionalesDisponibles(
+  employeeId: string, year: number, month = 12,
+): Promise<{ diasCorresponden: number; diasTomados: number; diasDisponibles: number }> {
+  const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
+  if (!employee) throw new AppError(404, 'Empleado no encontrado');
+  const asOfDate = new Date(year, month - 1, 1);
+  const correspondenAntiguedad = diasLicenciaCorrespondientes(calcularAntiguedad(employee.fechaIngreso, asOfDate));
+  const accrual = await prisma.vacationAccrual.findUnique({
+    where: { employeeId_year: { employeeId, year } },
+  });
+  const diasCorresponden = accrual?.diasCorresponden ?? correspondenAntiguedad;
+  const diasTomados = accrual?.diasTomados ?? 0;
+  return { diasCorresponden, diasTomados, diasDisponibles: Math.max(0, diasCorresponden - diasTomados) };
+}
+
 export async function calcularLiquidacionLicencia(input: LicenciaInput) {
   const asOfDate = new Date(input.year, input.month - 1, 1);
   const params = await parametersService.getPayrollParameters(asOfDate);

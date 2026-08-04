@@ -386,6 +386,10 @@ export const employeesApi = {
   history: (id: string) => api.get(`/employees/${id}/history`).then((r) => r.data),
   liquidations: (id: string) => api.get<Liquidation[]>(`/employees/${id}/liquidations`).then((r) => r.data),
   vacation: (id: string) => api.get(`/employees/${id}/vacation`).then((r) => r.data),
+  vacacionDisponibles: (id: string, year: number, month: number) =>
+    api.get<{ diasCorresponden: number; diasTomados: number; diasDisponibles: number }>(
+      `/employees/${id}/vacation-disponibles`, { params: { year, month } },
+    ).then((r) => r.data),
 };
 
 export const contractsApi = {

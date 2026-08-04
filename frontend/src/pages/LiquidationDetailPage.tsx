@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Download, CheckCircle, XCircle, RotateCcw, RefreshCw, X, Plus, Pencil, Check, HardHat } from 'lucide-react';
-import { liquidationApi, conceptsApi, companiesApi } from '../services/api';
+import { liquidationApi, conceptsApi, companiesApi, employeesApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
 import { abrirBlobEnPestania } from '../utils/file';
@@ -328,6 +328,21 @@ export default function LiquidationDetailPage() {
   const [vacDias, setVacDias] = useState('');
   const [vacAnticipar, setVacAnticipar] = useState(false);
 
+  // Salario vacacional: días que le CORRESPONDEN / DISPONIBLES, para prellenar
+  // "días a gozar" (editable si no se toma toda la licencia).
+  const { data: vacInfo } = useQuery({
+    queryKey: ['vac-disponibles', liq?.employeeId, liq?.year, liq?.month],
+    queryFn: () => employeesApi.vacacionDisponibles(liq!.employeeId, liq!.year, liq!.month),
+    enabled: !!liq && liq.type === 'LICENCIA',
+  });
+  const vacPrefillDone = useRef(false);
+  useEffect(() => {
+    if (liq?.type === 'LICENCIA' && vacInfo && !vacPrefillDone.current) {
+      setVacDias(String(vacInfo.diasDisponibles));
+      vacPrefillDone.current = true;
+    }
+  }, [liq?.type, vacInfo]);
+
   const construccionMutation = useMutation({
     mutationFn: () => liquidationApi.generate({
       employeeId: liq!.employeeId,
@@ -376,7 +391,10 @@ export default function LiquidationDetailPage() {
       diasHabilesTomar: Number(vacDias),
       anticipar: vacAnticipar,
     }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['liquidation', id] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['liquidation', id] });
+      queryClient.invalidateQueries({ queryKey: ['vac-disponibles'] });
+    },
     onError: (e: unknown) => {
       const err = e as { response?: { data?: { error?: string } } };
       alert(err.response?.data?.error || 'No se pudo recalcular el salario vacacional.');
@@ -613,20 +631,25 @@ export default function LiquidationDetailPage() {
             <div>
               <label className="form-label">Días hábiles a gozar</label>
               <input type="number" min="0" max="31" step="0.01" value={vacDias} onChange={(e) => setVacDias(e.target.value)} placeholder="ej. 20" className="form-input" />
+              {vacInfo && (
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Le corresponden {vacInfo.diasCorresponden} · tomados {vacInfo.diasTomados} · <b>disponibles {vacInfo.diasDisponibles}</b>
+                </p>
+              )}
             </div>
-            <div className="flex items-end">
+            <div className="flex items-end pb-1">
               <label className="flex items-center gap-2 text-sm text-gray-600">
-                <input type="checkbox" checked={vacAnticipar} onChange={(e) => setVacAnticipar(e.target.checked)} /> Anticipar
+                <input type="checkbox" checked={vacAnticipar} onChange={(e) => setVacAnticipar(e.target.checked)} /> Anticipar (más que disponibles)
               </label>
             </div>
-            <div className="flex items-end">
+            <div className="flex items-start">
               <button onClick={() => { if (Number(vacDias) > 0) vacacionalMutation.mutate(); }} disabled={!vacDias || vacacionalMutation.isPending} className="btn-primary btn-sm w-full">
                 {vacacionalMutation.isPending ? 'Calculando…' : 'Aplicar y recalcular'}
               </button>
             </div>
           </div>
           <p className="text-[11px] text-gray-400">
-            Salario vacacional = jornal líquido × días a gozar, EXENTO (sin descuentos). Cambiar los días recalcula esta liquidación.
+            Se prellenan los días DISPONIBLES; si no se toma toda la licencia, bajá el número. Salario vacacional = jornal líquido × días a gozar, EXENTO (sin descuentos). Cambiar los días recalcula esta liquidación.
           </p>
         </div>
       )}

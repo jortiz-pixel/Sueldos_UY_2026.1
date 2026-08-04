@@ -7,7 +7,7 @@ import { authenticate, requireRole } from '../middleware/auth';
 import { assertCompanyAccess, accessibleCompanyIds } from '../middleware/tenancy';
 import { AppError, NotFoundError } from '../middleware/errorHandler';
 import { calcularAntiguedad, diasLicenciaCorrespondientes } from '../utils/date';
-import { calcularLiquidacionFinal } from '../services/vacation.service';
+import { calcularLiquidacionFinal, vacacionalesDisponibles } from '../services/vacation.service';
 import { recordAudit } from '../services/audit.service';
 
 export const employeesRouter = Router();
@@ -791,5 +791,19 @@ employeesRouter.get('/:id/vacation', authenticate, async (req: Request, res: Res
       orderBy: { year: 'desc' },
     });
     res.json(accruals);
+  } catch (err) { next(err); }
+});
+
+// GET /:id/vacation-disponibles?year=&month= → días de licencia que corresponden
+// y disponibles (para prellenar los días a gozar del salario vacacional).
+employeesRouter.get('/:id/vacation-disponibles', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const employee = await prisma.employee.findUnique({ where: { id: req.params.id } });
+    if (!employee) throw new NotFoundError('Empleado');
+    await assertPersonaAccess(req, employee.id, employee.companyId);
+    const year = req.query.year ? parseInt(req.query.year as string, 10) : new Date().getFullYear();
+    const month = req.query.month ? parseInt(req.query.month as string, 10) : 12;
+    const info = await vacacionalesDisponibles(req.params.id, year, month);
+    res.json(info);
   } catch (err) { next(err); }
 });
