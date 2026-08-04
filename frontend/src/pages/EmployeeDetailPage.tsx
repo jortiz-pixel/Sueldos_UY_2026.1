@@ -588,8 +588,13 @@ export default function EmployeeDetailPage() {
                   <input {...register('cargo')} className="form-input" />
                 </div>
                 <div>
-                  <label className="form-label">Categoría{esConstruccion ? ' (laudo construcción)' : ''}</label>
-                  {esConstruccion ? (
+                  <label className="form-label">Sector</label>
+                  <input {...register('sector')} className="form-input" placeholder="Producción, Ventas, Administración…" />
+                  <p className="text-xs text-gray-400 mt-1">Aparece en el recibo de sueldo.</p>
+                </div>
+                {esConstruccion && (
+                  <div>
+                    <label className="form-label">Categoría (laudo construcción)</label>
                     <select {...register('categoria')} className="form-input">
                       <option value="">— Seleccionar categoría —</option>
                       {categoriaActual && !CATEGORIAS_CONSTRUCCION.includes(categoriaActual) && (
@@ -597,10 +602,8 @@ export default function EmployeeDetailPage() {
                       )}
                       {CATEGORIAS_CONSTRUCCION.map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
-                  ) : (
-                    <input {...register('categoria')} className="form-input" />
-                  )}
-                </div>
+                  </div>
+                )}
                 <div>
                   <label className="form-label">Nivel</label>
                   <input {...register('nivel')} className="form-input" />

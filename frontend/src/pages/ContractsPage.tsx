@@ -18,6 +18,7 @@ interface ContractForm {
   fechaFin?: string;
   tipoContrato?: string;
   cargo?: string;
+  sector?: string;
   categoria?: string;
   nivel?: string;
   salaryType: SalaryType;
@@ -117,7 +118,7 @@ export default function ContractsPage() {
     setFormError('');
     setBajaCausal('');
     const hoy = new Date().toISOString().slice(0, 10);
-    reset({ personId: '', vigenciaDesde: hoy, fechaIngreso: hoy, fechaFin: '', salaryType: 'MENSUAL', salarioNominalPesos: 0, cargo: '', categoria: '', nivel: '', tipoContrato: '', sucursal: '', cuentaSueldos: '', observacion: '', vinculoFuncional: '12', fictoCategoria: '', seguroSalud: '', computosEspeciales: '99', exoneracionAporte: '9', horasSemanales: 44 });
+    reset({ personId: '', vigenciaDesde: hoy, fechaIngreso: hoy, fechaFin: '', salaryType: 'MENSUAL', salarioNominalPesos: 0, cargo: '', sector: '', categoria: '', nivel: '', tipoContrato: '', sucursal: '', cuentaSueldos: '', observacion: '', vinculoFuncional: '12', fictoCategoria: '', seguroSalud: '', computosEspeciales: '99', exoneracionAporte: '9', horasSemanales: 44 });
     setModalOpen(true);
   };
 
@@ -132,7 +133,7 @@ export default function ContractsPage() {
       fechaIngreso: c.fechaIngreso ? c.fechaIngreso.slice(0, 10) : '',
       fechaFin: c.fechaFin ? c.fechaFin.slice(0, 10) : '',
       tipoContrato: c.tipoContrato ?? '',
-      cargo: c.cargo ?? '', categoria: c.categoria ?? '', nivel: c.nivel ?? '',
+      cargo: c.cargo ?? '', sector: c.sector ?? '', categoria: c.categoria ?? '', nivel: c.nivel ?? '',
       salaryType: c.salaryType,
       salarioNominalPesos: Number(c.salarioNominal) / 100,
       jornalPesos: c.jornal ? Number(c.jornal) / 100 : undefined,
@@ -156,6 +157,7 @@ export default function ContractsPage() {
         fechaFin: data.fechaFin || null, // null = quitar la fecha de egreso (cancelar baja)
         tipoContrato: data.tipoContrato || undefined,
         cargo: data.cargo || undefined,
+        sector: data.sector || undefined,
         categoria: data.categoria || undefined,
         nivel: data.nivel || undefined,
         salaryType: data.salaryType,
@@ -447,8 +449,13 @@ export default function ContractsPage() {
                   <input {...register('cargo')} className="form-input" />
                 </div>
                 <div>
-                  <label className="form-label">Categoría{esConstruccion ? ' (laudo construcción)' : ''}</label>
-                  {esConstruccion ? (
+                  <label className="form-label">Sector</label>
+                  <input {...register('sector')} className="form-input" placeholder="Producción, Ventas, Administración…" />
+                  <p className="text-xs text-gray-400 mt-1">Aparece en el recibo de sueldo.</p>
+                </div>
+                {esConstruccion && (
+                  <div>
+                    <label className="form-label">Categoría (laudo construcción)</label>
                     <select {...register('categoria')} className="form-input">
                       <option value="">— Seleccionar categoría —</option>
                       {categoriaActual && !CATEGORIAS_CONSTRUCCION.includes(categoriaActual) && (
@@ -456,10 +463,8 @@ export default function ContractsPage() {
                       )}
                       {CATEGORIAS_CONSTRUCCION.map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
-                  ) : (
-                    <input {...register('categoria')} className="form-input" />
-                  )}
-                </div>
+                  </div>
+                )}
                 <div>
                   <label className="form-label">Nivel</label>
                   <input {...register('nivel')} className="form-input" />
