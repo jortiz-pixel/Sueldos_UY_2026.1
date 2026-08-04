@@ -35,30 +35,36 @@ function ItemRow({ item, editable, onEdit, onDelete }: {
   const [editing, setEditing] = useState(false);
   const [d, setD] = useState(item.descripcion);
   const [m, setM] = useState(Number(item.amount) / 100);
-  const [base, setBase] = useState(item.baseCalculo ? Number(item.baseCalculo) / 100 : 0);
-  const [pct, setPct] = useState(item.rate ? item.rate / 100 : 0);
+  // Para la prima: montos como texto libre, así se pueden borrar y escribir
+  // decimales sin que el input numérico descarte los valores intermedios.
+  const baseInicial = item.baseCalculo ? String(Number(item.baseCalculo) / 100) : '';
+  const pctInicial = item.rate ? String(item.rate / 100) : '';
+  const [baseStr, setBaseStr] = useState(baseInicial);
+  const [pctStr, setPctStr] = useState(pctInicial);
 
   if (editing) {
     if (esPrima) {
-      const primaCentesimos = Math.round(base * pct); // prima = base × % (en centésimos)
+      const baseNum = parseFloat(baseStr.replace(',', '.')) || 0;
+      const pctNum = parseFloat(pctStr.replace(',', '.')) || 0;
+      const primaCentesimos = Math.round(baseNum * pctNum); // prima = base × % (en centésimos)
       return (
         <tr className="bg-amber-50/50">
           <td className="px-4 py-2">
             <input value={d} onChange={(e) => setD(e.target.value)} className="border border-gray-300 rounded px-2 py-1 text-sm w-full" />
           </td>
           <td className="px-4 py-2 text-right">
-            <input type="number" value={base} onChange={(e) => setBase(Number(e.target.value))} className="border border-gray-300 rounded px-2 py-1 text-sm w-28 text-right" title="Monto base" placeholder="Base" />
+            <input type="text" inputMode="decimal" value={baseStr} onChange={(e) => setBaseStr(e.target.value)} className="border border-gray-300 rounded px-2 py-1 text-sm w-28 text-right" title="Monto base" placeholder="Base" />
           </td>
           <td className="px-4 py-2 text-right">
             <div className="inline-flex items-center">
-              <input type="number" step="0.01" value={pct} onChange={(e) => setPct(Number(e.target.value))} className="border border-gray-300 rounded px-2 py-1 text-sm w-16 text-right" title="Porcentaje" placeholder="%" />
+              <input type="text" inputMode="decimal" value={pctStr} onChange={(e) => setPctStr(e.target.value)} className="border border-gray-300 rounded px-2 py-1 text-sm w-16 text-right" title="Porcentaje" placeholder="%" />
               <span className="ml-1 text-xs text-gray-500">%</span>
             </div>
           </td>
           <td className="px-4 py-2 text-right whitespace-nowrap">
             <span className="text-sm font-mono text-gray-600 align-middle" title="Prima = base × %">{formatPesos(String(primaCentesimos))}</span>
-            <button onClick={() => { onEdit?.(item.id, { descripcion: d, base, porcentaje: pct }); setEditing(false); }} className="ml-2 text-green-600 hover:text-green-700 align-middle" title="Guardar"><Check size={15} /></button>
-            <button onClick={() => { setD(item.descripcion); setBase(item.baseCalculo ? Number(item.baseCalculo) / 100 : 0); setPct(item.rate ? item.rate / 100 : 0); setEditing(false); }} className="ml-1 text-gray-400 hover:text-gray-600 align-middle" title="Cancelar"><X size={15} /></button>
+            <button onClick={() => { onEdit?.(item.id, { descripcion: d, base: baseNum, porcentaje: pctNum }); setEditing(false); }} className="ml-2 text-green-600 hover:text-green-700 align-middle" title="Guardar"><Check size={15} /></button>
+            <button onClick={() => { setD(item.descripcion); setBaseStr(baseInicial); setPctStr(pctInicial); setEditing(false); }} className="ml-1 text-gray-400 hover:text-gray-600 align-middle" title="Cancelar"><X size={15} /></button>
           </td>
         </tr>
       );
