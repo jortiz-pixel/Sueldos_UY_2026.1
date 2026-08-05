@@ -162,8 +162,8 @@ export default function LiquidationPage() {
   // Salario vacacional: al elegir la persona se prellenan los días DISPONIBLES
   // (los que le corresponden menos los tomados); quedan editables.
   const { data: espVacInfo } = useQuery({
-    queryKey: ['esp-vac-disponibles', espEmpId, selectedYear, selectedPeriod?.month],
-    queryFn: () => employeesApi.vacacionDisponibles(espEmpId, selectedYear, selectedPeriod?.month ?? 12),
+    queryKey: ['esp-vac-disponibles', espEmpId, selectedYear, selectedPeriod?.month, companyId],
+    queryFn: () => employeesApi.vacacionDisponibles(espEmpId, selectedYear, selectedPeriod?.month ?? 12, companyId),
     enabled: espTipo === 'LICENCIA' && !!espEmpId,
   });
   useEffect(() => {
@@ -492,7 +492,13 @@ export default function LiquidationPage() {
                     Le corresponden {espVacInfo.diasCorresponden} · tomados {espVacInfo.diasTomados} · <b>disponibles {espVacInfo.diasDisponibles}</b> (prellenado; editá si no toma todo).
                   </p>
                 )}
-                <p className="text-[11px] text-gray-400 mt-1">Admite días fraccionados (ej. 8,33).</p>
+                {espVacInfo && espDias > 0 && (
+                  <div className="text-xs bg-blue-50/60 rounded-lg px-3 py-2 text-gray-700 mt-1 space-y-0.5">
+                    <div><b>{espDias}</b> días × {formatPesos(espVacInfo.jornalNominal)} (jornal vigente) = <b>{formatPesos(String(Math.round(Number(espVacInfo.jornalNominal) * espDias)))}</b> total</div>
+                    <div>Salario vacacional (líquido, exento) = <b className="text-blue-700">{formatPesos(String(Math.round(Number(espVacInfo.jornalLiquido) * espDias)))}</b></div>
+                  </div>
+                )}
+                <p className="text-[11px] text-gray-400 mt-1">Admite días fraccionados (ej. 8,33). La licencia se puede tomar en dos períodos.</p>
                 <label className="flex items-center gap-2 mt-2 text-sm text-gray-600">
                   <input type="checkbox" checked={espAnticipar} onChange={(e) => setEspAnticipar(e.target.checked)} className="rounded" />
                   Anticipar (permitir tomar más días que los disponibles)

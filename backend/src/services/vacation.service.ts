@@ -29,8 +29,11 @@ export interface LicenciaInput {
 // DISPONIBLES (corresponden − tomados). Sirve para prellenar los "días a gozar"
 // del salario vacacional (editable: si no se toma toda la licencia, se baja).
 export async function vacacionalesDisponibles(
-  employeeId: string, year: number, month = 12,
-): Promise<{ diasCorresponden: number; diasTomados: number; diasDisponibles: number }> {
+  employeeId: string, year: number, month = 12, companyId?: string,
+): Promise<{
+  diasCorresponden: number; diasTomados: number; diasDisponibles: number;
+  jornalNominal: string; jornalLiquido: string;
+}> {
   const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
   if (!employee) throw new AppError(404, 'Empleado no encontrado');
   const asOfDate = new Date(year, month - 1, 1);
@@ -40,7 +43,33 @@ export async function vacacionalesDisponibles(
   });
   const diasCorresponden = accrual?.diasCorresponden ?? correspondenAntiguedad;
   const diasTomados = accrual?.diasTomados ?? 0;
-  return { diasCorresponden, diasTomados, diasDisponibles: Math.max(0, diasCorresponden - diasTomados) };
+
+  // Jornal del día (nominal y líquido) con el MISMO criterio que el salario
+  // vacacional: base = sueldo básico del contrato vigente; jornal = base/30;
+  // líquido = (base − aportes personales)/30. Sirve para mostrar en vivo
+  // "días × jornal = total" y de ahí el salario vacacional.
+  const cId = companyId ?? employee.companyId ?? undefined;
+  const bseRate = cId
+    ? (await prisma.company.findUnique({ where: { id: cId }, select: { bseRate: true } }))?.bseRate ?? 0
+    : 0;
+  const params = await parametersService.getPayrollParameters(asOfDate);
+  const contrato = await resolverContratoVigente(employeeId, asOfDate, cId);
+  const labor = datosLaboralesEfectivos(employee, contrato);
+  const baseLicencia = labor.salaryType === 'MENSUAL' ? labor.salarioNominal : (labor.jornal ?? 0n) * 30n;
+  const aportes = calcularAportesObreros({
+    salarioNominal: baseLicencia,
+    hijosACargo: employee.hijosACargo,
+    conyugeACargo: employee.conyugeACargo,
+    params,
+    bseRateEmpresa: bseRate,
+  });
+  const jornalNominal = multiplyFraction(baseLicencia, 1, 30);
+  const jornalLiquido = multiplyFraction(maxBigInt(0n, baseLicencia - aportes.total), 1, 30);
+
+  return {
+    diasCorresponden, diasTomados, diasDisponibles: Math.max(0, diasCorresponden - diasTomados),
+    jornalNominal: jornalNominal.toString(), jornalLiquido: jornalLiquido.toString(),
+  };
 }
 
 export async function calcularLiquidacionLicencia(input: LicenciaInput) {

@@ -803,7 +803,8 @@ employeesRouter.get('/:id/vacation-disponibles', authenticate, async (req: Reque
     await assertPersonaAccess(req, employee.id, employee.companyId);
     const year = req.query.year ? parseInt(req.query.year as string, 10) : new Date().getFullYear();
     const month = req.query.month ? parseInt(req.query.month as string, 10) : 12;
-    const info = await vacacionalesDisponibles(req.params.id, year, month);
+    const companyId = (req.query.companyId as string) || undefined;
+    const info = await vacacionalesDisponibles(req.params.id, year, month, companyId);
     res.json(info);
   } catch (err) { next(err); }
 });

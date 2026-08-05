@@ -331,8 +331,8 @@ export default function LiquidationDetailPage() {
   // Salario vacacional: días que le CORRESPONDEN / DISPONIBLES, para prellenar
   // "días a gozar" (editable si no se toma toda la licencia).
   const { data: vacInfo } = useQuery({
-    queryKey: ['vac-disponibles', liq?.employeeId, liq?.year, liq?.month],
-    queryFn: () => employeesApi.vacacionDisponibles(liq!.employeeId, liq!.year, liq!.month),
+    queryKey: ['vac-disponibles', liq?.employeeId, liq?.year, liq?.month, activeCompanyId],
+    queryFn: () => employeesApi.vacacionDisponibles(liq!.employeeId, liq!.year, liq!.month, activeCompanyId),
     enabled: !!liq && liq.type === 'LICENCIA',
   });
   const vacPrefillDone = useRef(false);
@@ -694,9 +694,15 @@ export default function LiquidationDetailPage() {
               </button>
             </div>
           </div>
+          {vacInfo && Number(vacDias) > 0 && (
+            <div className="text-xs bg-blue-50/60 rounded-lg px-3 py-2 text-gray-700 space-y-0.5">
+              <div><b>{Number(vacDias)}</b> días × {formatPesos(vacInfo.jornalNominal)} (jornal vigente) = <b>{formatPesos(String(Math.round(Number(vacInfo.jornalNominal) * Number(vacDias))))}</b> total</div>
+              <div>Salario vacacional (líquido, exento) = <b className="text-blue-700">{formatPesos(String(Math.round(Number(vacInfo.jornalLiquido) * Number(vacDias))))}</b></div>
+            </div>
+          )}
           <p className="text-[11px] text-gray-400">
-            Se prellenan los días DISPONIBLES; si no se toma toda la licencia, bajá el número y el TOTAL se recalcula solo.
-            Salario vacacional = jornal líquido × días a gozar, EXENTO (sin descuentos).
+            La licencia se puede tomar en dos períodos: editá los días a gozar y el total se calcula solo (días × jornal vigente),
+            y de ahí sale el salario vacacional (jornal líquido × días, EXENTO). Se prellenan los días DISPONIBLES.
           </p>
         </div>
       )}
