@@ -177,14 +177,16 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
   fuera de la base ApliAFondos y NO se declara en la nómina. Detección por
   descripción (/viático/, con "grav" → gravado); editables/borrables como
   ajustes manuales.
-- **PRIMA POR ANTIGÜEDAD grupo 21** (Consejo de Salarios 21): automática en la
-  mensualidad. RIGE DESPUÉS DEL PRIMER AÑO: el 1er año no genera prima; desde
-  ahí 0,5% del SUELDO BÁSICO del mes por cada año completo ADICIONAL (2 años →
-  0,5% · 10 años → 4,5%, caso Ilda Villagrán confirmado por el usuario), tope
-  5%. Años cumplidos al último día del mes liquidado (fecha de ingreso del
-  contrato). Ítem `PRIMA_ANTIGUEDAD`, gravado; rate en bp ((años−1) × 50).
-  Automática si la empresa es grupo 21 (`grupoConsejoDeEmpresa`); en cualquier
-  empresa se puede elegir del desplegable y se calcula sola (sin pedir monto).
+- **PRIMA POR ANTIGÜEDAD grupo 21** (Servicio Doméstico, Consejo de Salarios 21):
+  automática en la mensualidad. Regla del convenio: **0,5% del SUELDO BÁSICO por
+  cada AÑO completo de antigüedad DESDE EL PRIMER año cumplido** (1 año → 0,5% ·
+  4 años → 2% · 10 años → 5%), tope 5%. **Se actualiza cada ENERO**: rige el
+  número de años completos al 1 de enero del año liquidado (ej.: ingreso marzo
+  2024 → recién en enero 2026 corresponde 0,5%). Ítem `PRIMA_ANTIGUEDAD`,
+  gravado; rate en bp (años × 50, tope 500). Automática si la empresa es grupo
+  21 (`grupoConsejoDeEmpresa`); en cualquier empresa se puede elegir del
+  desplegable y se calcula sola (sin pedir monto). [Corrección 08/2026: antes
+  usaba (años−1)×0,5% desde el 2.º año, incorrecto para servicio doméstico.]
 - **FALTAS** (estilo GNS, recibo Belén Martínez): figuran del lado de los
   HABERES como un haber NEGATIVO (días × jornal). Así el "Total de Haberes" ya
   sale NETO de faltas y sobre ese neto se calculan TODOS los descuentos (aportes

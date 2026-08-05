@@ -58,24 +58,23 @@ export async function valorJornalFalta(liquidationId: string): Promise<bigint> {
     : (labor.jornal ?? salarioProporcional(labor.salarioNominal, 1, 30));
 }
 
-// PRIMA POR ANTIGÜEDAD grupo 21 (Consejo de Salarios): rige DESPUÉS del primer
-// año de trabajo — el 1er año no genera prima; a partir de ahí, 0,5% del sueldo
-// básico del mes por cada año completo ADICIONAL (2 años → 0,5% · 10 años →
-// 4,5%, caso Ilda Villagrán confirmado por el usuario), con tope del 5%. Los
-// años se computan cumplidos al último día del mes liquidado. Mientras no
-// corresponda, la línea figura en 0% (visible en 0, estilo GNS).
+// PRIMA POR ANTIGÜEDAD grupo 21 (Servicio Doméstico, Consejo de Salarios 21):
+// 0,5% del sueldo básico por cada AÑO completo de antigüedad, DESDE EL PRIMER
+// año cumplido (1 año → 0,5% · 4 años → 2% · 10 años → 5%), con tope del 5%.
+// Se ACTUALIZA CADA ENERO: rige el número de años completos al 1 de enero del
+// año liquidado (ej.: ingreso marzo 2024 → recién en enero 2026 corresponde
+// 0,5%). Mientras no corresponda, la línea figura en 0% (visible en 0, GNS).
 export function calcularPrimaAntiguedad(
-  fechaIngreso: Date, year: number, month: number, sueldoBasicoMes: bigint,
+  fechaIngreso: Date, year: number, _month: number, sueldoBasicoMes: bigint,
 ): { anios: number; rate: number; amount: bigint; descripcion: string } {
-  const finMes = new Date(year, month, 0);
+  const alEnero = new Date(year, 0, 1); // 1 de enero del año liquidado
   const ing = new Date(fechaIngreso);
-  let anios = finMes.getFullYear() - ing.getFullYear();
+  let anios = alEnero.getFullYear() - ing.getFullYear();
   const aniversario = new Date(ing);
-  aniversario.setFullYear(finMes.getFullYear());
-  if (aniversario > finMes) anios--;
+  aniversario.setFullYear(alEnero.getFullYear());
+  if (aniversario > alEnero) anios--; // aún no cumplió el aniversario al 1/1
   anios = Math.max(anios, 0);
-  // Tramos que pagan: los años completos DESPUÉS del primero, hasta 10 (5%).
-  const tramos = Math.min(Math.max(anios - 1, 0), 10);
+  const tramos = Math.min(anios, 10); // 0,5% por año desde el 1.º, tope 5% (10 años)
   const rate = tramos * 50; // 0,5% por año en basis points (tope 500 = 5%)
   return {
     anios,
