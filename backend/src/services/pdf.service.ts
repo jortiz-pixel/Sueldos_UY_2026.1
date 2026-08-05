@@ -41,6 +41,7 @@ interface CompanyForPdf {
   numeroBps?: string | null;
   numeroBse?: string | null;
   grupoActividadNum?: number | null;
+  grupoActividad?: string | null;
   subgrupo?: string | null;
 }
 
@@ -238,7 +239,14 @@ export function generateReciboPDF(
       label(MIDX + 6, y, 'BSE:', co?.numeroBse ?? '', 28);
       y += 12;
       label(X0 + 6, y, 'Mes:', `${MESES[liquidation.month]} ${liquidation.year}`, 28);
-      label(MIDX + 6, y, 'Grupo/Sub:', co?.grupoActividadNum ? `${co.grupoActividadNum}${co.subgrupo ? ' / ' + co.subgrupo : ''}` : '', 56);
+      // Grupo/Sub del Consejo de Salarios: el número (o el que figure al inicio
+      // del texto libre del grupo) y el subgrupo, en formato N/S (ej. 10/2).
+      const grupoNumRec = co?.grupoActividadNum ?? (() => {
+        const m = /(\d{1,2})/.exec(co?.grupoActividad ?? '');
+        return m ? Number(m[1]) : null;
+      })();
+      const grupoSubRec = grupoNumRec != null ? `${grupoNumRec}${co?.subgrupo ? '/' + co.subgrupo : ''}` : '';
+      label(MIDX + 6, y, 'Grupo/Sub:', grupoSubRec, 56);
       y += 16;
       doc.rect(X0, boxTop - 3, Wt, y - boxTop + 1).stroke();
 
