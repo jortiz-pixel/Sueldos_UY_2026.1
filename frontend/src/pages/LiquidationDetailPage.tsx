@@ -7,7 +7,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
 import { abrirBlobEnPestania } from '../utils/file';
 import { CONCEPTOS_SISTEMA, esEmpresaConstruccion } from '../constants/conceptos';
-import { formatPesos, MESES, PayrollItem, Liquidation } from '../types';
+import { formatPesos, MESES, PayrollItem } from '../types';
 
 interface OpcionConcepto { key: string; nombre: string; grupo: string; montoFijo?: number }
 
@@ -322,9 +322,7 @@ export default function LiquidationDetailPage() {
   const [horasLluvia, setHorasLluvia] = useState('');
   const [ticketCant, setTicketCant] = useState('');
   const [mediasHoras, setMediasHoras] = useState('');
-  // Licencia gozada (mensual) y salario vacacional a gozar (liquidación LICENCIA).
-  const [diasTrab, setDiasTrab] = useState('');
-  const [diasLic, setDiasLic] = useState('');
+  // Salario vacacional a gozar (liquidación LICENCIA / especial).
   const [vacDias, setVacDias] = useState('');
   const [vacAnticipar, setVacAnticipar] = useState(false);
 
@@ -362,54 +360,6 @@ export default function LiquidationDetailPage() {
       alert(err.response?.data?.error || 'No se pudo recalcular la liquidación.');
     },
   });
-
-  // Liquidaciones del período (para saber si existe el salario vacacional de
-  // esta persona y sincronizarlo cuando cambian los días de licencia).
-  const { data: periodLiqs } = useQuery({
-    queryKey: ['period-liqs-sync', liq?.periodId],
-    queryFn: () => liquidationApi.byPeriod(liq!.periodId) as Promise<Liquidation[]>,
-    enabled: !!liq && liq.type === 'MENSUAL' && liq.status === 'BORRADOR',
-  });
-
-  // Recalcula la MENSUAL con los días trabajados / días de licencia gozada
-  // indicados (la licencia gozada desglosa el sueldo en Jornal + Licencia) y,
-  // si existe el salario vacacional del período para esta persona, lo sincroniza
-  // con los mismos días de licencia (mismo criterio GNS).
-  const licenciaMensualMutation = useMutation({
-    mutationFn: () => liquidationApi.generate({
-      employeeId: liq!.employeeId,
-      periodId: liq!.periodId,
-      year: liq!.year,
-      month: liq!.month,
-      ...(diasTrab !== '' ? { diasTrabajados: Number(diasTrab) } : {}),
-      ...(diasLic !== '' ? { diasLicencia: Number(diasLic) } : {}),
-    }),
-    onSuccess: async () => {
-      queryClient.invalidateQueries({ queryKey: ['liquidation', id] });
-      const vacLiq = periodLiqs?.find((l) => l.employeeId === liq!.employeeId && l.type === 'LICENCIA');
-      const n = Number(diasLic);
-      if (vacLiq && diasLic !== '' && n > 0) {
-        try {
-          await liquidationApi.generateLicencia({
-            employeeId: liq!.employeeId, periodId: liq!.periodId, year: liq!.year, month: liq!.month,
-            diasHabilesTomar: n, anticipar: true,
-          });
-          queryClient.invalidateQueries({ queryKey: ['period-liqs-sync'] });
-        } catch { /* silencioso: el salario vacacional se puede ajustar en su panel */ }
-      }
-    },
-    onError: (e: unknown) => {
-      const err = e as { response?: { data?: { error?: string } } };
-      alert(err.response?.data?.error || 'No se pudo recalcular la liquidación.');
-    },
-  });
-
-  // Debounce: al cambiar los días de la mensual, recalcula solo.
-  const mensualTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const scheduleMensualRecalc = () => {
-    if (mensualTimer.current) clearTimeout(mensualTimer.current);
-    mensualTimer.current = setTimeout(() => licenciaMensualMutation.mutate(), 800);
-  };
 
   // Regenera el SALARIO VACACIONAL (liquidación LICENCIA) con los días a gozar.
   // Se dispara con el botón o AUTOMÁTICAMENTE (silent) al cambiar los días.
@@ -634,35 +584,6 @@ export default function LiquidationDetailPage() {
             contrato si es mayor), presentismos, ropa, transporte, herramientas (según categoría), ticket de alimentación y media
             hora (1 por jornada de 8 hs), y Fondo Social/Vivienda. Solo la lluvia se indica a mano; tickets y medias horas se pueden
             corregir acá. Recalcular pisa los conceptos manuales agregados.
-          </p>
-        </div>
-      )}
-
-      {/* Licencia gozada (mensual): días trabajados y días de licencia a gozar */}
-      {liq.type === 'MENSUAL' && puedeEditar && !esConstruccion && (
-        <div className="card p-4 border-t-4 border-t-blue-400 space-y-3">
-          <p className="text-sm font-semibold text-gray-800 flex items-center gap-2">
-            <RefreshCw size={16} className="text-blue-500" /> Días trabajados y licencia gozada
-          </p>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            <div>
-              <label className="form-label">Días trabajados</label>
-              <input type="number" min="0" max="31" value={diasTrab} onChange={(e) => { setDiasTrab(e.target.value); scheduleMensualRecalc(); }} placeholder="auto (según contrato)" className="form-input" />
-            </div>
-            <div>
-              <label className="form-label">Días de licencia gozada</label>
-              <input type="number" min="0" max="31" step="0.01" value={diasLic} onChange={(e) => { setDiasLic(e.target.value); scheduleMensualRecalc(); }} placeholder="auto (calendario)" className="form-input" />
-            </div>
-            <div className="flex items-end">
-              <button onClick={() => licenciaMensualMutation.mutate()} disabled={licenciaMensualMutation.isPending} className="btn-primary btn-sm w-full">
-                {licenciaMensualMutation.isPending ? 'Calculando…' : 'Recalcular ahora'}
-              </button>
-            </div>
-          </div>
-          <p className="text-[11px] text-gray-400">
-            Al cambiar los días, el monto de "Licencia M x jornal" se recalcula solo; si esta persona tiene un salario vacacional en el
-            período, se ajusta con los mismos días. ⚠️ Recalcular la mensual PISA los conceptos manuales agregados (ajustes, retención):
-            cargá los días antes de agregarlos.
           </p>
         </div>
       )}
