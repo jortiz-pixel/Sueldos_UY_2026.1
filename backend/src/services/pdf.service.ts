@@ -54,6 +54,7 @@ interface EmployeeForPdf {
   cargo: string | null;
   categoria: string | null;
   fechaIngreso: Date;
+  fechaEgreso?: Date | null;
   salaryType: string;
   salarioNominal: bigint;
   company: CompanyForPdf | null;
@@ -65,6 +66,7 @@ interface ContratoForPdf {
   sector?: string | null;
   regimenHorario?: string | null;
   salaryType?: string | null;
+  fechaFin?: Date | null;
 }
 
 const MESES = [
@@ -260,13 +262,17 @@ export function generateReciboPDF(
       label(X0 + 6, y, 'Nombres:', [employee.nombre, employee.nombre2].filter(Boolean).join(' '), 48);
       label(MIDX + 6, y, 'Cargo:', contrato?.cargo || employee.cargo || '', 34);
       y += 12;
+      // Fecha de egreso: la del contrato (baja) o, si no, la del empleado.
+      const fechaEgresoRec = contrato?.fechaFin ?? employee.fechaEgreso ?? null;
       label(X0 + 6, y, 'Fecha Ingreso:', ddmmyy(employee.fechaIngreso), 66);
-      label(MIDX + 6, y, 'Sector:', contrato?.sector || '', 34);
+      label(MIDX + 6, y, 'Fecha de Egreso:', fechaEgresoRec ? ddmmyy(fechaEgresoRec) : '', 66);
       y += 12;
       label(X0 + 6, y, 'Nº Contrato:', contrato?.numero != null ? String(contrato.numero) : '', 58);
       label(MIDX + 6, y, 'Remuneración:', (contrato?.salaryType || employee.salaryType) === 'JORNALERO' ? 'Jornalero' : 'Mensual', 66);
       y += 12;
-      if (contrato?.regimenHorario) { label(X0 + 6, y, 'Horario:', contrato.regimenHorario, 40); y += 12; }
+      label(X0 + 6, y, 'Sector:', contrato?.sector || '', 34);
+      if (contrato?.regimenHorario) label(MIDX + 6, y, 'Horario:', contrato.regimenHorario, 40);
+      y += 12;
       doc.rect(X0, eTop - 3, Wt, y - eTop + 1).stroke();
 
       // ── Dos columnas: HABERES | DESCUENTOS ──────────────────────
