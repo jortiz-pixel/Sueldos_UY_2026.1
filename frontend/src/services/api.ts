@@ -429,6 +429,8 @@ export const liquidationApi = {
   generateBatch: (data: object) => api.post('/liquidation/generate-batch', data).then((r) => r.data),
   generateAguinaldo: (data: object) => api.post('/liquidation/aguinaldo', data).then((r) => r.data),
   generateLicencia: (data: object) => api.post('/liquidation/licencia', data).then((r) => r.data),
+  recalcFinalDias: (id: string, diasLicencia: number) =>
+    api.post(`/liquidation/${id}/final-dias`, { diasLicencia }).then((r) => r.data),
   generateFinal: (data: object) => api.post('/liquidation/final', data).then((r) => r.data),
   preview: (id: string) => api.get<Liquidation>(`/liquidation/${id}/preview`).then((r) => r.data),
   confirm: (id: string) => api.post(`/liquidation/${id}/confirm`).then((r) => r.data),

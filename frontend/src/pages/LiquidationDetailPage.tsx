@@ -328,18 +328,25 @@ export default function LiquidationDetailPage() {
 
   // Salario vacacional: días que le CORRESPONDEN / DISPONIBLES, para prellenar
   // "días a gozar" (editable si no se toma toda la licencia).
+  const esFinal = liq?.type === 'LIQUIDACION_FINAL';
   const { data: vacInfo } = useQuery({
     queryKey: ['vac-disponibles', liq?.employeeId, liq?.year, liq?.month, activeCompanyId],
     queryFn: () => employeesApi.vacacionDisponibles(liq!.employeeId, liq!.year, liq!.month, activeCompanyId),
-    enabled: !!liq && liq.type === 'LICENCIA',
+    enabled: !!liq && (liq.type === 'LICENCIA' || liq.type === 'LIQUIDACION_FINAL'),
   });
   const vacPrefillDone = useRef(false);
   useEffect(() => {
-    if (liq?.type === 'LICENCIA' && vacInfo && !vacPrefillDone.current) {
+    if (vacPrefillDone.current || !liq) return;
+    if (liq.type === 'LICENCIA' && vacInfo) {
       setVacDias(String(vacInfo.diasDisponibles));
       vacPrefillDone.current = true;
+    } else if (liq.type === 'LIQUIDACION_FINAL' && liq.items) {
+      // La final trae los días de licencia no gozada en el detalle del ítem.
+      const it = liq.items.find((i) => i.concepto === 'SALARIO_VACACIONAL' || i.concepto === 'LICENCIA_NO_GOZADA');
+      const det = it?.calculationDetail as { diasNoGozadas?: number } | null | undefined;
+      if (det?.diasNoGozadas != null) { setVacDias(String(det.diasNoGozadas)); vacPrefillDone.current = true; }
     }
-  }, [liq?.type, vacInfo]);
+  }, [liq?.type, vacInfo, liq?.items]);
 
   const construccionMutation = useMutation({
     mutationFn: () => liquidationApi.generate({
@@ -383,6 +390,20 @@ export default function LiquidationDetailPage() {
     },
   });
 
+  // Regenera la liquidación por EGRESO con los días de licencia a pagar.
+  const finalDiasMutation = useMutation({
+    mutationFn: (vars: { dias: number; silent?: boolean }) => liquidationApi.recalcFinalDias(id!, vars.dias),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['liquidation', id] });
+      queryClient.invalidateQueries({ queryKey: ['vac-disponibles'] });
+    },
+    onError: (e: unknown, vars) => {
+      if (vars?.silent) return;
+      const err = e as { response?: { data?: { error?: string } } };
+      alert(err.response?.data?.error || 'No se pudo recalcular la liquidación por egreso.');
+    },
+  });
+
   // Al cambiar los días a gozar, recalcula el total solo (debounce). No dispara
   // en el prellenado (ese usa setVacDias directo, sin pasar por acá).
   const vacTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -391,6 +412,10 @@ export default function LiquidationDetailPage() {
     if (vacTimer.current) clearTimeout(vacTimer.current);
     const n = Number(val);
     if (!(n > 0)) return;
+    if (esFinal) {
+      vacTimer.current = setTimeout(() => finalDiasMutation.mutate({ dias: n, silent: true }), 700);
+      return;
+    }
     // No auto-recalcular si supera los disponibles sin "anticipar" (evita el error a cada tecla).
     if (vacInfo && n > vacInfo.diasDisponibles && !vacAnticipar) return;
     vacTimer.current = setTimeout(() => vacacionalMutation.mutate({ dias: n, silent: true }), 700);
@@ -624,6 +649,46 @@ export default function LiquidationDetailPage() {
           <p className="text-[11px] text-gray-400">
             La licencia se puede tomar en dos períodos: editá los días a gozar y el total se calcula solo (días × jornal vigente),
             y de ahí sale el salario vacacional (jornal líquido × días, EXENTO). Se prellenan los días DISPONIBLES.
+          </p>
+        </div>
+      )}
+
+      {/* Liquidación por EGRESO: días de licencia a pagar (no gozada + vacacional egreso) */}
+      {esFinal && puedeEditar && (
+        <div className="card p-4 border-t-4 border-t-blue-400 space-y-3">
+          <p className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+            <RefreshCw size={16} className="text-blue-500" /> Licencia por egreso — días a pagar
+          </p>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <div>
+              <label className="form-label">Días de licencia a pagar</label>
+              <input type="number" min="0" max="60" step="0.01" value={vacDias} onChange={(e) => onVacDiasChange(e.target.value)} placeholder="ej. 4,72" className="form-input" />
+              {vacInfo && (
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Le corresponden {vacInfo.diasCorresponden} · tomados {vacInfo.diasTomados} · <b>disponibles {vacInfo.diasDisponibles}</b>
+                </p>
+              )}
+            </div>
+            <div className="flex items-start">
+              <button onClick={() => { const n = Number(vacDias); if (n >= 0) finalDiasMutation.mutate({ dias: n }); }} disabled={vacDias === '' || finalDiasMutation.isPending} className="btn-primary btn-sm w-full">
+                {finalDiasMutation.isPending ? 'Calculando…' : 'Recalcular ahora'}
+              </button>
+            </div>
+          </div>
+          {(() => {
+            const it = liq.items?.find((i) => i.concepto === 'LICENCIA_NO_GOZADA' || i.concepto === 'SALARIO_VACACIONAL');
+            const jornal = it?.baseCalculo ? Number(it.baseCalculo) : (vacInfo ? Number(vacInfo.jornalNominal) : 0);
+            const n = Number(vacDias);
+            if (!(jornal > 0 && n > 0)) return null;
+            return (
+              <div className="text-xs bg-blue-50/60 rounded-lg px-3 py-2 text-gray-700 space-y-0.5">
+                <div><b>{n}</b> días × {formatPesos(String(jornal))} (jornal) = <b>{formatPesos(String(Math.round(jornal * n)))}</b> por partida</div>
+                <div>Licencia no gozada + Salario vacacional por egreso (ambos EXENTOS)</div>
+              </div>
+            );
+          })()}
+          <p className="text-[11px] text-gray-400">
+            Editá los días de licencia a pagar por el egreso; el total (licencia no gozada + salario vacacional por egreso = días × jornal, exentos) se recalcula solo.
           </p>
         </div>
       )}

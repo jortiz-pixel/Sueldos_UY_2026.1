@@ -381,6 +381,35 @@ liquidationRouter.post('/final', authenticate, requireRole(UserRole.ADMIN, UserR
   } catch (err) { next(err); }
 });
 
+// POST /api/liquidation/:id/final-dias { diasLicencia } — regenera la
+// liquidación por EGRESO con los días de licencia a pagar indicados (edita el
+// cálculo automático de licencia no gozada / salario vacacional por egreso).
+liquidationRouter.post('/:id/final-dias', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { diasLicencia } = z.object({ diasLicencia: z.number().min(0).max(60) }).parse(req.body);
+    const liquidation = await prisma.liquidation.findUnique({ where: { id: req.params.id }, include: { period: true } });
+    if (!liquidation) throw new NotFoundError('Liquidación');
+    await assertLiquidationAccess(req, req.params.id);
+    if (liquidation.type !== LiquidationType.LIQUIDACION_FINAL) throw new AppError(409, 'Solo aplica a liquidaciones por egreso.');
+    if (liquidation.status !== LiquidationStatus.BORRADOR) throw new AppError(409, 'Solo se puede editar en BORRADOR. Desconfirmá primero.');
+    const snap = liquidation.parametersSnapshot as { fechaEgreso?: string } | null;
+    let fechaEgreso = snap?.fechaEgreso ? new Date(snap.fechaEgreso) : null;
+    if (!fechaEgreso) {
+      const contrato = await prisma.contrato.findFirst({
+        where: { employeeId: liquidation.employeeId, companyId: liquidation.period?.companyId ?? undefined, fechaFin: { not: null } },
+        orderBy: { fechaFin: 'desc' },
+      });
+      fechaEgreso = contrato?.fechaFin ?? null;
+    }
+    if (!fechaEgreso) throw new AppError(400, 'No se pudo determinar la fecha de egreso de la liquidación.');
+    await calcularLiquidacionFinal(
+      liquidation.employeeId, liquidation.periodId, fechaEgreso, req.user!.userId,
+      liquidation.period?.companyId ?? undefined, diasLicencia,
+    );
+    res.json({ message: 'Liquidación final actualizada' });
+  } catch (err) { next(err); }
+});
+
 // GET /api/liquidation/:id/preview
 liquidationRouter.get('/:id/preview', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {

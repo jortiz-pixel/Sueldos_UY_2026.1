@@ -224,6 +224,7 @@ export async function calcularLiquidacionFinal(
   fechaEgreso: Date,
   userId?: string,
   companyIdParam?: string,
+  diasLicenciaOverride?: number, // días de licencia a pagar (edita el automático)
 ) {
   const params = await parametersService.getPayrollParameters(fechaEgreso);
 
@@ -275,7 +276,9 @@ export async function calcularLiquidacionFinal(
   const diasTomados = accrual?.diasTomados ?? 0;
   // Se redondea a 2 decimales (criterio GNS: los días redondeados se multiplican
   // por el jornal, ej. 4,72 × 1036,48).
-  const diasNoGozadas = Math.max(0, Math.round(((diasLicenciaAnuales * diasTrabajadosAnio) / 360 - diasTomados) * 100) / 100);
+  const diasNoGozadas = diasLicenciaOverride != null
+    ? Math.max(0, Math.round(diasLicenciaOverride * 100) / 100)
+    : Math.max(0, Math.round(((diasLicenciaAnuales * diasTrabajadosAnio) / 360 - diasTomados) * 100) / 100);
   const diasNoGozadasTxt = diasNoGozadas.toFixed(2);
   const licenciaNoGozada = BigInt(Math.round(Number(jornalNominal) * diasNoGozadas));
   const salarioVacacionalEgreso = licenciaNoGozada; // por egreso: mismo importe, exento
