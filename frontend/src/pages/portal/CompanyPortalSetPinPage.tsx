@@ -17,19 +17,19 @@ export default function CompanyPortalSetPinPage() {
   const { register, handleSubmit, watch, formState: { errors } } = useForm<SetPinForm>();
 
   useEffect(() => {
-    if (!localStorage.getItem('portalEmpresaSetupToken')) navigate('/portal-empresa');
+    if (!localStorage.getItem('portalEmpresaSetupToken')) navigate('/portal/empresa');
   }, [navigate]);
 
   const onSubmit = async (data: SetPinForm) => {
     setError('');
     const setupToken = localStorage.getItem('portalEmpresaSetupToken');
-    if (!setupToken) { navigate('/portal-empresa'); return; }
+    if (!setupToken) { navigate('/portal/empresa'); return; }
     setLoading(true);
     try {
       const r = await portalEmpresaApi.setPin(data.newPin, setupToken);
       localStorage.removeItem('portalEmpresaSetupToken');
       localStorage.setItem('portalEmpresaToken', r.token);
-      navigate('/portal-empresa/recibos');
+      navigate('/portal/empresa/recibos');
     } catch (e) {
       const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error;
       setError(msg || 'No se pudo guardar el PIN. Probá ingresar de nuevo.');

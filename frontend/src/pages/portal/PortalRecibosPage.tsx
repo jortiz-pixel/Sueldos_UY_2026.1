@@ -29,7 +29,7 @@ export default function PortalRecibosPage() {
   useEffect(() => {
     if (isError) {
       localStorage.removeItem('portalToken');
-      navigate('/portal');
+      navigate('/portal/empleado');
     }
   }, [isError, navigate]);
 

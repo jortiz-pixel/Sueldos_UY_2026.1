@@ -23,12 +23,12 @@ export default function CompanyPortalLoginPage() {
       const r = await portalEmpresaApi.login(data.rut, data.pin);
       if (r.mustSetPin && r.setupToken) {
         localStorage.setItem('portalEmpresaSetupToken', r.setupToken);
-        navigate('/portal-empresa/nuevo-pin');
+        navigate('/portal/empresa/nuevo-pin');
         return;
       }
       if (r.token) {
         localStorage.setItem('portalEmpresaToken', r.token);
-        navigate('/portal-empresa/recibos');
+        navigate('/portal/empresa/recibos');
       }
     } catch (e) {
       const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error;
@@ -110,7 +110,7 @@ export default function CompanyPortalLoginPage() {
           </p>
           <div className="mt-4 pt-4 border-t border-hairline">
             <Link to="/portal" className="text-xs text-brand-600 hover:text-brand-700">
-              ¿Sos empleado? Ingresá al portal de empleados →
+              ← Volver / cambiar tipo de acceso
             </Link>
           </div>
         </div>

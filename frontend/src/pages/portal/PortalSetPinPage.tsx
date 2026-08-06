@@ -18,19 +18,19 @@ export default function PortalSetPinPage() {
 
   // Sin token de primer ingreso no se puede fijar el PIN: volver al login.
   useEffect(() => {
-    if (!localStorage.getItem('portalSetupToken')) navigate('/portal');
+    if (!localStorage.getItem('portalSetupToken')) navigate('/portal/empleado');
   }, [navigate]);
 
   const onSubmit = async (data: SetPinForm) => {
     setError('');
     const setupToken = localStorage.getItem('portalSetupToken');
-    if (!setupToken) { navigate('/portal'); return; }
+    if (!setupToken) { navigate('/portal/empleado'); return; }
     setLoading(true);
     try {
       const r = await portalApi.setPin(data.newPin, setupToken);
       localStorage.removeItem('portalSetupToken');
       localStorage.setItem('portalToken', r.token);
-      navigate('/portal/recibos');
+      navigate('/portal/empleado/recibos');
     } catch (e) {
       const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error;
       setError(msg || 'No se pudo guardar el PIN. Probá ingresar de nuevo.');

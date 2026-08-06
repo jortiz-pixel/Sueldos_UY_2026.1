@@ -24,12 +24,12 @@ export default function PortalLoginPage() {
       if (r.mustSetPin && r.setupToken) {
         // Primer ingreso: hay que fijar un PIN propio antes de ver los recibos.
         localStorage.setItem('portalSetupToken', r.setupToken);
-        navigate('/portal/nuevo-pin');
+        navigate('/portal/empleado/nuevo-pin');
         return;
       }
       if (r.token) {
         localStorage.setItem('portalToken', r.token);
-        navigate('/portal/recibos');
+        navigate('/portal/empleado/recibos');
       }
     } catch (e) {
       const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error;
@@ -110,8 +110,8 @@ export default function PortalLoginPage() {
             pedí que lo restablezcan.
           </p>
           <div className="mt-4 pt-4 border-t border-hairline">
-            <Link to="/portal-empresa" className="text-xs text-brand-600 hover:text-brand-700">
-              ¿Sos una empresa? Ingresá al portal de clientes →
+            <Link to="/portal" className="text-xs text-brand-600 hover:text-brand-700">
+              ← Volver / cambiar tipo de acceso
             </Link>
           </div>
         </div>

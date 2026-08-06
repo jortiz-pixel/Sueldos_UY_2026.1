@@ -604,8 +604,8 @@ function CompanyPortalModal({ company, onClose }: { company: Company; onClose: (
           </div>
 
           <p className="text-xs text-gray-500 leading-relaxed">
-            El cliente ingresa en <span className="font-mono">/portal-empresa</span> con el RUT de la
-            empresa y un PIN para ver y descargar los recibos confirmados de todos sus empleados.
+            El cliente ingresa en <span className="font-mono">/portal</span> (opción “Soy empresa”) con el
+            RUT de la empresa y un PIN para ver y descargar los recibos confirmados de todos sus empleados.
           </p>
 
           {pinGenerado && (

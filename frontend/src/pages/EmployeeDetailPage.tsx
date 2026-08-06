@@ -94,8 +94,8 @@ function PortalAccessCard({ employeeId, canManage }: { employeeId: string; canMa
       </div>
 
       <p className="text-xs text-gray-500 mb-3 leading-relaxed">
-        La persona ingresa en <span className="font-mono">/portal</span> con su cédula y un PIN
-        para ver y descargar solo sus recibos confirmados.
+        La persona ingresa en <span className="font-mono">/portal</span> (opción “Soy empleado”) con su
+        cédula y un PIN para ver y descargar solo sus recibos confirmados.
       </p>
 
       {pinGenerado && (

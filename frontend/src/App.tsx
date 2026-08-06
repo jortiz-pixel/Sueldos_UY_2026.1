@@ -20,6 +20,7 @@ import ParametersPage from './pages/ParametersPage';
 import AccessPage from './pages/AccessPage';
 import AuditPage from './pages/AuditPage';
 import ImportPage from './pages/ImportPage';
+import PortalChooserPage from './pages/portal/PortalChooserPage';
 import PortalLoginPage from './pages/portal/PortalLoginPage';
 import PortalSetPinPage from './pages/portal/PortalSetPinPage';
 import PortalRecibosPage from './pages/portal/PortalRecibosPage';
@@ -30,13 +31,13 @@ import CompanyPortalRecibosPage from './pages/portal/CompanyPortalRecibosPage';
 // El portal de empleados tiene su propio token ('portalToken'), separado del
 // panel de administración. Sin token, al login del portal.
 function PortalRoute({ children }: { children: React.ReactNode }) {
-  if (!localStorage.getItem('portalToken')) return <Navigate to="/portal" replace />;
+  if (!localStorage.getItem('portalToken')) return <Navigate to="/portal/empleado" replace />;
   return <>{children}</>;
 }
 
 // El portal de clientes (empresas) usa su propio token ('portalEmpresaToken').
 function CompanyPortalRoute({ children }: { children: React.ReactNode }) {
-  if (!localStorage.getItem('portalEmpresaToken')) return <Navigate to="/portal-empresa" replace />;
+  if (!localStorage.getItem('portalEmpresaToken')) return <Navigate to="/portal/empresa" replace />;
   return <>{children}</>;
 }
 
@@ -54,15 +55,19 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
 
-      {/* Portal de empleados (fuera del panel de administración) */}
-      <Route path="/portal" element={<PortalLoginPage />} />
-      <Route path="/portal/nuevo-pin" element={<PortalSetPinPage />} />
-      <Route path="/portal/recibos" element={<PortalRoute><PortalRecibosPage /></PortalRoute>} />
-
-      {/* Portal de clientes / empresas (fuera del panel de administración) */}
-      <Route path="/portal-empresa" element={<CompanyPortalLoginPage />} />
-      <Route path="/portal-empresa/nuevo-pin" element={<CompanyPortalSetPinPage />} />
-      <Route path="/portal-empresa/recibos" element={<CompanyPortalRoute><CompanyPortalRecibosPage /></CompanyPortalRoute>} />
+      {/* Portal (fuera del panel de administración): un solo punto de entrada
+          que pregunta si se ingresa como empleado o como empresa. */}
+      <Route path="/portal" element={<PortalChooserPage />} />
+      {/* Empleados */}
+      <Route path="/portal/empleado" element={<PortalLoginPage />} />
+      <Route path="/portal/empleado/nuevo-pin" element={<PortalSetPinPage />} />
+      <Route path="/portal/empleado/recibos" element={<PortalRoute><PortalRecibosPage /></PortalRoute>} />
+      {/* Empresas / clientes */}
+      <Route path="/portal/empresa" element={<CompanyPortalLoginPage />} />
+      <Route path="/portal/empresa/nuevo-pin" element={<CompanyPortalSetPinPage />} />
+      <Route path="/portal/empresa/recibos" element={<CompanyPortalRoute><CompanyPortalRecibosPage /></CompanyPortalRoute>} />
+      {/* Compatibilidad con la ruta anterior del portal de clientes */}
+      <Route path="/portal-empresa" element={<Navigate to="/portal/empresa" replace />} />
 
       <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
         <Route index element={<DashboardPage />} />

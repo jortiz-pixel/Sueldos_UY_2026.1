@@ -36,7 +36,7 @@ export default function CompanyPortalRecibosPage() {
   useEffect(() => {
     if (isError) {
       localStorage.removeItem('portalEmpresaToken');
-      navigate('/portal-empresa');
+      navigate('/portal/empresa');
     }
   }, [isError, navigate]);
 
@@ -55,7 +55,7 @@ export default function CompanyPortalRecibosPage() {
 
   const salir = () => {
     localStorage.removeItem('portalEmpresaToken');
-    navigate('/portal-empresa');
+    navigate('/portal/empresa');
   };
 
   const descargar = async (r: PortalEmpresaRecibo) => {
