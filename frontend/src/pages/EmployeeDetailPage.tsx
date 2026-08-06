@@ -9,6 +9,7 @@ import { useCompany } from '../hooks/useCompany';
 import AttachmentsPanel from '../components/AttachmentsPanel';
 import { formatPesos, MESES, Contrato, SalaryType } from '../types';
 import { CATEGORIAS_CONSTRUCCION, esEmpresaConstruccion } from '../constants/conceptos';
+import { TIPOS_REMUNERACION, salaryTypeDeTipoRem, tipoRemDeContrato } from '../constants/tipoRemuneracion';
 
 function Field({ label, value }: { label: string; value: string | number | boolean | null | undefined }) {
   if (value === null || value === undefined || value === '') return null;
@@ -30,6 +31,7 @@ interface ContractForm {
   categoria?: string;
   nivel?: string;
   salaryType: SalaryType;
+  tipoRemuneracion: number;
   salarioNominalPesos: number;
   jornalPesos?: number;
   horasDia?: number;
@@ -178,9 +180,12 @@ export default function EmployeeDetailPage() {
   });
 
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<ContractForm>({
-    defaultValues: { companyId: '', vigenciaDesde: '', fechaIngreso: '', salaryType: 'MENSUAL', salarioNominalPesos: 0 },
+    defaultValues: { companyId: '', vigenciaDesde: '', fechaIngreso: '', salaryType: 'MENSUAL', tipoRemuneracion: 1, salarioNominalPesos: 0 },
   });
-  const salaryType = watch('salaryType');
+  // El tipo de remuneración BPS (Tabla 2) es lo que se elige; el salaryType del
+  // motor de cálculo se deriva (2 Jornalero → JORNALERO; el resto → MENSUAL).
+  const tipoRemuneracion = Number(watch('tipoRemuneracion') ?? 1);
+  const salaryType = salaryTypeDeTipoRem(tipoRemuneracion);
   // Empresa elegida en el form: si es de CONSTRUCCIÓN se sugieren las categorías del laudo.
   const formCompanyId = watch('companyId');
   const esConstruccion = esEmpresaConstruccion(companies?.find((co) => co.id === formCompanyId));
@@ -207,7 +212,7 @@ export default function EmployeeDetailPage() {
     setValue('jornalPesos', hora);
     // Nominal mensual ficto para BPS: 25 jornadas de 8 horas.
     setValue('salarioNominalPesos', Math.round(hora * 200 * 100) / 100);
-    setValue('salaryType', 'JORNALERO');
+    setValue('tipoRemuneracion', 2); // Jornalero (Tabla 2)
   }, [categoriaActual, esConstruccion, recuadroEmpresa, jornalesLaudo, setValue]);
 
   const createMutation = useMutation({
@@ -221,7 +226,8 @@ export default function EmployeeDetailPage() {
         sector: data.sector || undefined,
         categoria: data.categoria || undefined,
         nivel: data.nivel || undefined,
-        salaryType: data.salaryType,
+        tipoRemuneracion: Number(data.tipoRemuneracion),
+        salaryType: salaryTypeDeTipoRem(Number(data.tipoRemuneracion)),
         salarioNominal: String(Math.round(Number(data.salarioNominalPesos) * 100)),
         jornal: data.jornalPesos ? String(Math.round(Number(data.jornalPesos) * 100)) : undefined,
         horasDia: data.horasDia ? Number(data.horasDia) : undefined,
@@ -319,6 +325,7 @@ export default function EmployeeDetailPage() {
       categoria: c.categoria ?? '',
       nivel: c.nivel ?? '',
       salaryType: c.salaryType,
+      tipoRemuneracion: tipoRemDeContrato(c.tipoRemuneracion, c.salaryType),
       salarioNominalPesos: Number(c.salarioNominal) / 100,
       jornalPesos: c.jornal ? Number(c.jornal) / 100 : undefined,
       horasDia: c.horasDia ?? undefined,
@@ -381,6 +388,7 @@ export default function EmployeeDetailPage() {
       vigenciaDesde: hoy,
       fechaIngreso: employee?.fechaIngreso ? employee.fechaIngreso.slice(0, 10) : hoy,
       salaryType: employee?.salaryType ?? 'MENSUAL',
+      tipoRemuneracion: employee?.salaryType === 'JORNALERO' ? 2 : 1,
       cargo: employee?.cargo ?? '',
       categoria: employee?.categoria ?? '',
       nivel: employee?.nivel ?? '',
@@ -697,11 +705,15 @@ export default function EmployeeDetailPage() {
                   <input {...register('nivel')} className="form-input" />
                 </div>
                 <div>
-                  <label className="form-label">Tipo de remuneración</label>
-                  <select {...register('salaryType')} className="form-input">
-                    <option value="MENSUAL">Mensual</option>
-                    <option value="JORNALERO">Jornalero</option>
+                  <label className="form-label">Tipo de remuneración (BPS Tabla 2)</label>
+                  <select {...register('tipoRemuneracion', { valueAsNumber: true })} className="form-input">
+                    {TIPOS_REMUNERACION.map((t) => (
+                      <option key={t.codigo} value={t.codigo}>{t.codigo} — {t.label}</option>
+                    ))}
                   </select>
+                  <p className="text-xs text-gray-400 mt-1">
+                    {TIPOS_REMUNERACION.find((t) => t.codigo === tipoRemuneracion)?.desc}
+                  </p>
                 </div>
                 <div>
                   <label className="form-label">Sueldo nominal mensual ($)</label>

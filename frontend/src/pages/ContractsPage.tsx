@@ -8,6 +8,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
 import { formatPesos, SalaryType, Contrato } from '../types';
 import { CATEGORIAS_CONSTRUCCION, esEmpresaConstruccion } from '../constants/conceptos';
+import { TIPOS_REMUNERACION, salaryTypeDeTipoRem, tipoRemDeContrato } from '../constants/tipoRemuneracion';
 
 type ContratoRow = Contrato & { employee: { id: string; ci: string; nombre: string; apellido: string } };
 
@@ -22,6 +23,7 @@ interface ContractForm {
   categoria?: string;
   nivel?: string;
   salaryType: SalaryType;
+  tipoRemuneracion: number;
   salarioNominalPesos: number;
   jornalPesos?: number;
   sucursal?: string;
@@ -84,9 +86,12 @@ export default function ContractsPage() {
   const { data: causales } = useQuery({ queryKey: ['cat-causales-egreso'], queryFn: () => catalogsApi.causalesEgreso(), staleTime: Infinity });
 
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<ContractForm>({
-    defaultValues: { personId: '', vigenciaDesde: '', fechaIngreso: '', salaryType: 'MENSUAL', salarioNominalPesos: 0 },
+    defaultValues: { personId: '', vigenciaDesde: '', fechaIngreso: '', salaryType: 'MENSUAL', tipoRemuneracion: 1, salarioNominalPesos: 0 },
   });
-  const salaryType = watch('salaryType');
+  // Tipo de remuneración BPS (Tabla 2): se elige el código y el salaryType del
+  // cálculo se deriva (2 Jornalero → JORNALERO; el resto → MENSUAL).
+  const tipoRemuneracion = Number(watch('tipoRemuneracion') ?? 1);
+  const salaryType = salaryTypeDeTipoRem(tipoRemuneracion);
   const categoriaActual = watch('categoria') ?? '';
   const recuadroEmpresa = empresaDetalle?.tipoAporte === 4 ? 'INCLUIDOS' : 'NO_INCLUIDOS';
 
@@ -110,7 +115,7 @@ export default function ContractsPage() {
     setValue('jornalPesos', hora);
     // Nominal mensual ficto para BPS: 25 jornadas de 8 horas.
     setValue('salarioNominalPesos', Math.round(hora * 200 * 100) / 100);
-    setValue('salaryType', 'JORNALERO');
+    setValue('tipoRemuneracion', 2); // Jornalero (Tabla 2)
   }, [categoriaActual, esConstruccion, recuadroEmpresa, jornalesLaudo, setValue]);
 
   const openNew = () => {
@@ -118,7 +123,7 @@ export default function ContractsPage() {
     setFormError('');
     setBajaCausal('');
     const hoy = new Date().toISOString().slice(0, 10);
-    reset({ personId: '', vigenciaDesde: hoy, fechaIngreso: hoy, fechaFin: '', salaryType: 'MENSUAL', salarioNominalPesos: 0, cargo: '', sector: '', categoria: '', nivel: '', tipoContrato: '', sucursal: '', cuentaSueldos: '', observacion: '', vinculoFuncional: '12', fictoCategoria: '', seguroSalud: '', computosEspeciales: '99', exoneracionAporte: '9', horasSemanales: 44 });
+    reset({ personId: '', vigenciaDesde: hoy, fechaIngreso: hoy, fechaFin: '', salaryType: 'MENSUAL', tipoRemuneracion: 1, salarioNominalPesos: 0, cargo: '', sector: '', categoria: '', nivel: '', tipoContrato: '', sucursal: '', cuentaSueldos: '', observacion: '', vinculoFuncional: '12', fictoCategoria: '', seguroSalud: '', computosEspeciales: '99', exoneracionAporte: '9', horasSemanales: 44 });
     setModalOpen(true);
   };
 
@@ -135,6 +140,7 @@ export default function ContractsPage() {
       tipoContrato: c.tipoContrato ?? '',
       cargo: c.cargo ?? '', sector: c.sector ?? '', categoria: c.categoria ?? '', nivel: c.nivel ?? '',
       salaryType: c.salaryType,
+      tipoRemuneracion: tipoRemDeContrato(c.tipoRemuneracion, c.salaryType),
       salarioNominalPesos: Number(c.salarioNominal) / 100,
       jornalPesos: c.jornal ? Number(c.jornal) / 100 : undefined,
       sucursal: c.sucursal ?? '', cuentaSueldos: c.cuentaSueldos ?? '', observacion: c.observacion ?? '',
@@ -160,7 +166,8 @@ export default function ContractsPage() {
         sector: data.sector || undefined,
         categoria: data.categoria || undefined,
         nivel: data.nivel || undefined,
-        salaryType: data.salaryType,
+        tipoRemuneracion: Number(data.tipoRemuneracion),
+        salaryType: salaryTypeDeTipoRem(Number(data.tipoRemuneracion)),
         salarioNominal: String(Math.round(Number(data.salarioNominalPesos) * 100)),
         jornal: data.jornalPesos ? String(Math.round(Number(data.jornalPesos) * 100)) : undefined,
         sucursal: data.sucursal || undefined,
@@ -470,11 +477,15 @@ export default function ContractsPage() {
                   <input {...register('nivel')} className="form-input" />
                 </div>
                 <div>
-                  <label className="form-label">Tipo de remuneración</label>
-                  <select {...register('salaryType')} className="form-input">
-                    <option value="MENSUAL">Mensual</option>
-                    <option value="JORNALERO">Jornalero</option>
+                  <label className="form-label">Tipo de remuneración (BPS Tabla 2)</label>
+                  <select {...register('tipoRemuneracion', { valueAsNumber: true })} className="form-input">
+                    {TIPOS_REMUNERACION.map((t) => (
+                      <option key={t.codigo} value={t.codigo}>{t.codigo} — {t.label}</option>
+                    ))}
                   </select>
+                  <p className="text-xs text-gray-400 mt-1">
+                    {TIPOS_REMUNERACION.find((t) => t.codigo === tipoRemuneracion)?.desc}
+                  </p>
                 </div>
                 <div>
                   <label className="form-label">Sueldo nominal mensual ($)</label>

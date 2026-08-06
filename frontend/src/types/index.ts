@@ -123,6 +123,7 @@ export interface Contrato {
   categoria?: string;
   nivel?: string;
   salaryType: SalaryType;
+  tipoRemuneracion?: number | null;
   cobra?: string;
   salarioNominal: string;
   jornal?: string | null;

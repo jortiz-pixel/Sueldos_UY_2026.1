@@ -7,6 +7,7 @@ import { employeesApi, companiesApi, catalogsApi, construccionApi } from '../ser
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
 import { CATEGORIAS_CONSTRUCCION, esEmpresaConstruccion } from '../constants/conceptos';
+import { TIPOS_REMUNERACION, salaryTypeDeTipoRem } from '../constants/tipoRemuneracion';
 import AttachmentsPanel from '../components/AttachmentsPanel';
 import PersonPhoto from '../components/PersonPhoto';
 import { SalaryType, EstadoCivil, formatCedula, validarCedula } from '../types';
@@ -44,6 +45,7 @@ interface EmployeeForm {
   categoria?: string;
   nivel?: string;
   salaryType: SalaryType;
+  tipoRemuneracion: number;
   salarioNominalPesos: number;
   jornalPesos?: number;
   // Historia Laboral BPS (primer contrato)
@@ -58,7 +60,7 @@ const emptyForm: EmployeeForm = {
   conyugeACargo: false, hijosACargo: 0, hijosDiscapacitados: 0,
   irpfMetodo: 'PROYECCION', fonasaFamilia: false, banco: '', bancoSucursal: '', bancoCuenta: '', bancoMoneda: 'UYU', observaciones: '',
   companyId: '', fechaIngreso: '', cargo: '', categoria: '', nivel: '',
-  salaryType: 'MENSUAL', salarioNominalPesos: 0, jornalPesos: 0,
+  salaryType: 'MENSUAL', tipoRemuneracion: 1, salarioNominalPesos: 0, jornalPesos: 0,
   vinculoFuncional: '12', seguroSalud: '', horasSemanales: 44,
 };
 
@@ -81,7 +83,9 @@ export default function EmployeeFormPage() {
   });
 
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<EmployeeForm>({ defaultValues: emptyForm });
-  const salaryType = watch('salaryType');
+  // Tipo de remuneración BPS (Tabla 2): el salaryType del cálculo se deriva.
+  const tipoRemuneracion = Number(watch('tipoRemuneracion') ?? 1);
+  const salaryType = salaryTypeDeTipoRem(tipoRemuneracion);
   const ciValue = watch('ci');
   // Empresa elegida: si es de CONSTRUCCIÓN se sugieren las categorías del laudo.
   const formCompanyId = watch('companyId');
@@ -109,7 +113,7 @@ export default function EmployeeFormPage() {
     setValue('jornalPesos', hora);
     // Nominal mensual ficto para BPS: 25 jornadas de 8 horas.
     setValue('salarioNominalPesos', Math.round(hora * 200 * 100) / 100);
-    setValue('salaryType', 'JORNALERO');
+    setValue('tipoRemuneracion', 2); // Jornalero (Tabla 2)
   }, [categoriaActual, esConstruccion, recuadroEmpresa, jornalesLaudo, setValue]);
 
   useEffect(() => {
@@ -170,9 +174,10 @@ export default function EmployeeFormPage() {
           cargo: data.cargo || undefined,
           categoria: data.categoria || undefined,
           nivel: data.nivel || undefined,
-          salaryType: data.salaryType,
+          tipoRemuneracion: Number(data.tipoRemuneracion),
+          salaryType: salaryTypeDeTipoRem(Number(data.tipoRemuneracion)),
           salarioNominal: String(Math.round(Number(data.salarioNominalPesos) * 100)),
-          jornal: data.salaryType === 'JORNALERO' && data.jornalPesos
+          jornal: salaryTypeDeTipoRem(Number(data.tipoRemuneracion)) === 'JORNALERO' && data.jornalPesos
             ? String(Math.round(Number(data.jornalPesos) * 100)) : undefined,
           vinculoFuncional: data.vinculoFuncional ? Number(data.vinculoFuncional) : undefined,
           seguroSalud: data.seguroSalud ? Number(data.seguroSalud) : undefined,
@@ -422,11 +427,15 @@ export default function EmployeeFormPage() {
                 <input {...register('nivel')} className="form-input" />
               </div>
               <div>
-                <label className="form-label">Tipo de remuneración</label>
-                <select {...register('salaryType')} className="form-input">
-                  <option value="MENSUAL">Mensual</option>
-                  <option value="JORNALERO">Jornalero</option>
+                <label className="form-label">Tipo de remuneración (BPS Tabla 2)</label>
+                <select {...register('tipoRemuneracion', { valueAsNumber: true })} className="form-input">
+                  {TIPOS_REMUNERACION.map((t) => (
+                    <option key={t.codigo} value={t.codigo}>{t.codigo} — {t.label}</option>
+                  ))}
                 </select>
+                <p className="text-xs text-gray-400 mt-1">
+                  {TIPOS_REMUNERACION.find((t) => t.codigo === tipoRemuneracion)?.desc}
+                </p>
               </div>
               <div>
                 <label className="form-label">Vínculo funcional (BPS Tabla 3)</label>

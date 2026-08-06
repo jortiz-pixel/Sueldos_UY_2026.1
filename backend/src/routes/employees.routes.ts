@@ -56,6 +56,9 @@ const contratoFields = {
   categoria: z.string().optional(),
   nivel: z.string().optional(),
   salaryType: z.nativeEnum(SalaryType).default(SalaryType.MENSUAL),
+  // Tipo de remuneración BPS (Tabla 2): 1..6. El motor de cálculo usa salaryType,
+  // que se deriva de este código (2 Jornalero → JORNALERO; el resto → MENSUAL).
+  tipoRemuneracion: z.number().int().min(1).max(6).optional(),
   cobra: z.string().optional(),
   salarioNominal: z.string().transform((v) => BigInt(v)),
   jornal: z.string().transform((v) => BigInt(v)).optional(),
@@ -81,6 +84,13 @@ const contratoFields = {
 const createEmployeeSchema = z.object({ ...personFields, contrato: z.object(contratoFields) });
 const updatePersonSchema = z.object(personFields).partial();
 const contractSchema = z.object(contratoFields);
+
+// El motor de cálculo distingue MENSUAL vs JORNALERO. Del tipo de remuneración
+// BPS (Tabla 2), solo "Jornalero" (2) se liquida por jornal; el resto (mensual,
+// destajista, a comisión, mixta, sin remuneración) se maneja como MENSUAL.
+function salaryTypeDeTipoRem(codigo: number): SalaryType {
+  return codigo === 2 ? SalaryType.JORNALERO : SalaryType.MENSUAL;
+}
 
 function serializeEmployee(e: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = { ...e };
@@ -446,6 +456,10 @@ employeesRouter.post('/:id/contracts', authenticate, requireRole(UserRole.ADMIN,
 
     const count = await prisma.contrato.count({ where: { employeeId: req.params.id } });
 
+    // Tipo de remuneración BPS (Tabla 2) y el salaryType derivado para el cálculo.
+    const tipoRemuneracion = data.tipoRemuneracion ?? (data.salaryType === SalaryType.JORNALERO ? 2 : 1);
+    const salaryType = data.tipoRemuneracion != null ? salaryTypeDeTipoRem(data.tipoRemuneracion) : data.salaryType;
+
     const contrato = await prisma.contrato.create({
       data: {
         employeeId: req.params.id,
@@ -459,7 +473,8 @@ employeesRouter.post('/:id/contracts', authenticate, requireRole(UserRole.ADMIN,
         sector: data.sector,
         categoria: data.categoria,
         nivel: data.nivel,
-        salaryType: data.salaryType,
+        salaryType,
+        tipoRemuneracion,
         cobra: data.cobra,
         salarioNominal: data.salarioNominal,
         jornal: data.jornal,
@@ -486,7 +501,7 @@ employeesRouter.post('/:id/contracts', authenticate, requireRole(UserRole.ADMIN,
       where: { id: req.params.id },
       data: {
         companyId: data.companyId,
-        salaryType: data.salaryType,
+        salaryType,
         salarioNominal: data.salarioNominal,
         jornal: data.jornal ?? null,
         cargo: data.cargo ?? employee.cargo,
@@ -511,6 +526,9 @@ employeesRouter.put('/:id/contracts/:contractId', authenticate, requireRole(User
 
     const data = contractSchema.partial().parse(req.body);
     const { fechaFin, vigenciaDesde, fechaIngreso, grupoActividadNum, ...rest } = data;
+    // Si se cambió el tipo de remuneración (Tabla 2), recalcular el salaryType
+    // que usa el motor de cálculo (2 Jornalero → JORNALERO; el resto → MENSUAL).
+    if (data.tipoRemuneracion != null) rest.salaryType = salaryTypeDeTipoRem(data.tipoRemuneracion);
 
     // Fecha de egreso / baja:
     // - Vaciarla en un contrato que tenía egreso = CANCELAR la baja: se limpia la

@@ -491,6 +491,11 @@ model Contrato {
   categoria        String?
   nivel            String?
   salaryType       SalaryType @default(MENSUAL)
+  // Tipo de remuneración BPS (Tabla 2): 1 Mensual · 2 Jornalero · 3 Destajista ·
+  // 4 A comisión · 5 Mixta · 6 Sin remuneración. Es lo que se declara a BPS.
+  // salaryType (MENSUAL/JORNALERO) es el motor de cálculo y se deriva de acá
+  // (2 → JORNALERO, el resto → MENSUAL).
+  tipoRemuneracion Int        @default(1)
   cobra            String?
   salarioNominal   BigInt
   jornal           BigInt?

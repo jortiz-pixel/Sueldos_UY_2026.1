@@ -218,7 +218,9 @@ export async function generarNominaBps(companyId: string, year: number, month: n
       '6', '', String(paisDoc), tipoDoc, doc,
       String(al),
       ddmmaaaa(contrato.fechaIngreso),
-      contrato.salaryType === 'JORNALERO' ? '2' : '1',
+      // Tipo de remuneración BPS (Tabla 2): el código del contrato (1..6); si no
+      // está, se deriva del salaryType (JORNALERO → 2, si no → 1).
+      String(contrato.tipoRemuneracion ?? (contrato.salaryType === 'JORNALERO' ? 2 : 1)),
       contrato.horasSemanales != null ? String(contrato.horasSemanales) : '',
       contrato.vinculoFuncional != null ? String(contrato.vinculoFuncional) : '',
       String(contrato.exoneracionAporte ?? 9),
@@ -554,6 +556,7 @@ export async function importarNominaAtyr(contenido: string, commit: boolean): Pr
           vigenciaHasta: p.fechaEgreso ?? undefined,
           causalEgresoCod: p.causalEgreso ?? undefined,
           salaryType: p.tipoRemuneracion === 2 ? 'JORNALERO' : 'MENSUAL',
+          tipoRemuneracion: p.tipoRemuneracion ?? 1,
           salarioNominal,
           acumulacionLaboral: p.acumulacion,
           horasSemanales: p.horasSemanales ?? undefined,
