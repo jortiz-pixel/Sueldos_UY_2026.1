@@ -103,3 +103,89 @@ export async function setNuevoPin(ciRaw: string, nuevoPin: string): Promise<void
     data: { pinHash, mustSetPin: false, failedAttempts: 0, lockedUntil: null },
   });
 }
+
+// ─────────────────────── PORTAL DE CLIENTES (empresas) ───────────────────────
+// Mismo esquema de seguridad que el de empleados, pero la clave es la EMPRESA:
+// login con RUT + PIN; da acceso de LECTURA a los recibos CONFIRMADOS de TODOS
+// los empleados de esa empresa.
+
+function normalizarRut(rut: string): string {
+  return (rut || '').replace(/\D/g, ''); // solo dígitos
+}
+
+/** Habilita (o resetea) el acceso al portal para una empresa. Devuelve el PIN una vez. */
+export async function habilitarAccesoPortalEmpresa(companyId: string): Promise<string> {
+  if (!companyId) throw new AppError(400, 'Empresa inválida');
+  const pin = generarPinTemporal();
+  const pinHash = await bcrypt.hash(pin, 12);
+  await prisma.companyPortalCredential.upsert({
+    where: { companyId },
+    create: { companyId, pinHash, mustSetPin: true, active: true },
+    update: { pinHash, mustSetPin: true, active: true, failedAttempts: 0, lockedUntil: null },
+  });
+  return pin;
+}
+
+export async function revocarAccesoPortalEmpresa(companyId: string): Promise<void> {
+  await prisma.companyPortalCredential.updateMany({ where: { companyId }, data: { active: false } });
+}
+
+export async function estadoAccesoPortalEmpresa(companyId: string): Promise<{ habilitado: boolean; mustSetPin: boolean; bloqueado: boolean }> {
+  const cred = await prisma.companyPortalCredential.findUnique({ where: { companyId } });
+  return {
+    habilitado: !!cred?.active,
+    mustSetPin: !!cred?.mustSetPin,
+    bloqueado: !!(cred?.lockedUntil && cred.lockedUntil > new Date()),
+  };
+}
+
+/** Verifica RUT + PIN. Maneja el bloqueo. Devuelve el companyId y mustSetPin. */
+export async function verificarLoginEmpresa(rutRaw: string, pin: string): Promise<{ companyId: string; mustSetPin: boolean }> {
+  const rut = normalizarRut(rutRaw);
+  const generico = new AppError(401, 'RUT o PIN incorrectos');
+  if (!rut || !pin) throw generico;
+
+  const company = await prisma.company.findUnique({ where: { rut }, select: { id: true, active: true } });
+  const cred = company ? await prisma.companyPortalCredential.findUnique({ where: { companyId: company.id } }) : null;
+
+  // Respuesta uniforme aunque no exista (anti-enumeración); igual gastamos un compare.
+  if (!company || !company.active || !cred || !cred.active) {
+    await bcrypt.compare(pin, '$2a$12$0000000000000000000000000000000000000000000000000000'); // tiempo constante
+    throw generico;
+  }
+  if (cred.lockedUntil && cred.lockedUntil > new Date()) {
+    throw new AppError(429, 'Acceso bloqueado temporalmente por intentos fallidos. Probá en unos minutos.');
+  }
+
+  const ok = await bcrypt.compare(pin, cred.pinHash);
+  if (!ok) {
+    const intentos = cred.failedAttempts + 1;
+    const bloquear = intentos >= MAX_INTENTOS;
+    await prisma.companyPortalCredential.update({
+      where: { companyId: company.id },
+      data: {
+        failedAttempts: bloquear ? 0 : intentos,
+        lockedUntil: bloquear ? new Date(Date.now() + BLOQUEO_MIN * 60_000) : null,
+      },
+    });
+    throw generico;
+  }
+
+  await prisma.companyPortalCredential.update({
+    where: { companyId: company.id },
+    data: { failedAttempts: 0, lockedUntil: null, lastLoginAt: new Date() },
+  });
+  return { companyId: company.id, mustSetPin: cred.mustSetPin };
+}
+
+/** Fija un nuevo PIN elegido por el cliente (primer ingreso o cambio). */
+export async function setNuevoPinEmpresa(companyId: string, nuevoPin: string): Promise<void> {
+  if (!nuevoPin || nuevoPin.length < 6) throw new AppError(400, 'El PIN debe tener al menos 6 caracteres.');
+  const cred = await prisma.companyPortalCredential.findUnique({ where: { companyId } });
+  if (!cred || !cred.active) throw new AppError(404, 'Acceso no habilitado');
+  const pinHash = await bcrypt.hash(nuevoPin, 12);
+  await prisma.companyPortalCredential.update({
+    where: { companyId },
+    data: { pinHash, mustSetPin: false, failedAttempts: 0, lockedUntil: null },
+  });
+}

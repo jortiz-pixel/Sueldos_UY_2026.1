@@ -86,6 +86,51 @@ export function authenticatePortal(opts: { allowSetup?: boolean } = {}) {
   };
 }
 
+// ─────────────────────── PORTAL DE CLIENTES (empresas) ───────────────────────
+// Token separado por EMPRESA (typ 'portal-empresa' = acceso · 'portal-empresa-setup'
+// = solo fijar el PIN). Bajo privilegio: solo recibos confirmados de la empresa.
+export interface CompanyPortalJwtPayload {
+  typ: 'portal-empresa' | 'portal-empresa-setup';
+  companyId: string;
+}
+
+export function generateCompanyPortalToken(companyId: string, setup = false): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) throw new Error('JWT_SECRET no configurado');
+  const payload: CompanyPortalJwtPayload = { typ: setup ? 'portal-empresa-setup' : 'portal-empresa', companyId };
+  return jwt.sign(payload, secret, { expiresIn: setup ? '10m' : '30m' });
+}
+
+declare global {
+  namespace Express {
+    interface Request {
+      portalEmpresa?: CompanyPortalJwtPayload;
+    }
+  }
+}
+
+/** Verifica el token del portal de clientes. `setup` permite el token de primer ingreso. */
+export function authenticateCompanyPortal(opts: { allowSetup?: boolean } = {}) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'Acceso requerido' });
+      return;
+    }
+    try {
+      const secret = process.env.JWT_SECRET;
+      if (!secret) throw new Error('JWT_SECRET no configurado');
+      const payload = jwt.verify(authHeader.split(' ')[1], secret) as CompanyPortalJwtPayload;
+      const ok = payload.typ === 'portal-empresa' || (opts.allowSetup && payload.typ === 'portal-empresa-setup');
+      if (!ok) { res.status(401).json({ error: 'Token inválido' }); return; }
+      req.portalEmpresa = payload;
+      next();
+    } catch {
+      res.status(401).json({ error: 'Token inválido o expirado' });
+    }
+  };
+}
+
 /** Verifica que el usuario tenga el rol requerido */
 export function requireRole(...roles: UserRole[]) {
   return (req: Request, res: Response, next: NextFunction): void => {

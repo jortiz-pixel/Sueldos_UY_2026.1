@@ -80,6 +80,8 @@ const portalLimiter = rateLimit({
 });
 app.use('/api/portal/login', portalLimiter);
 app.use('/api/portal/set-pin', portalLimiter);
+app.use('/api/portal/empresa/login', portalLimiter);
+app.use('/api/portal/empresa/set-pin', portalLimiter);
 
 app.use(compression());
 app.use(express.json({ limit: '10mb' }));

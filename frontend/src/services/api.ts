@@ -87,6 +87,48 @@ export const portalAdminApi = {
     api.delete(`/employees/${employeeId}/portal-access`).then((r) => r.data),
 };
 
+// ─────────────────────── PORTAL DE CLIENTES (empresas) ───────────────────────
+// Instancia con su propio token ('portalEmpresaToken'), independiente del panel
+// y del portal de empleados. Login con RUT + PIN; recibos de toda la empresa.
+const portalEmpresaHttp: AxiosInstance = axios.create({
+  baseURL: `${BASE_URL}/api/portal/empresa`,
+  headers: { 'Content-Type': 'application/json' },
+});
+portalEmpresaHttp.interceptors.request.use((config) => {
+  const token = localStorage.getItem('portalEmpresaToken');
+  if (token) { config.headers.Authorization = `Bearer ${token}`; }
+  return config;
+});
+
+export interface PortalEmpresaRecibo {
+  id: string;
+  year: number;
+  month: number;
+  type: string;
+  liquidoPercibir: string;
+  empleado: string;
+  ci: string;
+}
+
+export const portalEmpresaApi = {
+  login: (rut: string, pin: string) =>
+    portalEmpresaHttp.post<{ mustSetPin?: boolean; setupToken?: string; token?: string }>('/login', { rut, pin }).then((r) => r.data),
+  setPin: (newPin: string, setupToken: string) =>
+    portalEmpresaHttp.post<{ token: string }>('/set-pin', { newPin }, { headers: { Authorization: `Bearer ${setupToken}` } }).then((r) => r.data),
+  recibos: () => portalEmpresaHttp.get<PortalEmpresaRecibo[]>('/recibos').then((r) => r.data),
+  reciboPdf: (id: string) => portalEmpresaHttp.get(`/recibos/${id}/pdf`, { responseType: 'blob' }).then((r) => r.data as Blob),
+};
+
+// Acceso al portal de clientes desde el panel de administración.
+export const portalEmpresaAdminApi = {
+  estado: (companyId: string) =>
+    api.get<{ habilitado: boolean; mustSetPin: boolean; bloqueado: boolean }>(`/companies/${companyId}/portal-access`).then((r) => r.data),
+  habilitar: (companyId: string) =>
+    api.post<{ pin: string; message: string }>(`/companies/${companyId}/portal-access`, {}).then((r) => r.data),
+  revocar: (companyId: string) =>
+    api.delete(`/companies/${companyId}/portal-access`).then((r) => r.data),
+};
+
 export interface AuditRow {
   id: string;
   action: string;

@@ -1,39 +1,38 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
-import { CreditCard, KeyRound, AlertCircle, ShieldCheck } from 'lucide-react';
+import { Building2, KeyRound, AlertCircle, ShieldCheck } from 'lucide-react';
 import AsysTaxLogo from '../../components/AsysTaxLogo';
-import { portalApi } from '../../services/api';
+import { portalEmpresaApi } from '../../services/api';
 
-interface PortalLoginForm {
-  ci: string;
+interface CompanyLoginForm {
+  rut: string;
   pin: string;
 }
 
-export default function PortalLoginPage() {
+export default function CompanyPortalLoginPage() {
   const navigate = useNavigate();
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { register, handleSubmit, formState: { errors } } = useForm<PortalLoginForm>();
+  const { register, handleSubmit, formState: { errors } } = useForm<CompanyLoginForm>();
 
-  const onSubmit = async (data: PortalLoginForm) => {
+  const onSubmit = async (data: CompanyLoginForm) => {
     setError('');
     setLoading(true);
     try {
-      const r = await portalApi.login(data.ci, data.pin);
+      const r = await portalEmpresaApi.login(data.rut, data.pin);
       if (r.mustSetPin && r.setupToken) {
-        // Primer ingreso: hay que fijar un PIN propio antes de ver los recibos.
-        localStorage.setItem('portalSetupToken', r.setupToken);
-        navigate('/portal/nuevo-pin');
+        localStorage.setItem('portalEmpresaSetupToken', r.setupToken);
+        navigate('/portal-empresa/nuevo-pin');
         return;
       }
       if (r.token) {
-        localStorage.setItem('portalToken', r.token);
-        navigate('/portal/recibos');
+        localStorage.setItem('portalEmpresaToken', r.token);
+        navigate('/portal-empresa/recibos');
       }
     } catch (e) {
       const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error;
-      setError(msg || 'Cédula o PIN incorrectos.');
+      setError(msg || 'RUT o PIN incorrectos.');
     } finally {
       setLoading(false);
     }
@@ -48,8 +47,8 @@ export default function PortalLoginPage() {
 
         <div className="bg-white rounded-2xl shadow-xl shadow-navy/5 border border-hairline p-8">
           <div className="mb-7">
-            <h1 className="text-2xl font-bold text-ink">Portal de empleados</h1>
-            <p className="text-ink-subtle text-sm mt-1">Consultá y descargá tus recibos de sueldo.</p>
+            <h1 className="text-2xl font-bold text-ink">Portal de clientes</h1>
+            <p className="text-ink-subtle text-sm mt-1">Consultá y descargá los recibos de tu empresa.</p>
           </div>
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -61,19 +60,19 @@ export default function PortalLoginPage() {
             )}
 
             <div>
-              <label className="form-label">Cédula de identidad</label>
+              <label className="form-label">RUT de la empresa</label>
               <div className="relative">
-                <CreditCard className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                 <input
-                  {...register('ci', { required: 'Ingresá tu cédula' })}
+                  {...register('rut', { required: 'Ingresá el RUT' })}
                   type="text"
                   inputMode="numeric"
                   className="form-input pl-9 py-2.5"
-                  placeholder="1.234.567-8"
+                  placeholder="21 876543 0019"
                   autoComplete="username"
                 />
               </div>
-              {errors.ci && <p className="form-error">{errors.ci.message}</p>}
+              {errors.rut && <p className="form-error">{errors.rut.message}</p>}
             </div>
 
             <div>
@@ -106,12 +105,12 @@ export default function PortalLoginPage() {
           </form>
 
           <p className="text-xs text-ink-subtle mt-5 leading-relaxed">
-            El PIN te lo entrega tu empleador la primera vez. Si no lo tenés o lo olvidaste,
+            El PIN te lo entrega tu estudio contable la primera vez. Si no lo tenés o lo olvidaste,
             pedí que lo restablezcan.
           </p>
           <div className="mt-4 pt-4 border-t border-hairline">
-            <Link to="/portal-empresa" className="text-xs text-brand-600 hover:text-brand-700">
-              ¿Sos una empresa? Ingresá al portal de clientes →
+            <Link to="/portal" className="text-xs text-brand-600 hover:text-brand-700">
+              ¿Sos empleado? Ingresá al portal de empleados →
             </Link>
           </div>
         </div>

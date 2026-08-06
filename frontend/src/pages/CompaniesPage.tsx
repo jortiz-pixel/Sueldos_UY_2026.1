@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
-import { Plus, Building2, Pencil, X, Users, AlertCircle, Share2, Eye, EyeOff, Trash2, UserPlus } from 'lucide-react';
-import { companiesApi, catalogsApi, membershipApi, CompanyMembership } from '../services/api';
+import { Plus, Building2, Pencil, X, Users, AlertCircle, Share2, Eye, EyeOff, Trash2, UserPlus, KeyRound, ShieldCheck } from 'lucide-react';
+import { companiesApi, catalogsApi, membershipApi, CompanyMembership, portalEmpresaAdminApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { Company } from '../types';
 
@@ -193,6 +193,8 @@ export default function CompaniesPage() {
 
   // ---- Compartir (accesos por empresa) ----
   const [shareCompany, setShareCompany] = useState<Company | null>(null);
+  // ---- Portal de clientes (acceso RUT + PIN de la empresa) ----
+  const [portalCompany, setPortalCompany] = useState<Company | null>(null);
 
   return (
     <div className="space-y-5">
@@ -271,6 +273,13 @@ export default function CompaniesPage() {
                           title="Compartir (dar acceso a un usuario)"
                         >
                           <Share2 size={15} />
+                        </button>
+                        <button
+                          onClick={() => setPortalCompany(c)}
+                          className="p-1.5 text-ink-subtle hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
+                          title="Portal de clientes (acceso RUT + PIN de la empresa)"
+                        >
+                          <KeyRound size={15} />
                         </button>
                         <button
                           onClick={() => visibilityMutation.mutate({ id: c.id, hidden: !c.hidden })}
@@ -527,6 +536,106 @@ export default function CompaniesPage() {
       {shareCompany && (
         <ShareModal company={shareCompany} onClose={() => setShareCompany(null)} />
       )}
+
+      {/* Modal Portal de clientes */}
+      {portalCompany && (
+        <CompanyPortalModal company={portalCompany} onClose={() => setPortalCompany(null)} />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Modal "Portal de clientes": habilita/revoca el acceso RUT + PIN de la empresa
+// para que el cliente vea y descargue los recibos confirmados de sus empleados.
+// ---------------------------------------------------------------------------
+function CompanyPortalModal({ company, onClose }: { company: Company; onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const [pinGenerado, setPinGenerado] = useState<string | null>(null);
+
+  const { data: estado } = useQuery({
+    queryKey: ['portal-empresa-access', company.id],
+    queryFn: () => portalEmpresaAdminApi.estado(company.id),
+  });
+
+  const habilitarMutation = useMutation({
+    mutationFn: () => portalEmpresaAdminApi.habilitar(company.id),
+    onSuccess: (r) => {
+      setPinGenerado(r.pin);
+      queryClient.invalidateQueries({ queryKey: ['portal-empresa-access', company.id] });
+    },
+    onError: (err: unknown) => {
+      const message = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      alert(message || 'No se pudo habilitar el acceso al portal.');
+    },
+  });
+
+  const revocarMutation = useMutation({
+    mutationFn: () => portalEmpresaAdminApi.revocar(company.id),
+    onSuccess: () => {
+      setPinGenerado(null);
+      queryClient.invalidateQueries({ queryKey: ['portal-empresa-access', company.id] });
+    },
+  });
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+            <ShieldCheck size={18} /> Portal de clientes
+          </h2>
+          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700"><X size={20} /></button>
+        </div>
+        <div className="p-6 space-y-4">
+          <div>
+            <p className="text-sm font-medium text-ink">{company.razonSocial}</p>
+            <p className="text-xs text-ink-subtle font-mono">RUT {company.rut}</p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {estado?.habilitado ? (
+              <span className="badge-green badge">Habilitado</span>
+            ) : (
+              <span className="badge-gray badge">Sin acceso</span>
+            )}
+            {estado?.habilitado && estado.mustSetPin && <span className="badge-yellow badge">PIN sin usar</span>}
+            {estado?.bloqueado && <span className="badge-red badge">Bloqueado</span>}
+          </div>
+
+          <p className="text-xs text-gray-500 leading-relaxed">
+            El cliente ingresa en <span className="font-mono">/portal-empresa</span> con el RUT de la
+            empresa y un PIN para ver y descargar los recibos confirmados de todos sus empleados.
+          </p>
+
+          {pinGenerado && (
+            <div className="p-3 bg-brand-50 border border-brand-200 rounded-lg">
+              <p className="text-xs text-brand-700 mb-1 flex items-center gap-1"><KeyRound size={13} /> PIN generado (se muestra una sola vez):</p>
+              <p className="figure text-lg font-bold tracking-widest text-brand-800 text-center py-1">{pinGenerado}</p>
+              <p className="text-[11px] text-brand-600">Entregáselo al cliente. En el primer ingreso deberá elegir su propio PIN.</p>
+            </div>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 px-6 py-4 border-t border-gray-100">
+          {estado?.habilitado && (
+            <button
+              onClick={() => { if (confirm('¿Revocar el acceso al portal de esta empresa?')) revocarMutation.mutate(); }}
+              disabled={revocarMutation.isPending}
+              className="btn-secondary text-red-600"
+            >
+              Revocar
+            </button>
+          )}
+          <button
+            onClick={() => habilitarMutation.mutate()}
+            disabled={habilitarMutation.isPending}
+            className="btn-primary"
+          >
+            <KeyRound size={14} />
+            {estado?.habilitado ? 'Restablecer PIN' : 'Habilitar acceso'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

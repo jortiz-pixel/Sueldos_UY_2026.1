@@ -7,6 +7,7 @@ import { accessibleCompanyIds, assertCompanyAccess } from '../middleware/tenancy
 import { AppError, NotFoundError } from '../middleware/errorHandler';
 import { recordAudit } from '../services/audit.service';
 import { ensureConceptosConstruccion, esEmpresaConstruccion } from '../services/construccion.service';
+import { habilitarAccesoPortalEmpresa, revocarAccesoPortalEmpresa, estadoAccesoPortalEmpresa } from '../services/portal.service';
 
 export const companiesRouter = Router();
 
@@ -189,5 +190,41 @@ companiesRouter.post('/:id/users', authenticate, requireRole(UserRole.ADMIN), as
     });
     await recordAudit({ action: 'USER_CREATE', entity: 'user', entityId: user.id, companyId: req.params.id, newData: { email: user.email, role: user.role }, req });
     res.status(201).json(user);
+  } catch (err) { next(err); }
+});
+
+// ─────────── Portal de CLIENTES (Fase 2): acceso RUT + PIN de la empresa ───────────
+
+// GET /:id/portal-access → estado del acceso al portal de la empresa.
+companiesRouter.get('/:id/portal-access', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const company = await prisma.company.findUnique({ where: { id: req.params.id } });
+    if (!company) throw new NotFoundError('Empresa');
+    await assertCompanyAccess(req, company.id);
+    res.json(await estadoAccesoPortalEmpresa(company.id));
+  } catch (err) { next(err); }
+});
+
+// POST /:id/portal-access → habilita (o resetea) el acceso y devuelve el PIN una vez.
+companiesRouter.post('/:id/portal-access', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const company = await prisma.company.findUnique({ where: { id: req.params.id } });
+    if (!company) throw new NotFoundError('Empresa');
+    await assertCompanyAccess(req, company.id);
+    const pin = await habilitarAccesoPortalEmpresa(company.id);
+    await recordAudit({ action: 'PORTAL_EMPRESA_ACCESS_ENABLE', entity: 'company', entityId: company.id, companyId: company.id, newData: { rut: company.rut }, req });
+    res.json({ pin, message: 'Acceso habilitado. Entregá este PIN al cliente (se muestra una sola vez). Ingresa con el RUT de la empresa.' });
+  } catch (err) { next(err); }
+});
+
+// DELETE /:id/portal-access → revoca el acceso al portal.
+companiesRouter.delete('/:id/portal-access', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const company = await prisma.company.findUnique({ where: { id: req.params.id } });
+    if (!company) throw new NotFoundError('Empresa');
+    await assertCompanyAccess(req, company.id);
+    await revocarAccesoPortalEmpresa(company.id);
+    await recordAudit({ action: 'PORTAL_EMPRESA_ACCESS_REVOKE', entity: 'company', entityId: company.id, companyId: company.id, newData: { rut: company.rut }, req });
+    res.json({ message: 'Acceso al portal revocado.' });
   } catch (err) { next(err); }
 });

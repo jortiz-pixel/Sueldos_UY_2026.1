@@ -23,11 +23,20 @@ import ImportPage from './pages/ImportPage';
 import PortalLoginPage from './pages/portal/PortalLoginPage';
 import PortalSetPinPage from './pages/portal/PortalSetPinPage';
 import PortalRecibosPage from './pages/portal/PortalRecibosPage';
+import CompanyPortalLoginPage from './pages/portal/CompanyPortalLoginPage';
+import CompanyPortalSetPinPage from './pages/portal/CompanyPortalSetPinPage';
+import CompanyPortalRecibosPage from './pages/portal/CompanyPortalRecibosPage';
 
 // El portal de empleados tiene su propio token ('portalToken'), separado del
 // panel de administración. Sin token, al login del portal.
 function PortalRoute({ children }: { children: React.ReactNode }) {
   if (!localStorage.getItem('portalToken')) return <Navigate to="/portal" replace />;
+  return <>{children}</>;
+}
+
+// El portal de clientes (empresas) usa su propio token ('portalEmpresaToken').
+function CompanyPortalRoute({ children }: { children: React.ReactNode }) {
+  if (!localStorage.getItem('portalEmpresaToken')) return <Navigate to="/portal-empresa" replace />;
   return <>{children}</>;
 }
 
@@ -49,6 +58,11 @@ function AppRoutes() {
       <Route path="/portal" element={<PortalLoginPage />} />
       <Route path="/portal/nuevo-pin" element={<PortalSetPinPage />} />
       <Route path="/portal/recibos" element={<PortalRoute><PortalRecibosPage /></PortalRoute>} />
+
+      {/* Portal de clientes / empresas (fuera del panel de administración) */}
+      <Route path="/portal-empresa" element={<CompanyPortalLoginPage />} />
+      <Route path="/portal-empresa/nuevo-pin" element={<CompanyPortalSetPinPage />} />
+      <Route path="/portal-empresa/recibos" element={<CompanyPortalRoute><CompanyPortalRecibosPage /></CompanyPortalRoute>} />
 
       <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
         <Route index element={<DashboardPage />} />
