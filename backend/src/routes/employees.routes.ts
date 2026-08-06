@@ -8,6 +8,7 @@ import { assertCompanyAccess, accessibleCompanyIds } from '../middleware/tenancy
 import { AppError, NotFoundError } from '../middleware/errorHandler';
 import { calcularAntiguedad, diasLicenciaCorrespondientes } from '../utils/date';
 import { calcularLiquidacionFinal, vacacionalesDisponibles } from '../services/vacation.service';
+import { habilitarAccesoPortal, revocarAccesoPortal, estadoAccesoPortal } from '../services/portal.service';
 import { recordAudit } from '../services/audit.service';
 
 export const employeesRouter = Router();
@@ -791,6 +792,41 @@ employeesRouter.get('/:id/vacation', authenticate, async (req: Request, res: Res
       orderBy: { year: 'desc' },
     });
     res.json(accruals);
+  } catch (err) { next(err); }
+});
+
+// ── Portal de empleados: habilitar/consultar/revocar acceso (CI + PIN) ──
+// GET /:id/portal-access → estado del acceso al portal de la persona.
+employeesRouter.get('/:id/portal-access', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const employee = await prisma.employee.findUnique({ where: { id: req.params.id } });
+    if (!employee) throw new NotFoundError('Empleado');
+    await assertPersonaAccess(req, employee.id, employee.companyId);
+    res.json(await estadoAccesoPortal(employee.ci));
+  } catch (err) { next(err); }
+});
+
+// POST /:id/portal-access → habilita (o resetea) el acceso y devuelve el PIN una vez.
+employeesRouter.post('/:id/portal-access', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const employee = await prisma.employee.findUnique({ where: { id: req.params.id } });
+    if (!employee) throw new NotFoundError('Empleado');
+    await assertPersonaAccess(req, employee.id, employee.companyId);
+    const pin = await habilitarAccesoPortal(employee.ci);
+    await recordAudit({ action: 'PORTAL_ACCESS_ENABLE', entity: 'employee', entityId: employee.id, companyId: employee.companyId, newData: { ci: employee.ci }, req });
+    res.json({ pin, message: 'Acceso habilitado. Entregá este PIN a la persona (se muestra una sola vez).' });
+  } catch (err) { next(err); }
+});
+
+// DELETE /:id/portal-access → revoca el acceso al portal.
+employeesRouter.delete('/:id/portal-access', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const employee = await prisma.employee.findUnique({ where: { id: req.params.id } });
+    if (!employee) throw new NotFoundError('Empleado');
+    await assertPersonaAccess(req, employee.id, employee.companyId);
+    await revocarAccesoPortal(employee.ci);
+    await recordAudit({ action: 'PORTAL_ACCESS_REVOKE', entity: 'employee', entityId: employee.id, companyId: employee.companyId, newData: { ci: employee.ci }, req });
+    res.json({ message: 'Acceso al portal revocado.' });
   } catch (err) { next(err); }
 });
 

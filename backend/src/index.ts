@@ -22,6 +22,7 @@ import { nominaRouter } from './routes/nomina.routes';
 import { auditRouter } from './routes/audit.routes';
 import { demoRouter } from './routes/demo.routes';
 import { construccionRouter } from './routes/construccion.routes';
+import { portalRouter } from './routes/portal.routes';
 import { errorHandler } from './middleware/errorHandler';
 import { logger } from './utils/logger';
 
@@ -67,6 +68,19 @@ const authLimiter = rateLimit({
 });
 app.use('/api/auth', authLimiter);
 
+// Portal de empleados: límite estricto para el login con CI + PIN (además del
+// bloqueo por credencial). Frena la prueba masiva de cédulas/PIN.
+const portalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiados intentos. Esperá unos minutos e intentá de nuevo.' },
+});
+app.use('/api/portal/login', portalLimiter);
+app.use('/api/portal/set-pin', portalLimiter);
+
 app.use(compression());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -90,6 +104,7 @@ app.use('/api/attachments', attachmentsRouter);
 app.use('/api/calendar', calendarRouter);
 app.use('/api/import', importRouter);
 app.use('/api/audit', auditRouter);
+app.use('/api/portal', portalRouter);
 app.use('/api/demo', demoRouter);
 app.use('/api/construccion', construccionRouter);
 

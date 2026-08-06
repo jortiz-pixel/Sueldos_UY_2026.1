@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Calendar, User, DollarSign, FileText, Briefcase, Plus, X, AlertCircle, UserMinus, Pencil, FileDown, Printer } from 'lucide-react';
+import { ArrowLeft, Calendar, User, DollarSign, FileText, Briefcase, Plus, X, AlertCircle, UserMinus, Pencil, FileDown, Printer, KeyRound, ShieldCheck } from 'lucide-react';
 import { useForm } from 'react-hook-form';
-import { employeesApi, contractsApi, companiesApi, catalogsApi, construccionApi } from '../services/api';
+import { employeesApi, contractsApi, companiesApi, catalogsApi, construccionApi, portalAdminApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
 import AttachmentsPanel from '../components/AttachmentsPanel';
@@ -43,6 +43,92 @@ interface ContractForm {
   exoneracionAporte?: string;
   horasSemanales?: number;
   observacion?: string;
+}
+
+// Acceso de la persona al PORTAL DE EMPLEADOS (login con CI + PIN).
+// Habilitar genera un PIN que se muestra UNA sola vez para entregarlo a mano.
+function PortalAccessCard({ employeeId, canManage }: { employeeId: string; canManage: boolean }) {
+  const queryClient = useQueryClient();
+  const [pinGenerado, setPinGenerado] = useState<string | null>(null);
+
+  const { data: estado } = useQuery({
+    queryKey: ['portal-access', employeeId],
+    queryFn: () => portalAdminApi.estado(employeeId),
+  });
+
+  const habilitarMutation = useMutation({
+    mutationFn: () => portalAdminApi.habilitar(employeeId),
+    onSuccess: (r) => {
+      setPinGenerado(r.pin);
+      queryClient.invalidateQueries({ queryKey: ['portal-access', employeeId] });
+    },
+    onError: (err: unknown) => {
+      const message = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      alert(message || 'No se pudo habilitar el acceso al portal.');
+    },
+  });
+
+  const revocarMutation = useMutation({
+    mutationFn: () => portalAdminApi.revocar(employeeId),
+    onSuccess: () => {
+      setPinGenerado(null);
+      queryClient.invalidateQueries({ queryKey: ['portal-access', employeeId] });
+    },
+  });
+
+  return (
+    <div className="card p-5">
+      <div className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-3">
+        <ShieldCheck size={16} />
+        Portal de empleados
+      </div>
+
+      <div className="flex items-center gap-2 mb-3">
+        {estado?.habilitado ? (
+          <span className="badge-green badge">Habilitado</span>
+        ) : (
+          <span className="badge-gray badge">Sin acceso</span>
+        )}
+        {estado?.habilitado && estado.mustSetPin && <span className="badge-yellow badge">PIN sin usar</span>}
+        {estado?.bloqueado && <span className="badge-red badge">Bloqueado</span>}
+      </div>
+
+      <p className="text-xs text-gray-500 mb-3 leading-relaxed">
+        La persona ingresa en <span className="font-mono">/portal</span> con su cédula y un PIN
+        para ver y descargar solo sus recibos confirmados.
+      </p>
+
+      {pinGenerado && (
+        <div className="mb-3 p-3 bg-brand-50 border border-brand-200 rounded-lg">
+          <p className="text-xs text-brand-700 mb-1 flex items-center gap-1"><KeyRound size={13} /> PIN generado (se muestra una sola vez):</p>
+          <p className="figure text-lg font-bold tracking-widest text-brand-800 text-center py-1">{pinGenerado}</p>
+          <p className="text-[11px] text-brand-600">Entregáselo a la persona. En el primer ingreso deberá elegir su propio PIN.</p>
+        </div>
+      )}
+
+      {canManage && (
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => habilitarMutation.mutate()}
+            disabled={habilitarMutation.isPending}
+            className="btn-primary btn-sm"
+          >
+            <KeyRound size={13} />
+            {estado?.habilitado ? 'Restablecer PIN' : 'Habilitar acceso'}
+          </button>
+          {estado?.habilitado && (
+            <button
+              onClick={() => { if (confirm('¿Revocar el acceso al portal de esta persona?')) revocarMutation.mutate(); }}
+              disabled={revocarMutation.isPending}
+              className="btn-secondary btn-sm text-red-600"
+            >
+              Revocar
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function EmployeeDetailPage() {
@@ -370,6 +456,8 @@ export default function EmployeeDetailPage() {
         </div>
 
         <div className="space-y-4">
+          <PortalAccessCard employeeId={employee.id} canManage={isOperator} />
+
           <AttachmentsPanel companyId={activeCompanyId} ownerType="PERSONA" ownerId={employee.id} />
 
           <div className="card p-5">

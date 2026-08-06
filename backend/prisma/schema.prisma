@@ -780,3 +780,21 @@ model AuditLog {
   @@index([entity, entityId])
   @@map("audit_log")
 }
+
+// Credenciales del PORTAL de empleados (Fase 1): login con CI + PIN para ver y
+// descargar solo los recibos CONFIRMADOS. Separado de User (staff del estudio).
+// La clave es la CI de la persona (misma persona en varias empresas = un acceso).
+model EmployeePortalCredential {
+  id             String    @id @default(cuid())
+  ci             String    @unique
+  pinHash        String
+  mustSetPin     Boolean   @default(true)   // primer ingreso: forzar cambio de PIN
+  active         Boolean   @default(true)
+  failedAttempts Int       @default(0)
+  lockedUntil    DateTime?
+  lastLoginAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@map("employee_portal_credentials")
+}

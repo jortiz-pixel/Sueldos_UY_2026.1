@@ -46,6 +46,47 @@ export const versionApi = {
   get: () => api.get<{ version: string; builtAt: string | null }>('/version').then((r) => r.data),
 };
 
+// ─────────────────────── PORTAL DE EMPLEADOS ───────────────────────
+// Instancia separada del panel de gestión: usa su propio token ('portalToken')
+// y NO comparte el flujo de refresh del admin. Bajo privilegio: solo recibos.
+const portalHttp: AxiosInstance = axios.create({
+  baseURL: `${BASE_URL}/api/portal`,
+  headers: { 'Content-Type': 'application/json' },
+});
+portalHttp.interceptors.request.use((config) => {
+  const token = localStorage.getItem('portalToken');
+  if (token) { config.headers.Authorization = `Bearer ${token}`; }
+  return config;
+});
+
+export interface PortalRecibo {
+  id: string;
+  year: number;
+  month: number;
+  type: string;
+  liquidoPercibir: string;
+  empresa: string;
+}
+
+export const portalApi = {
+  login: (ci: string, pin: string) =>
+    portalHttp.post<{ mustSetPin?: boolean; setupToken?: string; token?: string }>('/login', { ci, pin }).then((r) => r.data),
+  setPin: (newPin: string, setupToken: string) =>
+    portalHttp.post<{ token: string }>('/set-pin', { newPin }, { headers: { Authorization: `Bearer ${setupToken}` } }).then((r) => r.data),
+  recibos: () => portalHttp.get<PortalRecibo[]>('/recibos').then((r) => r.data),
+  reciboPdf: (id: string) => portalHttp.get(`/recibos/${id}/pdf`, { responseType: 'blob' }).then((r) => r.data as Blob),
+};
+
+// Acceso al portal desde el panel de administración (habilitar/revocar PIN).
+export const portalAdminApi = {
+  estado: (employeeId: string) =>
+    api.get<{ habilitado: boolean; mustSetPin: boolean; bloqueado: boolean }>(`/employees/${employeeId}/portal-access`).then((r) => r.data),
+  habilitar: (employeeId: string) =>
+    api.post<{ pin: string; message: string }>(`/employees/${employeeId}/portal-access`, {}).then((r) => r.data),
+  revocar: (employeeId: string) =>
+    api.delete(`/employees/${employeeId}/portal-access`).then((r) => r.data),
+};
+
 export interface AuditRow {
   id: string;
   action: string;

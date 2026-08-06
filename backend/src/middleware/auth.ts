@@ -28,12 +28,62 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
   try {
     const secret = process.env.JWT_SECRET;
     if (!secret) throw new Error('JWT_SECRET no configurado');
-    const payload = jwt.verify(token, secret) as JwtPayload;
+    const payload = jwt.verify(token, secret) as JwtPayload & { typ?: string };
+    // Los tokens del PORTAL de empleados no sirven para el sistema de gestión.
+    if (payload.typ) {
+      res.status(401).json({ error: 'Token inválido para esta sección' });
+      return;
+    }
     req.user = payload;
     next();
   } catch {
     res.status(401).json({ error: 'Token inválido o expirado' });
   }
+}
+
+// ─────────────────────── PORTAL DE EMPLEADOS ───────────────────────
+// Tokens separados (typ 'portal' = acceso completo · 'portal-setup' = solo
+// fijar el PIN en el primer ingreso). Bajo privilegio: solo recibos propios.
+export interface PortalJwtPayload {
+  typ: 'portal' | 'portal-setup';
+  ci: string;
+}
+
+export function generatePortalToken(ci: string, setup = false): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) throw new Error('JWT_SECRET no configurado');
+  const payload: PortalJwtPayload = { typ: setup ? 'portal-setup' : 'portal', ci };
+  return jwt.sign(payload, secret, { expiresIn: setup ? '10m' : '30m' });
+}
+
+declare global {
+  namespace Express {
+    interface Request {
+      portal?: PortalJwtPayload;
+    }
+  }
+}
+
+/** Verifica el token del portal. `setup` permite (o no) el token de primer ingreso. */
+export function authenticatePortal(opts: { allowSetup?: boolean } = {}) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'Acceso requerido' });
+      return;
+    }
+    try {
+      const secret = process.env.JWT_SECRET;
+      if (!secret) throw new Error('JWT_SECRET no configurado');
+      const payload = jwt.verify(authHeader.split(' ')[1], secret) as PortalJwtPayload;
+      const ok = payload.typ === 'portal' || (opts.allowSetup && payload.typ === 'portal-setup');
+      if (!ok) { res.status(401).json({ error: 'Token inválido' }); return; }
+      req.portal = payload;
+      next();
+    } catch {
+      res.status(401).json({ error: 'Token inválido o expirado' });
+    }
+  };
 }
 
 /** Verifica que el usuario tenga el rol requerido */
