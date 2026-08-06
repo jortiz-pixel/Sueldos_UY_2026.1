@@ -92,11 +92,15 @@ export async function generarNominaBps(companyId: string, year: number, month: n
   const contratos = await prisma.contrato.findMany({
     where: {
       companyId,
-      activo: true,
       vigenciaDesde: { lte: monthEnd },
       AND: [
         { OR: [{ vigenciaHasta: null }, { vigenciaHasta: { gte: monthStart } }] },
         { OR: [{ fechaFin: null }, { fechaFin: { gte: monthStart } }] },
+        // Incluir los contratos ACTIVOS y también los dados de BAJA (egreso, que
+        // tienen fechaFin) dentro del mes: el trabajador que egresó igual trabajó
+        // parte del mes y hay que declararlo (mensual + liquidación final). Se
+        // excluyen los desactivados por error (activo=false y sin fechaFin).
+        { OR: [{ activo: true }, { fechaFin: { not: null } }] },
       ],
     },
     include: { employee: true },
