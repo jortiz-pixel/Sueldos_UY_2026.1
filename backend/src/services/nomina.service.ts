@@ -16,6 +16,7 @@
 import { prisma } from '../utils/prisma';
 import { LiquidationStatus, ItemType } from '@prisma/client';
 import { esEmpresaConstruccion } from './construccion.service';
+import { salarioProporcional } from '../utils/money';
 
 // ── Formateo ─────────────────────────────────────────────────────
 function ddmmaaaa(d: Date | null | undefined): string {
@@ -162,9 +163,27 @@ export async function generarNominaBps(companyId: string, year: number, month: n
       advertencias.push(`${quien}: sin liquidación confirmada en el mes — se declara con 0 días y $0 (subsidio, licencia sin goce, etc.).`);
     }
 
-    // Días trabajados: de la liquidación mensual/final; 0 si no hay liquidación.
+    // Días EFECTIVOS trabajados a declarar en BPS (registro 6). Parten de los
+    // días de la liquidación mensual/final (ya proporcionales en altas/bajas) y
+    // se les descuentan las FALTAS, que en el recibo van como haber negativo
+    // (días × valor de un día). Si no hay liquidación o quedó en $0 (no trabajó:
+    // subsidio, licencia sin goce, ausencia total), se declaran 0 días — no 30.
     const liqConDias = liqsPersona.find((l) => l.type === 'MENSUAL') ?? liqsPersona.find((l) => l.type === 'LIQUIDACION_FINAL');
-    const diasTrabajados = liqConDias?.diasTrabajados ?? 0;
+    let diasTrabajados = 0;
+    if (liqConDias && liqConDias.totalHaberes > 0n) {
+      // Valor de un día para traducir el monto de faltas a cantidad de días
+      // (mismo criterio que la liquidación: mensual = nominal/30 · jornalero = jornal).
+      const valorDia = contrato.salaryType === 'JORNALERO'
+        ? (contrato.jornal ?? salarioProporcional(contrato.salarioNominal, 1, 30))
+        : salarioProporcional(contrato.salarioNominal, 1, 30);
+      let faltaDias = 0;
+      if (valorDia > 0n) {
+        for (const it of liqConDias.items) {
+          if (it.concepto === 'FALTAS') faltaDias += Math.abs(Number(it.amount)) / Number(valorDia);
+        }
+      }
+      diasTrabajados = Math.max(0, Math.round(liqConDias.diasTrabajados - faltaDias));
+    }
 
     // Conceptos (registro 7): agrupar ítems HABER por código BPS.
     // El concepto 1 siempre se declara (aunque sea 0); para los JORNALEROS de
