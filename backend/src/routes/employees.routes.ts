@@ -7,7 +7,7 @@ import { authenticate, requireRole } from '../middleware/auth';
 import { assertCompanyAccess, accessibleCompanyIds } from '../middleware/tenancy';
 import { AppError, NotFoundError } from '../middleware/errorHandler';
 import { calcularAntiguedad, diasLicenciaCorrespondientes } from '../utils/date';
-import { calcularLiquidacionFinal, vacacionalesDisponibles } from '../services/vacation.service';
+import { calcularLiquidacionFinal, vacacionalesDisponibles, diasVacacionalesTomados } from '../services/vacation.service';
 import { habilitarAccesoPortal, revocarAccesoPortal, estadoAccesoPortal } from '../services/portal.service';
 import { recordAudit } from '../services/audit.service';
 
@@ -809,7 +809,13 @@ employeesRouter.get('/:id/vacation', authenticate, async (req: Request, res: Res
       where: { employeeId: req.params.id },
       orderBy: { year: 'desc' },
     });
-    res.json(accruals);
+    // Los días tomados/pendientes se DERIVAN de los salarios vacacionales
+    // CONFIRMADOS: un borrador o una liquidación borrada no cuentan.
+    const conTomadosReales = await Promise.all(accruals.map(async (a) => {
+      const diasTomados = await diasVacacionalesTomados(req.params.id, a.year);
+      return { ...a, diasTomados, diasPendientes: Math.max(0, a.diasCorresponden - diasTomados) };
+    }));
+    res.json(conTomadosReales);
   } catch (err) { next(err); }
 });
 

@@ -24,6 +24,18 @@ const NO_IMPONIBLE = new Set([
   'MEDIAS_HORAS', 'DESGASTE_ROPA', 'GASTOS_TRANSPORTE', 'DESGASTE_HERRAMIENTAS',
 ]);
 
+// Días de licencia efectivamente TOMADOS en el año = suma de los días del
+// SALARIO VACACIONAL (liquidación tipo LICENCIA) CONFIRMADO. Un borrador o una
+// liquidación borrada NO cuentan: los días quedan disponibles de nuevo. Se
+// deriva siempre de las liquidaciones (no de un contador que se desincroniza).
+export async function diasVacacionalesTomados(employeeId: string, year: number): Promise<number> {
+  const liqs = await prisma.liquidation.findMany({
+    where: { employeeId, year, type: LiquidationType.LICENCIA, status: LiquidationStatus.CONFIRMADO },
+    select: { diasHabiles: true },
+  });
+  return liqs.reduce((s, l) => s + (l.diasHabiles ?? 0), 0);
+}
+
 function imponibleDeLiquidacion(items: { itemType: ItemType; concepto: string; amount: bigint }[]): bigint {
   return items
     .filter((i) => i.itemType === ItemType.HABER && !NO_IMPONIBLE.has(i.concepto))
@@ -82,7 +94,8 @@ export async function vacacionalesDisponibles(
     where: { employeeId_year: { employeeId, year } },
   });
   const diasCorresponden = accrual?.diasCorresponden ?? correspondenAntiguedad;
-  const diasTomados = accrual?.diasTomados ?? 0;
+  // Solo cuentan los días del salario vacacional CONFIRMADO (borradores/borrados no).
+  const diasTomados = await diasVacacionalesTomados(employeeId, year);
 
   // Jornal del día (nominal y líquido) con el MISMO criterio que el salario
   // vacacional: base = sueldo básico del contrato vigente; jornal = base/30;
@@ -131,9 +144,10 @@ export async function calcularLiquidacionLicencia(input: LicenciaInput) {
   const accrual = await prisma.vacationAccrual.findUnique({
     where: { employeeId_year: { employeeId: input.employeeId, year: input.year } },
   });
-  const diasDisponibles = accrual
-    ? accrual.diasCorresponden - accrual.diasTomados
-    : diasCorresponden;
+  // Solo cuentan los días de un salario vacacional CONFIRMADO (excluye el
+  // borrador que se está por (re)generar y las liquidaciones borradas).
+  const diasTomadosConfirmados = await diasVacacionalesTomados(input.employeeId, input.year);
+  const diasDisponibles = (accrual?.diasCorresponden ?? diasCorresponden) - diasTomadosConfirmados;
 
   // Sin saldo suficiente se bloquea, salvo que se pida explícitamente como
   // anticipo (el saldo puede quedar negativo, igual que en el calendario).
@@ -241,18 +255,22 @@ export async function calcularLiquidacionLicencia(input: LicenciaInput) {
     },
   });
 
+  // El saldo (diasTomados) NO se incrementa al generar: se DERIVA de los salarios
+  // vacacionales CONFIRMADOS. El que se acaba de generar es borrador → todavía no
+  // cuenta. Se guarda el estado consistente para la ficha/reportes.
+  const tomadosAhora = await diasVacacionalesTomados(input.employeeId, input.year);
   await prisma.vacationAccrual.upsert({
     where: { employeeId_year: { employeeId: input.employeeId, year: input.year } },
     create: {
       employeeId: input.employeeId,
       year: input.year,
       diasCorresponden: diasCorresponden,
-      diasTomados: input.diasHabilesTomar,
-      diasPendientes: diasCorresponden - input.diasHabilesTomar,
+      diasTomados: tomadosAhora,
+      diasPendientes: diasCorresponden - tomadosAhora,
     },
     update: {
-      diasTomados: { increment: input.diasHabilesTomar },
-      diasPendientes: { decrement: input.diasHabilesTomar },
+      diasTomados: tomadosAhora,
+      diasPendientes: (accrual?.diasCorresponden ?? diasCorresponden) - tomadosAhora,
     },
   });
 
@@ -264,7 +282,7 @@ export async function calcularLiquidacionLicencia(input: LicenciaInput) {
     liquidoPercibir,
     diasCorresponden,
     diasDisponibles,
-    diasTomados: input.diasHabilesTomar,
+    diasTomados: tomadosAhora,
   };
 }
 
@@ -320,10 +338,8 @@ export async function calcularLiquidacionFinal(
   const inicioAnio = new Date(year, 0, 1);
   const desdeLic = employee.fechaIngreso > inicioAnio ? employee.fechaIngreso : inicioAnio;
   const diasTrabajadosAnio = Math.max(0, Math.round((fechaEgreso.getTime() - desdeLic.getTime()) / 86400000));
-  const accrual = await prisma.vacationAccrual.findUnique({
-    where: { employeeId_year: { employeeId, year } },
-  });
-  const diasTomados = accrual?.diasTomados ?? 0;
+  // Días ya tomados = salarios vacacionales CONFIRMADOS del año (no borradores).
+  const diasTomados = await diasVacacionalesTomados(employeeId, year);
   // Se redondea a 2 decimales (criterio GNS: los días redondeados se multiplican
   // por el jornal, ej. 4,72 × 1036,48).
   const diasNoGozadas = diasLicenciaOverride != null
