@@ -14,7 +14,7 @@
  */
 
 import { prisma } from '../utils/prisma';
-import { LiquidationStatus, ItemType } from '@prisma/client';
+import { LiquidationStatus, LiquidationType, PeriodStatus, ItemType } from '@prisma/client';
 import { esEmpresaConstruccion } from './construccion.service';
 import { salarioProporcional } from '../utils/money';
 import { generarLiquidacionMensual } from './liquidation.service';
@@ -343,6 +343,7 @@ export interface NominaImportPlan {
   }>;
   // Liquidaciones generadas automáticamente a partir de la nómina (opcional).
   liquidacionesGeneradas: number;
+  liquidacionesExistentes: number; // ya existían para el período: no se tocaron
   advertencias: string[];
   errores: string[];
 }
@@ -445,6 +446,7 @@ export async function importarNominaAtyr(contenido: string, commit: boolean, gen
     empresa: null,
     personas: [],
     liquidacionesGeneradas: 0,
+    liquidacionesExistentes: 0,
     advertencias,
     errores,
   };
@@ -627,24 +629,35 @@ export async function importarNominaAtyr(contenido: string, commit: boolean, gen
   }
 
   // ── Generar las liquidaciones del mes desde la nómina (opcional) ────
+  // Sin duplicar: si la liquidación mensual del período ya existe, NO se toca.
   if (commit && generarLiquidaciones && cabezal && company && aLiquidar.length > 0) {
     const period = await prisma.payrollPeriod.upsert({
       where: { companyId_year_month: { companyId: company.id, year: cabezal.year, month: cabezal.month } },
       create: { companyId: company.id, year: cabezal.year, month: cabezal.month },
       update: {},
     });
-    for (const item of aLiquidar) {
-      try {
-        await generarLiquidacionMensual({
-          employeeId: item.employeeId,
-          periodId: period.id,
-          year: cabezal.year,
-          month: cabezal.month,
-          diasTrabajados: item.dias,
-        });
-        plan.liquidacionesGeneradas++;
-      } catch (e) {
-        advertencias.push(`No se pudo generar la liquidación de ${item.nombre}: ${(e as Error).message}`);
+    if (period.status === PeriodStatus.CERRADO) {
+      advertencias.push(`El período ${String(cabezal.month).padStart(2, '0')}/${cabezal.year} está cerrado: no se generan liquidaciones.`);
+    } else {
+      for (const item of aLiquidar) {
+        try {
+          // Si ya hay una mensual de esa persona en el período, se respeta (no se pisa).
+          const existente = await prisma.liquidation.findUnique({
+            where: { periodId_employeeId_type: { periodId: period.id, employeeId: item.employeeId, type: LiquidationType.MENSUAL } },
+            select: { id: true },
+          });
+          if (existente) { plan.liquidacionesExistentes++; continue; }
+          await generarLiquidacionMensual({
+            employeeId: item.employeeId,
+            periodId: period.id,
+            year: cabezal.year,
+            month: cabezal.month,
+            diasTrabajados: item.dias,
+          });
+          plan.liquidacionesGeneradas++;
+        } catch (e) {
+          advertencias.push(`No se pudo generar la liquidación de ${item.nombre}: ${(e as Error).message}`);
+        }
       }
     }
   }

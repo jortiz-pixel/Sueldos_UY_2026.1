@@ -393,6 +393,9 @@ function ImportarDesdeNomina() {
                 {plan.liquidacionesGeneradas > 0
                   ? ` Se generaron ${plan.liquidacionesGeneradas} liquidación(es) del mes (en borrador) — revisalas y confirmalas en Liquidaciones.`
                   : ' Revisá la empresa en el selector superior y su checklist en Personas.'}
+                {plan.liquidacionesExistentes > 0
+                  ? ` ${plan.liquidacionesExistentes} ya existían para el período y no se modificaron.`
+                  : ''}
               </span>
             </div>
           )}
