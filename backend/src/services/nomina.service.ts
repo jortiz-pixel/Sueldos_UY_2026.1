@@ -340,6 +340,7 @@ export interface NominaImportPlan {
     nombre: string;
     contrato: 'crear' | 'existente' | null;
     detalles: string;
+    omitida?: boolean; // viene con fecha de baja en la nómina: no se agrega
   }>;
   // Liquidaciones generadas automáticamente a partir de la nómina (opcional).
   liquidacionesGeneradas: number;
@@ -505,6 +506,20 @@ export async function importarNominaAtyr(contenido: string, commit: boolean, gen
     const nombreCompleto = `${p.apellido1}${p.apellido2 ? ' ' + p.apellido2 : ''}, ${p.nombre1}`;
     const detalles: string[] = [];
 
+    // Personas que en la nómina vienen con FECHA DE BAJA (egreso): no se agregan
+    // (ni persona, ni contrato, ni liquidación). Solo se listan como omitidas.
+    if (p.fechaEgreso) {
+      plan.personas.push({
+        accion: 'existente',
+        ci: p.doc,
+        nombre: nombreCompleto,
+        contrato: null,
+        detalles: `omitida — baja ${p.fechaEgreso.toLocaleDateString('es-UY')}`,
+        omitida: true,
+      });
+      continue;
+    }
+
     // Salario nominal estimado desde el imponible del mes (base ficto 30).
     let salarioNominal = p.montoImponible;
     if (p.diasTrabajados > 0 && p.diasTrabajados < 30 && p.tipoRemuneracion === 1) {
@@ -610,7 +625,6 @@ export async function importarNominaAtyr(contenido: string, commit: boolean, gen
     }
 
     if (p.vinculoFuncional != null && p.vinculoFuncional !== 12) detalles.push(`vínculo ${p.vinculoFuncional}`);
-    if (p.fechaEgreso) detalles.push(`egreso ${p.fechaEgreso.toLocaleDateString('es-UY')}`);
 
     plan.personas.push({
       accion: crearPersona ? 'crear' : 'existente',

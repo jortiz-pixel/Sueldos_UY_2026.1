@@ -385,6 +385,7 @@ export interface NominaImportPlan {
     nombre: string;
     contrato: 'crear' | 'existente' | null;
     detalles: string;
+    omitida?: boolean;
   }>;
   liquidacionesGeneradas: number;
   liquidacionesExistentes: number;

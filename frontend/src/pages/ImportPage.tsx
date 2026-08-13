@@ -341,14 +341,18 @@ function ImportarDesdeNomina() {
                 </thead>
                 <tbody className="divide-y divide-hairline/60">
                   {plan.personas.map((p) => (
-                    <tr key={p.ci}>
+                    <tr key={p.ci} className={p.omitida ? 'opacity-60' : ''}>
                       <td className="px-3 py-2 font-mono text-xs">{p.ci}</td>
                       <td className="px-3 py-2 text-sm">{p.nombre}</td>
                       <td className="px-3 py-2 text-xs">
-                        <span className={p.accion === 'crear' ? 'badge-green' : 'badge-gray'}>{ACCION[p.accion]}</span>
+                        {p.omitida
+                          ? <span className="badge-yellow">Omitida (baja)</span>
+                          : <span className={p.accion === 'crear' ? 'badge-green' : 'badge-gray'}>{ACCION[p.accion]}</span>}
                       </td>
                       <td className="px-3 py-2 text-xs">
-                        <span className={p.contrato === 'crear' ? 'badge-green' : 'badge-gray'}>{p.contrato === 'crear' ? 'Se crea' : 'Ya existe'}</span>
+                        {p.omitida
+                          ? <span className="text-ink-subtle">—</span>
+                          : <span className={p.contrato === 'crear' ? 'badge-green' : 'badge-gray'}>{p.contrato === 'crear' ? 'Se crea' : 'Ya existe'}</span>}
                       </td>
                       <td className="px-3 py-2 text-xs text-ink-subtle">{p.detalles || '—'}</td>
                     </tr>
