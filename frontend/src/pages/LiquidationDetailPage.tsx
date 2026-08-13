@@ -44,6 +44,14 @@ function ItemRow({ item, editable, onEdit, onDelete }: {
   const pctInicial = item.rate ? String(item.rate / 100) : '';
   const [baseStr, setBaseStr] = useState(baseInicial);
   const [pctStr, setPctStr] = useState(pctInicial);
+  // Clic derecho sobre el Salario Vacacional: muestra la forma de cálculo del
+  // jornal líquido usado (base promedio, aportes, líquido, días).
+  const detVac = item.calculationDetail as {
+    baseLicencia?: string; jornalLiquido?: string; aportesMes?: string;
+    diasHabiles?: number; mesesPromedio?: number; formula?: string;
+  } | null | undefined;
+  const tieneFormaCalculo = item.concepto === 'SALARIO_VACACIONAL' && !!detVac?.jornalLiquido;
+  const [calcMenu, setCalcMenu] = useState<{ x: number; y: number } | null>(null);
 
   if (editing) {
     if (esPrima) {
@@ -114,10 +122,62 @@ function ItemRow({ item, editable, onEdit, onDelete }: {
   }
 
   return (
-    <tr className="hover:bg-gray-50">
+    <tr
+      className="hover:bg-gray-50"
+      onContextMenu={tieneFormaCalculo ? (e) => { e.preventDefault(); setCalcMenu({ x: e.clientX, y: e.clientY }); } : undefined}
+    >
       <td className="px-4 py-2.5 text-sm text-gray-700">
         {item.descripcion}
         {manual && <span className="ml-2 text-[10px] uppercase bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded">manual</span>}
+        {tieneFormaCalculo && (
+          <span className="ml-2 text-[10px] text-gray-300" title="Clic derecho: forma de cálculo">▸</span>
+        )}
+        {calcMenu && detVac && (
+          <>
+            <div
+              className="fixed inset-0 z-40"
+              onClick={() => setCalcMenu(null)}
+              onContextMenu={(e) => { e.preventDefault(); setCalcMenu(null); }}
+            />
+            <div
+              className="fixed z-50 w-80 bg-white rounded-xl shadow-2xl border border-gray-200 p-4 text-xs"
+              style={{ top: Math.min(calcMenu.y, window.innerHeight - 260), left: Math.min(calcMenu.x, window.innerWidth - 340) }}
+            >
+              <p className="font-semibold text-ink mb-2 flex items-center gap-1.5">
+                <RefreshCw size={13} className="text-blue-500" /> Forma de cálculo — Salario vacacional
+              </p>
+              <div className="space-y-1.5 text-gray-700">
+                <div className="flex justify-between gap-3">
+                  <span className="text-gray-500">
+                    Base {detVac.mesesPromedio && detVac.mesesPromedio > 0
+                      ? `(promedio concepto 1 de ${detVac.mesesPromedio} mes${detVac.mesesPromedio === 1 ? '' : 'es'})`
+                      : '(sueldo básico)'}
+                  </span>
+                  <span className="font-mono">{detVac.baseLicencia ? formatPesos(detVac.baseLicencia) : '—'}</span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-gray-500">− Aportes seg. social (jub + FONASA + FRL)</span>
+                  <span className="font-mono text-red-600">{detVac.aportesMes ? formatPesos(detVac.aportesMes) : '—'}</span>
+                </div>
+                <div className="flex justify-between gap-3 border-t border-gray-100 pt-1.5">
+                  <span className="text-gray-500">= Jornal líquido = (base − aportes) / 30</span>
+                  <span className="font-mono font-semibold text-blue-700">{detVac.jornalLiquido ? formatPesos(detVac.jornalLiquido) : '—'}</span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-gray-500">× Días de licencia</span>
+                  <span className="font-mono">{detVac.diasHabiles ?? '—'}</span>
+                </div>
+                <div className="flex justify-between gap-3 border-t border-gray-100 pt-1.5">
+                  <span className="font-medium text-ink">Salario vacacional (exento)</span>
+                  <span className="font-mono font-bold text-ink">{formatPesos(item.amount)}</span>
+                </div>
+              </div>
+              <p className="mt-2 text-[10px] text-gray-400 leading-snug">
+                Sin descuentos (exento, Ley 16.101). El IRPF no se resta del jornal líquido.
+              </p>
+            </div>
+          </>
+        )}
       </td>
       <td className="px-4 py-2.5 text-right text-xs font-mono text-gray-500">
         {item.baseCalculo ? formatPesos(item.baseCalculo) : '—'}
