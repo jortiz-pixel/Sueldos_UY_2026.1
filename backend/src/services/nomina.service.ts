@@ -17,6 +17,7 @@ import { prisma } from '../utils/prisma';
 import { LiquidationStatus, ItemType } from '@prisma/client';
 import { esEmpresaConstruccion } from './construccion.service';
 import { salarioProporcional } from '../utils/money';
+import { generarLiquidacionMensual } from './liquidation.service';
 
 // ── Formateo ─────────────────────────────────────────────────────
 function ddmmaaaa(d: Date | null | undefined): string {
@@ -340,6 +341,8 @@ export interface NominaImportPlan {
     contrato: 'crear' | 'existente' | null;
     detalles: string;
   }>;
+  // Liquidaciones generadas automáticamente a partir de la nómina (opcional).
+  liquidacionesGeneradas: number;
   advertencias: string[];
   errores: string[];
 }
@@ -434,17 +437,21 @@ function parseNominaAtyr(contenido: string) {
   return { empresa, cabezal, personas: [...personas.values()], errores };
 }
 
-export async function importarNominaAtyr(contenido: string, commit: boolean): Promise<NominaImportPlan> {
+export async function importarNominaAtyr(contenido: string, commit: boolean, generarLiquidaciones = false): Promise<NominaImportPlan> {
   const { empresa, cabezal, personas, errores } = parseNominaAtyr(contenido);
   const advertencias: string[] = [];
   const plan: NominaImportPlan = {
     mesCargo: cabezal ? { month: cabezal.month, year: cabezal.year } : null,
     empresa: null,
     personas: [],
+    liquidacionesGeneradas: 0,
     advertencias,
     errores,
   };
   if (errores.length > 0 || !empresa) return plan;
+
+  // Personas a liquidar automáticamente desde la nómina (si se pidió generar).
+  const aLiquidar: Array<{ employeeId: string; nombre: string; dias: number | undefined }> = [];
 
   // ── Empresa: buscar por RUT; crear o completar datos faltantes ──
   let company = await prisma.company.findUnique({ where: { rut: empresa.rut } });
@@ -610,6 +617,36 @@ export async function importarNominaAtyr(contenido: string, commit: boolean): Pr
       contrato: contratoExistente ? 'existente' : 'crear',
       detalles: detalles.join(' · '),
     });
+
+    // Para generar la liquidación del mes: solo con imponible > 0. Los días de
+    // la nómina (netos de faltas) se pasan tal cual; si no vienen, el motor usa
+    // el proporcional del contrato (30 o alta/baja del mes).
+    if (commit && employee && p.montoImponible > 0n) {
+      aLiquidar.push({ employeeId: employee.id, nombre: nombreCompleto, dias: p.diasTrabajados > 0 ? p.diasTrabajados : undefined });
+    }
+  }
+
+  // ── Generar las liquidaciones del mes desde la nómina (opcional) ────
+  if (commit && generarLiquidaciones && cabezal && company && aLiquidar.length > 0) {
+    const period = await prisma.payrollPeriod.upsert({
+      where: { companyId_year_month: { companyId: company.id, year: cabezal.year, month: cabezal.month } },
+      create: { companyId: company.id, year: cabezal.year, month: cabezal.month },
+      update: {},
+    });
+    for (const item of aLiquidar) {
+      try {
+        await generarLiquidacionMensual({
+          employeeId: item.employeeId,
+          periodId: period.id,
+          year: cabezal.year,
+          month: cabezal.month,
+          diasTrabajados: item.dias,
+        });
+        plan.liquidacionesGeneradas++;
+      } catch (e) {
+        advertencias.push(`No se pudo generar la liquidación de ${item.nombre}: ${(e as Error).message}`);
+      }
+    }
   }
 
   return plan;

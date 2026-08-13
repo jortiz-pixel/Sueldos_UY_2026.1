@@ -247,6 +247,8 @@ function ImportarDesdeNomina() {
   const [file, setFile] = useState<File | null>(null);
   const [plan, setPlan] = useState<NominaImportPlan | null>(null);
   const [error, setError] = useState('');
+  // Generar automáticamente las liquidaciones del mes a partir de la nómina.
+  const [generarLiqs, setGenerarLiqs] = useState(true);
 
   const previewMutation = useMutation({
     mutationFn: (f: File) => nominaApi.importar(f, false),
@@ -254,7 +256,7 @@ function ImportarDesdeNomina() {
     onError: (e: unknown) => setError(msg(e)),
   });
   const commitMutation = useMutation({
-    mutationFn: (f: File) => nominaApi.importar(f, true),
+    mutationFn: ({ f, gen }: { f: File; gen: boolean }) => nominaApi.importar(f, true, gen),
     onSuccess: (r) => { setPlan(r); setError(''); },
     onError: (e: unknown) => setError(msg(e)),
   });
@@ -275,6 +277,7 @@ function ImportarDesdeNomina() {
         <p className="text-sm text-ink-subtle mt-1">
           Subí un archivo de nómina ATYR (el .txt que genera GNS u otro software) y se crean la empresa,
           las personas y sus contratos con todos los códigos BPS (vínculo funcional, seguro de salud, horas semanales).
+          Opcionalmente genera también las liquidaciones del mes con los días e importes de la nómina.
           Ideal para migrar un cliente en un paso.
         </p>
       </div>
@@ -357,17 +360,40 @@ function ImportarDesdeNomina() {
 
           {plan.dryRun ? (
             plan.errores.length === 0 && (
-              <button
-                onClick={() => file && commitMutation.mutate(file)}
-                disabled={commitMutation.isPending}
-                className="btn-primary"
-              >
-                <ArrowRight size={16} /> {commitMutation.isPending ? 'Importando…' : 'Confirmar importación'}
-              </button>
+              <div className="space-y-3">
+                <label className="flex items-start gap-2 text-sm text-ink cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={generarLiqs}
+                    onChange={(e) => setGenerarLiqs(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    Generar automáticamente las liquidaciones del mes
+                    {plan.mesCargo ? ` (${String(plan.mesCargo.month).padStart(2, '0')}/${plan.mesCargo.year})` : ''} a partir de la nómina.
+                    <span className="block text-xs text-ink-subtle">
+                      Se crean los recibos mensuales (borrador) con los días e importes de la nómina; después podés revisarlos y confirmarlos.
+                    </span>
+                  </span>
+                </label>
+                <button
+                  onClick={() => file && commitMutation.mutate({ f: file, gen: generarLiqs })}
+                  disabled={commitMutation.isPending}
+                  className="btn-primary"
+                >
+                  <ArrowRight size={16} /> {commitMutation.isPending ? 'Importando…' : 'Confirmar importación'}
+                </button>
+              </div>
             )
           ) : (
             <div className="flex items-center gap-2 p-3 bg-ok-bg border border-ok/30 rounded-lg text-sm text-ink">
-              <CheckCircle size={16} className="text-ok" /> Importación realizada. Revisá la empresa en el selector superior y su checklist en Personas.
+              <CheckCircle size={16} className="text-ok" />
+              <span>
+                Importación realizada.
+                {plan.liquidacionesGeneradas > 0
+                  ? ` Se generaron ${plan.liquidacionesGeneradas} liquidación(es) del mes (en borrador) — revisalas y confirmalas en Liquidaciones.`
+                  : ' Revisá la empresa en el selector superior y su checklist en Personas.'}
+              </span>
             </div>
           )}
         </div>

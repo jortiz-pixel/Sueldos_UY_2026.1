@@ -217,11 +217,12 @@ nominaRouter.post('/import', authenticate, requireRole(UserRole.ADMIN), upload.s
   try {
     if (!req.file) throw new AppError(400, 'Archivo requerido (campo "file")');
     const commit = String(req.body.commit ?? '') === 'true';
+    const generarLiquidaciones = String(req.body.generarLiquidaciones ?? '') === 'true';
     const contenido = req.file.buffer.toString('utf8');
     if (!contenido.trim().startsWith('1|')) {
       throw new AppError(400, 'El archivo no parece una nómina ATYR (debe empezar con el registro de empresa "1|N|...").');
     }
-    const plan = await importarNominaAtyr(contenido, commit);
+    const plan = await importarNominaAtyr(contenido, commit, generarLiquidaciones);
     res.json({ dryRun: !commit, ...plan });
   } catch (err) { next(err); }
 });

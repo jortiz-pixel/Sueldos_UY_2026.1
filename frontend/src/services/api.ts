@@ -386,6 +386,7 @@ export interface NominaImportPlan {
     contrato: 'crear' | 'existente' | null;
     detalles: string;
   }>;
+  liquidacionesGeneradas: number;
   advertencias: string[];
   errores: string[];
 }
@@ -431,9 +432,10 @@ export const nominaApi = {
     api.get<CentroMes>('/nomina/centro-mes', { params: { companyId, year, month } }).then((r) => r.data),
   declaraciones: (companyId: string) =>
     api.get<{ ultima: DeclaracionResumen | null; historial: DeclaracionResumen[] }>('/nomina/declaraciones', { params: { companyId } }).then((r) => r.data),
-  importar: (file: File, commit: boolean) => {
+  importar: (file: File, commit: boolean, generarLiquidaciones = false) => {
     const fd = new FormData();
     fd.append('commit', commit ? 'true' : 'false');
+    fd.append('generarLiquidaciones', generarLiquidaciones ? 'true' : 'false');
     fd.append('file', file);
     return api.post<NominaImportPlan>('/nomina/import', fd).then((r) => r.data);
   },
