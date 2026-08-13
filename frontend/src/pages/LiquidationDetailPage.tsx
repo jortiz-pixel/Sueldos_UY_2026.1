@@ -642,13 +642,13 @@ export default function LiquidationDetailPage() {
           </div>
           {vacInfo && Number(vacDias) > 0 && (
             <div className="text-xs bg-blue-50/60 rounded-lg px-3 py-2 text-gray-700 space-y-0.5">
-              <div><b>{Number(vacDias)}</b> días × {formatPesos(vacInfo.jornalNominal)} (jornal vigente) = <b>{formatPesos(String(Math.round(Number(vacInfo.jornalNominal) * Number(vacDias))))}</b> total</div>
-              <div>Salario vacacional (líquido, exento) = <b className="text-blue-700">{formatPesos(String(Math.round(Number(vacInfo.jornalLiquido) * Number(vacDias))))}</b></div>
+              <div><b>{Number(vacDias)}</b> días × {formatPesos(vacInfo.jornalLiquido)} (jornal líquido) = <b className="text-blue-700">{formatPesos(String(Math.round(Number(vacInfo.jornalLiquido) * Number(vacDias))))}</b> salario vacacional (exento)</div>
+              <div className="text-gray-400">Jornal nominal del contrato: {formatPesos(vacInfo.jornalNominal)}/día (se usa para la licencia gozada en la mensualidad, no para el vacacional).</div>
             </div>
           )}
           <p className="text-[11px] text-gray-400">
-            La licencia se puede tomar en dos períodos: editá los días a gozar y el total se calcula solo (días × jornal vigente),
-            y de ahí sale el salario vacacional (jornal líquido × días, EXENTO). Se prellenan los días DISPONIBLES.
+            El salario vacacional es 100% del JORNAL LÍQUIDO por cada día de licencia (exento, sin descuentos).
+            Los días de licencia gozada se pagan aparte en la mensualidad, con sus aportes. Se prellenan los días DISPONIBLES.
           </p>
         </div>
       )}
