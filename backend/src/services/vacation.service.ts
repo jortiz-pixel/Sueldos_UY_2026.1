@@ -16,6 +16,46 @@ import {
 import { resolverContratoVigente, datosLaboralesEfectivos } from './contract.service';
 import { AppError } from '../middleware/errorHandler';
 
+// Conceptos HABER que NO integran el concepto 1 (monto imponible): no gravados y
+// partidas exentas del laudo de construcción (codBps 5). El resto de los haberes
+// (básico, prima, horas extra, presentismos gravados, faltas negativas…) sí.
+const NO_IMPONIBLE = new Set([
+  'SALARIO_VACACIONAL', 'AJUSTE_NO_GRAVADO', 'REINTEGRO_GASTOS', 'VIATICOS',
+  'MEDIAS_HORAS', 'DESGASTE_ROPA', 'GASTOS_TRANSPORTE', 'DESGASTE_HERRAMIENTAS',
+]);
+
+function imponibleDeLiquidacion(items: { itemType: ItemType; concepto: string; amount: bigint }[]): bigint {
+  return items
+    .filter((i) => i.itemType === ItemType.HABER && !NO_IMPONIBLE.has(i.concepto))
+    .reduce((s, i) => s + i.amount, 0n);
+}
+
+// Base imponible del SALARIO VACACIONAL: PROMEDIO del concepto 1 (monto imponible
+// mensual) de las ÚLTIMAS 6 mensualidades anteriores al período. Ese imponible
+// incluye la prima por antigüedad y demás partidas gravadas, por eso no coincide
+// con el solo básico. Si no hay historia (cliente recién migrado, sin
+// mensualidades en el sistema), cae al sueldo básico del contrato.
+async function baseVacacionalPromedio(
+  employeeId: string, year: number, month: number, companyId: string | undefined, basicoFallback: bigint,
+): Promise<{ base: bigint; meses: number }> {
+  const mensuales = await prisma.liquidation.findMany({
+    where: {
+      employeeId,
+      type: LiquidationType.MENSUAL,
+      status: { not: LiquidationStatus.ANULADO },
+      ...(companyId ? { period: { is: { companyId } } } : {}),
+      OR: [{ year: { lt: year } }, { year, month: { lt: month } }],
+    },
+    include: { items: { select: { itemType: true, concepto: true, amount: true } } },
+    orderBy: [{ year: 'desc' }, { month: 'desc' }],
+    take: 6,
+  });
+  const imponibles = mensuales.map((l) => imponibleDeLiquidacion(l.items)).filter((v) => v > 0n);
+  if (imponibles.length === 0) return { base: basicoFallback, meses: 0 };
+  const suma = imponibles.reduce((s, v) => s + v, 0n);
+  return { base: suma / BigInt(imponibles.length), meses: imponibles.length };
+}
+
 export interface LicenciaInput {
   employeeId: string;
   periodId: string;
@@ -55,7 +95,9 @@ export async function vacacionalesDisponibles(
   const params = await parametersService.getPayrollParameters(asOfDate);
   const contrato = await resolverContratoVigente(employeeId, asOfDate, cId);
   const labor = datosLaboralesEfectivos(employee, contrato);
-  const baseLicencia = labor.salaryType === 'MENSUAL' ? labor.salarioNominal : (labor.jornal ?? 0n) * 30n;
+  const basico = labor.salaryType === 'MENSUAL' ? labor.salarioNominal : (labor.jornal ?? 0n) * 30n;
+  // Base del vacacional = promedio del concepto 1 de las últimas 6 mensualidades.
+  const { base: baseLicencia } = await baseVacacionalPromedio(employeeId, year, month, cId, basico);
   const aportes = calcularAportesObreros({
     salarioNominal: baseLicencia,
     hijosACargo: employee.hijosACargo,
@@ -108,14 +150,19 @@ export async function calcularLiquidacionLicencia(input: LicenciaInput) {
   });
   const contrato = await resolverContratoVigente(input.employeeId, asOfDate, period?.companyId);
   const labor = datosLaboralesEfectivos(employee, contrato);
-  const baseLicencia = labor.salaryType === 'MENSUAL'
+  const basico = labor.salaryType === 'MENSUAL'
     ? labor.salarioNominal
     : (labor.jornal ?? 0n) * 30n;
+  // Base del vacacional = PROMEDIO del concepto 1 (imponible) de las últimas 6
+  // mensualidades (incluye prima y demás partidas gravadas). Sin historia → básico.
+  const { base: baseLicencia, meses: mesesPromedio } = await baseVacacionalPromedio(
+    input.employeeId, input.year, input.month, period?.companyId, basico,
+  );
 
-  // El salario vacacional se paga con el JORNAL LÍQUIDO (nominal del día menos
-  // los aportes personales), EXENTO de aportes (Ley 16.101). GNS lo emite en una
-  // liquidación aparte, 100% líquido: la licencia gozada (con sus aportes) va en
-  // la mensualidad, desglosada en días de jornal + días de licencia.
+  // El salario vacacional se paga con el JORNAL LÍQUIDO (imponible del día menos
+  // los aportes personales de seguridad social), EXENTO de aportes (Ley 16.101).
+  // GNS lo emite en una liquidación aparte, 100% líquido: la licencia gozada (con
+  // sus aportes) va en la mensualidad, desglosada en días de jornal + licencia.
   const jornalBruto = multiplyFraction(baseLicencia, 1, 30);
   const aportesMes = calcularAportesObreros({
     salarioNominal: baseLicencia,
@@ -186,7 +233,10 @@ export async function calcularLiquidacionLicencia(input: LicenciaInput) {
         jornalLiquido: jornalLiquido.toString(),
         aportesMes: aportesMes.total.toString(),
         diasHabiles: input.diasHabilesTomar,
-        formula: '(base - aportes_personales) / 30 * dias · exento',
+        mesesPromedio: mesesPromedio,
+        formula: mesesPromedio > 0
+          ? `promedio concepto 1 de ${mesesPromedio} mes(es); (promedio - aportes_seg_social) / 30 * dias · exento`
+          : '(basico - aportes_seg_social) / 30 * dias · exento (sin historia para promediar)',
       } as unknown as Prisma.InputJsonValue,
     },
   });

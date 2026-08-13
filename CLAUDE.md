@@ -208,13 +208,20 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
   GNS): la licencia GOZADA se paga en la MENSUALIDAD, desglosando el sueldo en
   'Jornal N x jornal' (días trabajados) + 'Licencia M x jornal' (días de
   licencia), con aportes sobre el total; los días de licencia se toman de las
-  licencias del calendario si no se indican. Base = SUELDO BÁSICO del contrato
-  (jornal nominal = básico/30), NO promedio de 12 meses. El SALARIO VACACIONAL
-  va en una liquidación especial aparte (tipo LICENCIA): jornal LÍQUIDO ((básico
-  − aportes personales)/30) × días, EXENTO (sin descuentos). El líquido de la
-  licencia gozada (jornal nominal − descuentos) y el del salario vacacional
-  (jornal líquido) coinciden por día. Admite días FRACCIONADOS (ej. 8,33): las
-  columnas de días (liquidación y saldo de vacaciones) son Float.
+  licencias del calendario si no se indican. La LICENCIA GOZADA usa como base el
+  SUELDO BÁSICO del contrato (jornal nominal = básico/30). El SALARIO VACACIONAL
+  va en una liquidación especial aparte (tipo LICENCIA): jornal LÍQUIDO ((base −
+  aportes personales de seguridad social)/30) × días, EXENTO (sin descuentos),
+  donde la BASE es el PROMEDIO del concepto 1 (monto imponible mensual) de las
+  ÚLTIMAS 6 mensualidades anteriores al período (`baseVacacionalPromedio` en
+  `vacation.service.ts`; incluye la prima por antigüedad y demás partidas
+  gravadas, netas de faltas; excluye no gravados y exentos del laudo G9 codBps 5).
+  Sin historia en el sistema (cliente recién migrado) cae al básico. Se aplica
+  también en la vista previa (`vacacionalesDisponibles`). Los aportes de
+  seguridad social (jubilatorio + FONASA + FRL, SIN IRPF) se recalculan sobre esa
+  base. Admite días FRACCIONADOS (ej. 8,33): las columnas de días (liquidación y
+  saldo de vacaciones) son Float. [El vacacional por EGRESO en la final sigue en
+  jornal NOMINAL, validado contra recibo GNS.]
 - **Nómina BPS (ATYR v3.0)**: generador validado byte a byte contra archivos
   reales de GNS (`N_0626_AMIG_8269951` y `N_0126_JOSE_5667352.bps`, construcción
   IC grupo 9). Registros 1/4/5/6/7/12; en nóminas el mes de cargo va NULO en

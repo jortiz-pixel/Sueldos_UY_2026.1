@@ -643,7 +643,7 @@ export default function LiquidationDetailPage() {
           {vacInfo && Number(vacDias) > 0 && (
             <div className="text-xs bg-blue-50/60 rounded-lg px-3 py-2 text-gray-700 space-y-0.5">
               <div><b>{Number(vacDias)}</b> días × {formatPesos(vacInfo.jornalLiquido)} (jornal líquido) = <b className="text-blue-700">{formatPesos(String(Math.round(Number(vacInfo.jornalLiquido) * Number(vacDias))))}</b> salario vacacional (exento)</div>
-              <div className="text-gray-400">Jornal nominal del contrato: {formatPesos(vacInfo.jornalNominal)}/día (se usa para la licencia gozada en la mensualidad, no para el vacacional).</div>
+              <div className="text-gray-400">Base: promedio del imponible (concepto 1) de los últimos 6 meses = {formatPesos(vacInfo.jornalNominal)}/día; el líquido le descuenta los aportes de seguridad social.</div>
             </div>
           )}
           <p className="text-[11px] text-gray-400">
