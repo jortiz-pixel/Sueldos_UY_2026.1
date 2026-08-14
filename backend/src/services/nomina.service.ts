@@ -72,6 +72,153 @@ export interface NominaGenerada {
   advertencias: string[];
 }
 
+// ═══════════════════ VALIDACIÓN / CONCILIACIÓN ═══════════════════════
+// Compara una nómina YA PROCESADA (el archivo ATYR que se subió) contra lo que
+// el sistema calcula desde las liquidaciones del mes, y resume los aportes que
+// BPS debería facturar. Sirve para verificar que recibos, nómina y factura BPS
+// coincidan antes de presentar/pagar.
+const TOL_REDONDEO = 100n; // ±$1: diferencia de redondeo interno (BPS/GNS), no es error
+
+const CONCEPTO_NOMBRE: Record<number, string> = {
+  1: 'Imponible mensual (1)', 2: 'Aguinaldo (2)',
+  5: 'Imponible adicional IRPF (5)', 41: 'Salario vacacional (41)',
+};
+
+export interface ComparacionNomina {
+  mesCargo: { month: number; year: number } | null;
+  empresaArchivo: string | null;
+  resumen: { enArchivo: number; enLiquidaciones: number; coinciden: number; conDiferencias: number; soloArchivo: number; soloLiquidacion: number };
+  personas: Array<{
+    ci: string;
+    nombre: string;
+    estado: 'ok' | 'diferencia' | 'solo_archivo' | 'solo_liquidacion';
+    diferencias: Array<{ campo: string; archivo: string; sistema: string; delta: string; redondeo: boolean }>;
+  }>;
+  aportes: {
+    obreroJubilatorio: string; obreroFonasa: string; obreroFrl: string; irpf: string;
+    patronal: string; totalObrero: string; totalBps: string;
+  };
+  errores: string[];
+  advertencias: string[];
+}
+
+interface DocArchivo { nombre: string; dias: number | null; seguroSalud: number | null; conceptos: Map<number, bigint>; egreso: string | null }
+
+function parseNominaConceptos(contenido: string): { empresa: string | null; cabezal: { month: number; year: number } | null; docs: Map<string, DocArchivo>; errores: string[] } {
+  const errores: string[] = [];
+  const docs = new Map<string, DocArchivo>();
+  let empresa: string | null = null;
+  let cabezal: { month: number; year: number } | null = null;
+  for (const linea of contenido.split(/\r?\n/)) {
+    if (!linea.trim()) continue;
+    const f = linea.split('|');
+    if (f[0] === '1') { empresa = f[7] ?? null; if ((f[1] ?? 'N') !== 'N') errores.push(`El archivo es tipo "${f[1]}", se esperaba una nómina (N).`); }
+    else if (f[0] === '4') { const m = f[1] ?? ''; cabezal = { month: Number(m.slice(0, 2)), year: Number(m.slice(2)) }; }
+    else if (f[0] === '5') { const doc = soloDigitos(f[3] ?? ''); if (doc) docs.set(doc, { nombre: `${nombreBps(f[4])} ${nombreBps(f[6])}`.trim(), dias: null, seguroSalud: null, conceptos: new Map(), egreso: null }); }
+    else if (f[0] === '6') { const d = docs.get(soloDigitos(f[4] ?? '')); if (d) { d.dias = f[15] ? Number(f[15]) : null; d.seguroSalud = f[17] ? Number(f[17]) : null; d.egreso = (f[19] || '').trim() || null; } }
+    else if (f[0] === '7') { const d = docs.get(soloDigitos(f[4] ?? '')); if (d) { const cod = Number(f[6] ?? 0); const cents = BigInt(Math.round(Number(f[7] ?? '0') * 100)); d.conceptos.set(cod, (d.conceptos.get(cod) ?? 0n) + cents); } }
+  }
+  if (!empresa) errores.push('El archivo no tiene registro de empresa (tipo 1).');
+  if (docs.size === 0) errores.push('El archivo no tiene personas (registros 5).');
+  return { empresa, cabezal, docs, errores };
+}
+
+export async function compararNominaSubida(companyId: string, year: number, month: number, contenido: string): Promise<ComparacionNomina> {
+  const { empresa, cabezal, docs, errores } = parseNominaConceptos(contenido);
+  const advertencias: string[] = [];
+  if (cabezal && (cabezal.month !== month || cabezal.year !== year)) {
+    advertencias.push(`El archivo es del período ${String(cabezal.month).padStart(2, '0')}/${cabezal.year} y estás comparando contra ${String(month).padStart(2, '0')}/${year}.`);
+  }
+
+  // Lado "sistema": lo que el sistema declararía desde las liquidaciones del mes.
+  const generada = await generarNominaBps(companyId, year, month);
+  const sistema = new Map<string, NominaGenerada['personas'][number]>();
+  for (const p of generada.personas) sistema.set(soloDigitos(p.ci), p);
+
+  const personas: ComparacionNomina['personas'] = [];
+  let coinciden = 0, conDif = 0, soloArch = 0, soloLiq = 0;
+  const todos = new Set<string>([...docs.keys(), ...sistema.keys()]);
+
+  for (const doc of todos) {
+    const a = docs.get(doc);
+    const s = sistema.get(doc);
+    const nombre = a?.nombre || s?.nombre || doc;
+    if (a && !s) { personas.push({ ci: doc, nombre, estado: 'solo_archivo', diferencias: [] }); soloArch++; continue; }
+    if (s && !a) { personas.push({ ci: doc, nombre, estado: 'solo_liquidacion', diferencias: [] }); soloLiq++; continue; }
+    if (!a || !s) continue;
+
+    const diferencias: ComparacionNomina['personas'][number]['diferencias'] = [];
+    if (a.dias != null && a.dias !== s.diasTrabajados) {
+      diferencias.push({ campo: 'Días trabajados', archivo: String(a.dias), sistema: String(s.diasTrabajados), delta: String(a.dias - s.diasTrabajados), redondeo: false });
+    }
+    if (a.seguroSalud != null && s.seguroSalud != null && a.seguroSalud !== s.seguroSalud) {
+      diferencias.push({ campo: 'Seguro de salud', archivo: String(a.seguroSalud), sistema: String(s.seguroSalud), delta: '', redondeo: false });
+    }
+    const sistConceptos = new Map<number, bigint>();
+    for (const c of s.conceptos) sistConceptos.set(c.codigo, (sistConceptos.get(c.codigo) ?? 0n) + BigInt(Math.round(Number(c.monto) * 100)));
+    const codigos = new Set<number>([...a.conceptos.keys(), ...sistConceptos.keys()]);
+    for (const cod of codigos) {
+      const va = a.conceptos.get(cod) ?? 0n;
+      const vs = sistConceptos.get(cod) ?? 0n;
+      const delta = va - vs;
+      if (delta !== 0n) {
+        const abs = delta < 0n ? -delta : delta;
+        diferencias.push({
+          campo: CONCEPTO_NOMBRE[cod] ?? `Concepto ${cod}`,
+          archivo: monto(va), sistema: monto(vs), delta: monto(delta), redondeo: abs <= TOL_REDONDEO,
+        });
+      }
+    }
+    const reales = diferencias.filter((d) => !d.redondeo);
+    if (reales.length === 0) { coinciden++; personas.push({ ci: doc, nombre, estado: 'ok', diferencias }); }
+    else { conDif++; personas.push({ ci: doc, nombre, estado: 'diferencia', diferencias }); }
+  }
+
+  personas.sort((x, y) => {
+    const rank = (e: string) => (e === 'diferencia' ? 0 : (e === 'solo_archivo' || e === 'solo_liquidacion') ? 1 : 2);
+    return rank(x.estado) - rank(y.estado) || x.nombre.localeCompare(y.nombre, 'es');
+  });
+
+  const aportes = await aportesDelMes(companyId, year, month);
+
+  return {
+    mesCargo: cabezal,
+    empresaArchivo: empresa,
+    resumen: { enArchivo: docs.size, enLiquidaciones: sistema.size, coinciden, conDiferencias: conDif, soloArchivo: soloArch, soloLiquidacion: soloLiq },
+    personas,
+    aportes,
+    errores,
+    advertencias: [...advertencias, ...generada.advertencias],
+  };
+}
+
+// Suma los aportes obrero (jub, FONASA, FRL, IRPF) y patronales de las
+// liquidaciones CONFIRMADAS del mes — lo que BPS debería facturar.
+async function aportesDelMes(companyId: string, year: number, month: number): Promise<ComparacionNomina['aportes']> {
+  const period = await prisma.payrollPeriod.findFirst({ where: { companyId, year, month } });
+  const liqs = period
+    ? await prisma.liquidation.findMany({ where: { periodId: period.id, status: LiquidationStatus.CONFIRMADO }, include: { items: true } })
+    : [];
+  let jub = 0n, fonasa = 0n, frl = 0n, irpf = 0n, patronal = 0n;
+  for (const l of liqs) {
+    for (const it of l.items) {
+      if (it.itemType === ItemType.DESCUENTO_OBRERO) {
+        if (it.concepto === 'BPS_JUBILATORIO') jub += it.amount;
+        else if (it.concepto === 'FONASA' || it.concepto === 'FONASA_ADICIONAL') fonasa += it.amount;
+        else if (it.concepto === 'FRL') frl += it.amount;
+        else if (it.concepto === 'IRPF') irpf += it.amount;
+      } else if (it.itemType === ItemType.APORTE_PATRONAL) {
+        patronal += it.amount;
+      }
+    }
+  }
+  const totalObrero = jub + fonasa + frl;
+  return {
+    obreroJubilatorio: monto(jub), obreroFonasa: monto(fonasa), obreroFrl: monto(frl), irpf: monto(irpf),
+    patronal: monto(patronal), totalObrero: monto(totalObrero), totalBps: monto(totalObrero + patronal),
+  };
+}
+
 export async function generarNominaBps(companyId: string, year: number, month: number): Promise<NominaGenerada> {
   const errores: string[] = [];
   const advertencias: string[] = [];

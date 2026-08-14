@@ -12,7 +12,7 @@ import { prisma } from '../utils/prisma';
 import { authenticate, requireRole } from '../middleware/auth';
 import { assertCompanyAccess } from '../middleware/tenancy';
 import { AppError, NotFoundError } from '../middleware/errorHandler';
-import { generarNominaBps, importarNominaAtyr, generarRectificativaBps, registrarDeclaracion } from '../services/nomina.service';
+import { generarNominaBps, importarNominaAtyr, generarRectificativaBps, registrarDeclaracion, compararNominaSubida } from '../services/nomina.service';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
@@ -207,6 +207,23 @@ nominaRouter.get('/checklist', authenticate, async (req: Request, res: Response,
       totalIncompletas: incompletas.length,
       listaParaNomina: faltantesEmpresa.length === 0 && incompletas.length === 0,
     });
+  } catch (err) { next(err); }
+});
+
+// POST /api/nomina/verificar  (multipart: file, companyId, year, month)
+//   Compara una nómina YA PROCESADA (archivo ATYR) contra las liquidaciones del
+//   mes y resume los aportes que BPS debería facturar. NO modifica nada.
+nominaRouter.post('/verificar', authenticate, upload.single('file'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.file) throw new AppError(400, 'Archivo de nómina requerido (campo "file")');
+    const companyId = String(req.body.companyId ?? '');
+    const year = parseInt(String(req.body.year ?? ''), 10);
+    const month = parseInt(String(req.body.month ?? ''), 10);
+    if (!companyId || !year || !month) throw new AppError(400, 'Faltan companyId, year o month');
+    await assertCompanyAccess(req, companyId);
+    const contenido = req.file.buffer.toString('latin1');
+    const resultado = await compararNominaSubida(companyId, year, month, contenido);
+    res.json(resultado);
   } catch (err) { next(err); }
 });
 

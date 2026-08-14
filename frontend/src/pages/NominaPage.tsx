@@ -1,7 +1,7 @@
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { AlertCircle, AlertTriangle, Download, FileText, Landmark, FileDiff } from 'lucide-react';
-import { liquidationApi, nominaApi } from '../services/api';
+import { useState, ChangeEvent } from 'react';
+import { useQuery, useMutation } from '@tanstack/react-query';
+import { AlertCircle, AlertTriangle, Download, FileText, Landmark, FileDiff, ShieldCheck, Upload, Scale } from 'lucide-react';
+import { liquidationApi, nominaApi, ComparacionNomina } from '../services/api';
 import { useCompany } from '../hooks/useCompany';
 import { MESES } from '../types';
 
@@ -10,8 +10,9 @@ import { MESES } from '../types';
 export default function NominaPage() {
   const { activeCompanyId: companyId } = useCompany();
   const [periodKey, setPeriodKey] = useState(''); // "year-month"
-  const [modo, setModo] = useState<'nomina' | 'rectificativa'>('nomina');
+  const [modo, setModo] = useState<'nomina' | 'rectificativa' | 'verificar'>('nomina');
   const [descargando, setDescargando] = useState(false);
+  const [verifFile, setVerifFile] = useState<File | null>(null);
 
   const { data: periods } = useQuery({
     queryKey: ['periods', companyId],
@@ -34,6 +35,15 @@ export default function NominaPage() {
     queryFn: () => nominaApi.rectPreview(companyId, year, month),
     enabled: !!companyId && !!periodKey && modo === 'rectificativa',
   });
+
+  const verificarMutation = useMutation({
+    mutationFn: (file: File) => nominaApi.verificar(companyId, year, month, file),
+  });
+  const onVerifFile = (e: ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0] ?? null;
+    setVerifFile(f);
+    verificarMutation.reset();
+  };
 
   const descargar = async () => {
     const filename = modo === 'nomina' ? preview?.filename : rect?.filename;
@@ -83,10 +93,12 @@ export default function NominaPage() {
               </option>
             ))}
           </select>
-          <button onClick={descargar} disabled={bloqueada || descargando} className="btn-primary">
-            <Download size={16} />
-            {descargando ? 'Generando…' : 'Descargar archivo'}
-          </button>
+          {modo !== 'verificar' && (
+            <button onClick={descargar} disabled={bloqueada || descargando} className="btn-primary">
+              <Download size={16} />
+              {descargando ? 'Generando…' : 'Descargar archivo'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -95,6 +107,7 @@ export default function NominaPage() {
         {([
           { key: 'nomina', label: 'Nómina (N)', icon: Landmark },
           { key: 'rectificativa', label: 'Rectificativa (R)', icon: FileDiff },
+          { key: 'verificar', label: 'Verificación', icon: ShieldCheck },
         ] as const).map(({ key, label, icon: Icon }) => (
           <button
             key={key}
@@ -210,6 +223,15 @@ export default function NominaPage() {
             )}
           </>
         )
+      ) : modo === 'verificar' ? (
+        <VerificacionPanel
+          file={verifFile}
+          onFile={onVerifFile}
+          onVerificar={() => verifFile && verificarMutation.mutate(verifFile)}
+          loading={verificarMutation.isPending}
+          error={(verificarMutation.error as { response?: { data?: { error?: string } } })?.response?.data?.error}
+          resultado={verificarMutation.data ?? null}
+        />
       ) : isLoading ? (
         <div className="card p-10 text-center text-ink-subtle">Generando vista previa…</div>
       ) : error ? (
@@ -303,6 +325,161 @@ export default function NominaPage() {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+// ── Panel de VERIFICACIÓN / CONCILIACIÓN ────────────────────────────
+const fmt = (s: string) => Number(s).toLocaleString('es-UY', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function VerificacionPanel({ file, onFile, onVerificar, loading, error, resultado }: {
+  file: File | null;
+  onFile: (e: ChangeEvent<HTMLInputElement>) => void;
+  onVerificar: () => void;
+  loading: boolean;
+  error?: string;
+  resultado: ComparacionNomina | null;
+}) {
+  const ESTADO: Record<string, { label: string; badge: string }> = {
+    ok: { label: 'Coincide', badge: 'badge-green' },
+    diferencia: { label: 'Diferencia', badge: 'badge-red' },
+    solo_archivo: { label: 'Solo en el archivo', badge: 'badge-yellow' },
+    solo_liquidacion: { label: 'Solo en liquidaciones', badge: 'badge-yellow' },
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="card p-5 space-y-3">
+        <div className="flex items-center gap-2 text-sm font-semibold text-ink">
+          <ShieldCheck size={16} className="text-brand-600" /> Verificar la nómina procesada contra las liquidaciones del mes
+        </div>
+        <p className="text-sm text-ink-subtle">
+          Subí el archivo de nómina ya procesado (el .bps/.txt que presentás en BPS) y el sistema lo compara,
+          persona por persona y concepto por concepto, con lo que surge de las liquidaciones confirmadas del período.
+          No modifica nada.
+        </p>
+        <div className="flex items-center gap-3 flex-wrap">
+          <label className="btn-secondary cursor-pointer">
+            <Upload size={16} /> Elegir archivo de nómina
+            <input type="file" accept=".txt,.bps" className="hidden" onChange={onFile} />
+          </label>
+          <span className="text-sm text-ink-muted">{file ? file.name : 'Ningún archivo seleccionado'}</span>
+          <button onClick={onVerificar} disabled={!file || loading} className="btn-primary">
+            <Scale size={16} /> {loading ? 'Comparando…' : 'Verificar'}
+          </button>
+        </div>
+        {error && (
+          <div className="flex items-center gap-2 p-3 bg-bad-bg border border-bad/30 rounded-lg text-sm text-bad">
+            <AlertCircle size={16} /> {error}
+          </div>
+        )}
+      </div>
+
+      {resultado && (
+        <>
+          {resultado.errores.length > 0 && (
+            <div className="card p-4 border-bad/30 bg-bad-bg/40 text-sm text-ink-muted">
+              <ul className="list-disc pl-4 space-y-0.5">{resultado.errores.map((e, i) => <li key={i}>{e}</li>)}</ul>
+            </div>
+          )}
+          {resultado.advertencias.length > 0 && (
+            <div className="card p-4 border-warn/40 bg-warn-bg/40 text-sm text-ink-muted">
+              <ul className="list-disc pl-4 space-y-0.5">{resultado.advertencias.map((a, i) => <li key={i}>{a}</li>)}</ul>
+            </div>
+          )}
+
+          {/* Resumen */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[
+              { label: 'Coinciden', val: resultado.resumen.coinciden, cls: 'text-ok' },
+              { label: 'Con diferencias', val: resultado.resumen.conDiferencias, cls: 'text-bad' },
+              { label: 'Solo en el archivo', val: resultado.resumen.soloArchivo, cls: 'text-warn' },
+              { label: 'Solo en liquidaciones', val: resultado.resumen.soloLiquidacion, cls: 'text-warn' },
+            ].map((c) => (
+              <div key={c.label} className="card p-4 text-center">
+                <p className={`figure text-2xl font-bold ${c.cls}`}>{c.val}</p>
+                <p className="text-xs text-ink-subtle mt-1">{c.label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Aportes del mes (referencia para la factura BPS) */}
+          <div className="card p-5">
+            <div className="flex items-center gap-2 text-sm font-semibold text-ink mb-3">
+              <Landmark size={16} className="text-brand-600" /> Aportes del mes (lo que BPS debería facturar)
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+              <Dato label="Jubilatorio obrero" val={resultado.aportes.obreroJubilatorio} />
+              <Dato label="FONASA obrero" val={resultado.aportes.obreroFonasa} />
+              <Dato label="FRL obrero" val={resultado.aportes.obreroFrl} />
+              <Dato label="IRPF" val={resultado.aportes.irpf} />
+              <Dato label="Total obrero" val={resultado.aportes.totalObrero} />
+              <Dato label="Patronales" val={resultado.aportes.patronal} />
+              <Dato label="TOTAL BPS (obrero + patronal)" val={resultado.aportes.totalBps} fuerte />
+            </div>
+            <p className="text-[11px] text-ink-subtle mt-2">
+              Compará estos totales con tu factura de BPS. (El IRPF se retiene y vierte a DGI, no va en la factura BPS.)
+            </p>
+          </div>
+
+          {/* Detalle por persona */}
+          <div className="card overflow-hidden">
+            <div className="px-5 py-3 border-b border-hairline text-sm font-semibold text-ink">Detalle por persona</div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="table-header">
+                    <th className="px-4 py-2 text-left">Persona</th>
+                    <th className="px-4 py-2 text-left">Estado</th>
+                    <th className="px-4 py-2 text-left">Diferencias</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-hairline/60">
+                  {resultado.personas.map((p) => (
+                    <tr key={p.ci} className={p.estado === 'diferencia' ? 'bg-bad-bg/20' : ''}>
+                      <td className="px-4 py-2.5">
+                        <p className="font-medium text-ink">{p.nombre}</p>
+                        <p className="text-xs text-ink-subtle font-mono">{p.ci}</p>
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <span className={ESTADO[p.estado].badge}>{ESTADO[p.estado].label}</span>
+                      </td>
+                      <td className="px-4 py-2.5">
+                        {p.estado === 'ok' && p.diferencias.length === 0 && <span className="text-ink-subtle text-xs">—</span>}
+                        {p.estado === 'ok' && p.diferencias.length > 0 && (
+                          <span className="text-xs text-ink-subtle">Solo redondeo (±$1)</span>
+                        )}
+                        {p.estado === 'solo_archivo' && <span className="text-xs text-ink-subtle">Está en el archivo pero no tiene liquidación confirmada.</span>}
+                        {p.estado === 'solo_liquidacion' && <span className="text-xs text-ink-subtle">Tiene liquidación pero no figura en el archivo.</span>}
+                        {p.diferencias.length > 0 && p.estado === 'diferencia' && (
+                          <ul className="space-y-0.5">
+                            {p.diferencias.map((d, i) => (
+                              <li key={i} className={`text-xs ${d.redondeo ? 'text-ink-subtle' : 'text-bad'}`}>
+                                <b>{d.campo}:</b> archivo {d.campo.startsWith('Días') || d.campo.startsWith('Seguro') ? d.archivo : `$${fmt(d.archivo)}`} · sistema {d.campo.startsWith('Días') || d.campo.startsWith('Seguro') ? d.sistema : `$${fmt(d.sistema)}`}
+                                {d.delta && ` (Δ ${d.campo.startsWith('Días') ? d.delta : `$${fmt(d.delta)}`})`}
+                                {d.redondeo && ' — redondeo'}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Dato({ label, val, fuerte }: { label: string; val: string; fuerte?: boolean }) {
+  return (
+    <div className={`p-3 rounded-lg ${fuerte ? 'bg-brand-50 col-span-2 md:col-span-1' : 'bg-canvas/70'}`}>
+      <p className="text-xs text-ink-subtle">{label}</p>
+      <p className={`figure font-semibold ${fuerte ? 'text-brand-700' : 'text-ink'}`}>$ {fmt(val)}</p>
     </div>
   );
 }

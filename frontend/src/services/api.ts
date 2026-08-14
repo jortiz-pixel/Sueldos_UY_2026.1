@@ -427,7 +427,33 @@ export interface DeclaracionResumen {
   createdAt: string;
 }
 
+export interface ComparacionNomina {
+  mesCargo: { month: number; year: number } | null;
+  empresaArchivo: string | null;
+  resumen: { enArchivo: number; enLiquidaciones: number; coinciden: number; conDiferencias: number; soloArchivo: number; soloLiquidacion: number };
+  personas: Array<{
+    ci: string;
+    nombre: string;
+    estado: 'ok' | 'diferencia' | 'solo_archivo' | 'solo_liquidacion';
+    diferencias: Array<{ campo: string; archivo: string; sistema: string; delta: string; redondeo: boolean }>;
+  }>;
+  aportes: {
+    obreroJubilatorio: string; obreroFonasa: string; obreroFrl: string; irpf: string;
+    patronal: string; totalObrero: string; totalBps: string;
+  };
+  errores: string[];
+  advertencias: string[];
+}
+
 export const nominaApi = {
+  verificar: (companyId: string, year: number, month: number, file: File) => {
+    const fd = new FormData();
+    fd.append('companyId', companyId);
+    fd.append('year', String(year));
+    fd.append('month', String(month));
+    fd.append('file', file);
+    return api.post<ComparacionNomina>('/nomina/verificar', fd).then((r) => r.data);
+  },
   checklist: (companyId: string) =>
     api.get<NominaChecklist>('/nomina/checklist', { params: { companyId } }).then((r) => r.data),
   centroMes: (companyId: string, year: number, month: number) =>
