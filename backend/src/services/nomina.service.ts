@@ -221,6 +221,15 @@ export async function generarNominaBps(companyId: string, year: number, month: n
     for (const liq of liqsPersona) {
       for (const item of liq.items) {
         if (item.itemType !== ItemType.HABER) continue;
+        // FALTAS y HORAS_TARDE son haberes NEGATIVOS que NETEAN el imponible: el
+        // concepto 1 debe salir neto de faltas. SIEMPRE restan (aunque el
+        // concepto esté marcado como no gravado); se fuerza el signo negativo por
+        // si el monto quedó cargado en positivo.
+        if (item.concepto === 'FALTAS' || item.concepto === 'HORAS_TARDE') {
+          const resta = item.amount < 0n ? item.amount : -item.amount;
+          porConcepto.set(1, (porConcepto.get(1) ?? 0n) + resta);
+          continue;
+        }
         const cfg = codBpsPorCodigo.get(item.concepto);
         // Haber no gravado: solo se declara si tiene concepto BPS configurado
         // (codBps). Las partidas exentas del laudo de la construcción van con
