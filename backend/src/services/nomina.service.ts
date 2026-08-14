@@ -16,6 +16,7 @@
 import { prisma } from '../utils/prisma';
 import { LiquidationStatus, LiquidationType, PeriodStatus, ItemType } from '@prisma/client';
 import { esEmpresaConstruccion } from './construccion.service';
+import { fonasaCargasDeSeguroSalud } from './bps.service';
 import { salarioProporcional } from '../utils/money';
 import { generarLiquidacionMensual } from './liquidation.service';
 
@@ -184,6 +185,27 @@ export async function generarNominaBps(companyId: string, year: number, month: n
         }
       }
       diasTrabajados = Math.max(0, Math.round(liqConDias.diasTrabajados - faltaDias));
+    }
+
+    // Control: el código de SEGURO DE SALUD (Tabla 8) del contrato tiene que ser
+    // coherente con las cargas (hijos/cónyuge) del ADICIONAL FONASA del recibo.
+    // Si no coincide, se AVISA (no bloquea): el seguro declarado a BPS y la tasa
+    // FONASA del recibo deben corresponder a la misma situación familiar.
+    if (contrato.seguroSalud != null) {
+      const cargasSeguro = fonasaCargasDeSeguroSalud(contrato.seguroSalud);
+      const mensual = liqsPersona.find((l) => l.type === 'MENSUAL');
+      const adic = mensual?.items.find((i) => i.concepto === 'FONASA_ADICIONAL');
+      const det = adic?.calculationDetail as { hijosACargo?: number; conyugeACargo?: boolean } | null | undefined;
+      if (cargasSeguro && det) {
+        const hijosRecibo = (det.hijosACargo ?? 0) > 0;
+        const conyugeRecibo = !!det.conyugeACargo;
+        if (hijosRecibo !== cargasSeguro.hijos || conyugeRecibo !== cargasSeguro.conyuge) {
+          const sn = (b: boolean) => (b ? 'sí' : 'no');
+          advertencias.push(
+            `${quien}: el seguro de salud del contrato (código ${contrato.seguroSalud}: hijos ${sn(cargasSeguro.hijos)}, cónyuge ${sn(cargasSeguro.conyuge)}) no coincide con el FONASA del recibo (hijos ${sn(hijosRecibo)}, cónyuge ${sn(conyugeRecibo)}). Revisá el código de seguro de salud o las cargas.`,
+          );
+        }
+      }
     }
 
     // Conceptos (registro 7): agrupar ítems HABER por código BPS.

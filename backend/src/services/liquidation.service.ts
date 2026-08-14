@@ -7,6 +7,7 @@ import { prisma } from '../utils/prisma';
 import { salarioProporcional, divRoundHalfUp, applyRate, toCtms } from '../utils/money';
 import { calcularAportesObreros, calcularAportesPatronales, calcularHorasExtra, fonasaCargasDeSeguroSalud } from './bps.service';
 import { calcularIrpfMensual, calcularIrpfSimplificado } from './irpf.service';
+import { recalcularIrpfMensual } from './irpfMensual.service';
 import { parametersService } from './parameters.service';
 import { resolverContratoEnMes, diasTrabajadosEnMes, datosLaboralesEfectivos } from './contract.service';
 import { evaluarConcepto, valorUnitarioConcepto, ConceptoContext } from './concept.engine';
@@ -886,6 +887,9 @@ export async function generarLiquidacionMensual(
       };
     }),
   });
+
+  // IRPF por TRABAJADOR y MES: recalcula el IRPF de todos los recibos del mes.
+  await recalcularIrpfMensual(input.employeeId, input.year, input.month, period.companyId);
 
   return {
     liquidacionId: liquidacion.id,

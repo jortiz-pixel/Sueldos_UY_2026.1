@@ -21,13 +21,17 @@ import { applyRate, divRoundHalfUp, maxBigInt, minBigInt } from '../utils/money'
 import { IrpfBracket, PayrollParameters } from './parameters.service';
 
 export interface IrpfInput {
-  salarioNominal: bigint;     // Salario bruto mensual en centésimos
+  salarioNominal: bigint;     // Renta computable mensual gravada por IRPF (centésimos)
   fonasaMensual: bigint;      // FONASA pagado este mes (obrero)
   bpsMensual: bigint;         // BPS jubilatorio pagado este mes
   hijosACargo: number;        // Hijos sin discapacidad
   hijosDiscapacitados: number;
   conyugeACargo: boolean;
   params: PayrollParameters;
+  // FRL del mes (deducción). Si no viene, se calcula sobre salarioNominal. Se
+  // pasa explícito cuando la renta incluye partidas EXENTAS de aportes (licencia
+  // no gozada, salario vacacional): el FRL solo grava el sueldo, no esas partidas.
+  frlMensual?: bigint;
 }
 
 export interface IrpfBracketDetail {
@@ -75,7 +79,7 @@ export function calcularIrpfMensual(input: IrpfInput): IrpfResult {
 
   // ── 3. Deducciones anuales ────────────────────────────────────
   // Aportes personales deducibles (DGI): jubilatorio + FONASA + FRL.
-  const frlMensual = applyRate(input.salarioNominal, params.frlObreroRate);
+  const frlMensual = input.frlMensual ?? applyRate(input.salarioNominal, params.frlObreroRate);
   const deduccionAportesAnual = maxBigInt(0n, (input.bpsMensual + input.fonasaMensual + frlMensual) * 12n);
   const deduccionHijosAnual =
     BigInt(input.hijosACargo) * params.bpc * BigInt(params.irpfHijosBpc)

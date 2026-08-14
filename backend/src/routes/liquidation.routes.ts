@@ -14,6 +14,7 @@ import { calcularAportesObreros, calcularAportesPatronales, fonasaCargasDeSeguro
 import { resolverContratoEnMes } from '../services/contract.service';
 import { recordAudit } from '../services/audit.service';
 import { calcularIrpfMensual } from '../services/irpf.service';
+import { recalcularIrpfMensual } from '../services/irpfMensual.service';
 import { parametersService } from '../services/parameters.service';
 import { generateReciboPDF, reciboFilename } from '../services/pdf.service';
 
@@ -485,7 +486,9 @@ liquidationRouter.post('/:id/unconfirm', authenticate, requireRole(UserRole.ADMI
 // nómina ya declarada no queda inconsistente).
 liquidationRouter.delete('/:id', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const liquidation = await prisma.liquidation.findUnique({ where: { id: req.params.id } });
+    const liquidation = await prisma.liquidation.findUnique({
+      where: { id: req.params.id }, include: { period: { select: { companyId: true } } },
+    });
     if (!liquidation) throw new NotFoundError('Liquidación');
     await assertLiquidationAccess(req, req.params.id);
     if (liquidation.status === LiquidationStatus.CONFIRMADO) {
@@ -496,6 +499,8 @@ liquidationRouter.delete('/:id', authenticate, requireRole(UserRole.ADMIN, UserR
       prisma.payrollAdjustment.deleteMany({ where: { liquidationId: req.params.id } }),
       prisma.liquidation.delete({ where: { id: req.params.id } }),
     ]);
+    // Borrar un recibo cambia la base mensual: recalcular el IRPF del resto.
+    await recalcularIrpfMensual(liquidation.employeeId, liquidation.year, liquidation.month, liquidation.period?.companyId);
     await recordAudit({ action: 'LIQUIDATION_DELETE', entity: 'liquidation', entityId: req.params.id, newData: { employeeId: liquidation.employeeId, type: liquidation.type, year: liquidation.year, month: liquidation.month }, req });
     res.json({ message: 'Liquidación eliminada' });
   } catch (err) { next(err); }
@@ -504,7 +509,9 @@ liquidationRouter.delete('/:id', authenticate, requireRole(UserRole.ADMIN, UserR
 // POST /api/liquidation/:id/cancel
 liquidationRouter.post('/:id/cancel', authenticate, requireRole(UserRole.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const liquidation = await prisma.liquidation.findUnique({ where: { id: req.params.id } });
+    const liquidation = await prisma.liquidation.findUnique({
+      where: { id: req.params.id }, include: { period: { select: { companyId: true } } },
+    });
     if (!liquidation) throw new NotFoundError('Liquidación');
     await assertLiquidationAccess(req, req.params.id);
     if (liquidation.status === LiquidationStatus.ANULADO) {
@@ -514,6 +521,8 @@ liquidationRouter.post('/:id/cancel', authenticate, requireRole(UserRole.ADMIN),
       where: { id: req.params.id },
       data: { status: LiquidationStatus.ANULADO },
     });
+    // Anular saca el recibo de la base mensual: recalcular el IRPF del resto.
+    await recalcularIrpfMensual(liquidation.employeeId, liquidation.year, liquidation.month, liquidation.period?.companyId);
     await recordAudit({ action: 'LIQUIDATION_CANCEL', entity: 'liquidation', entityId: req.params.id, newData: { employeeId: liquidation.employeeId, type: liquidation.type, year: liquidation.year, month: liquidation.month }, req });
     res.json({ message: 'Liquidación anulada exitosamente' });
   } catch (err) { next(err); }
@@ -577,7 +586,18 @@ const HABER_NO_GRAVADO = new Set(['SALARIO_VACACIONAL', 'AJUSTE_NO_GRAVADO', 'RE
 // IRPF + patronales) sobre la base gravada ACTUAL — así los conceptos manuales
 // gravados (p. ej. prima por antigüedad) entran al monto imponible. Luego
 // recalcula los totales. Para otros tipos, solo recalcula totales.
+// Wrapper: recalcula el recibo y, al final, el IRPF MENSUAL acumulado del
+// trabajador (todos sus recibos del mes), que es la fuente de verdad del IRPF.
 async function recalcularLiquidacion(liquidationId: string): Promise<void> {
+  await recalcularLiquidacionInterna(liquidationId);
+  const liq = await prisma.liquidation.findUnique({
+    where: { id: liquidationId },
+    select: { employeeId: true, year: true, month: true, period: { select: { companyId: true } } },
+  });
+  if (liq) await recalcularIrpfMensual(liq.employeeId, liq.year, liq.month, liq.period?.companyId);
+}
+
+async function recalcularLiquidacionInterna(liquidationId: string): Promise<void> {
   const liq = await prisma.liquidation.findUnique({
     where: { id: liquidationId },
     include: { items: true, period: { include: { company: true } } },

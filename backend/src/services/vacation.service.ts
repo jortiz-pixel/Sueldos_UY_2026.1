@@ -14,6 +14,7 @@ import {
   calcularAntiguedadMeses,
 } from '../utils/date';
 import { resolverContratoVigente, datosLaboralesEfectivos } from './contract.service';
+import { recalcularIrpfMensual } from './irpfMensual.service';
 import { AppError } from '../middleware/errorHandler';
 
 // Conceptos HABER que NO integran el concepto 1 (monto imponible): no gravados y
@@ -274,6 +275,9 @@ export async function calcularLiquidacionLicencia(input: LicenciaInput) {
     },
   });
 
+  // IRPF por TRABAJADOR y MES: el salario vacacional integra la base de IRPF.
+  await recalcularIrpfMensual(input.employeeId, input.year, input.month, period?.companyId);
+
   return {
     liquidacionId: liquidacion.id,
     salarioVacacional,
@@ -520,6 +524,10 @@ export async function calcularLiquidacionFinal(
 
   // Nota: la desvinculación de la persona (inactivar / fechaEgreso) la maneja
   // el endpoint de baja según si le quedan contratos vigentes en otras empresas.
+
+  // IRPF por TRABAJADOR y MES: la licencia no gozada y el salario vacacional por
+  // egreso integran la base de IRPF; el aguinaldo por egreso va aparte.
+  await recalcularIrpfMensual(employeeId, year, month, companyId);
 
   return {
     liquidacionId: liquidacion.id,
