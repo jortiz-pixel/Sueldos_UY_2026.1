@@ -1,16 +1,25 @@
 import { useState, ChangeEvent } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { AlertCircle, AlertTriangle, Download, FileText, Landmark, FileDiff, ShieldCheck, Upload, Scale } from 'lucide-react';
-import { liquidationApi, nominaApi, ComparacionNomina } from '../services/api';
+import { AlertCircle, AlertTriangle, Download, FileText, Landmark, FileDiff, ShieldCheck, Upload, Scale, HardHat } from 'lucide-react';
+import { liquidationApi, nominaApi, companiesApi, ComparacionNomina, FocerPreview } from '../services/api';
 import { useCompany } from '../hooks/useCompany';
 import { MESES } from '../types';
+
+// FOCER se declara solo en el Grupo 9 · Subgrupo 1 (industria de la construcción).
+function esEmpresaFocer(co?: { grupoActividadNum?: number | null; subgrupo?: string | null } | null): boolean {
+  if (!co || co.grupoActividadNum !== 9) return false;
+  const sub = (co.subgrupo ?? '').trim();
+  if (!sub) return true;
+  const m = /(\d{1,2})/.exec(sub);
+  return m ? Number(m[1]) === 1 : true;
+}
 
 // Página "Nómina BPS": vista previa y descarga del archivo de declaración
 // nominada (formato ATYR v3.0) del período seleccionado.
 export default function NominaPage() {
   const { activeCompanyId: companyId } = useCompany();
   const [periodKey, setPeriodKey] = useState(''); // "year-month"
-  const [modo, setModo] = useState<'nomina' | 'rectificativa' | 'verificar'>('nomina');
+  const [modo, setModo] = useState<'nomina' | 'rectificativa' | 'verificar' | 'focer'>('nomina');
   const [descargando, setDescargando] = useState(false);
   const [verifFile, setVerifFile] = useState<File | null>(null);
 
@@ -19,6 +28,13 @@ export default function NominaPage() {
     queryFn: () => liquidationApi.listPeriods({ companyId }),
     enabled: !!companyId,
   });
+
+  const { data: company } = useQuery({
+    queryKey: ['company', companyId],
+    queryFn: () => companiesApi.get(companyId),
+    enabled: !!companyId,
+  });
+  const companyEsFocer = esEmpresaFocer(company);
 
   const [yearStr, monthStr] = periodKey.split('-');
   const year = Number(yearStr);
@@ -36,6 +52,12 @@ export default function NominaPage() {
     enabled: !!companyId && !!periodKey && modo === 'rectificativa',
   });
 
+  const { data: focer, isLoading: focerLoading, error: focerError } = useQuery({
+    queryKey: ['focer-preview', companyId, year, month],
+    queryFn: () => nominaApi.focerPreview(companyId, year, month),
+    enabled: !!companyId && !!periodKey && modo === 'focer',
+  });
+
   const verificarMutation = useMutation({
     mutationFn: (file: File) => nominaApi.verificar(companyId, year, month, file),
   });
@@ -46,12 +68,14 @@ export default function NominaPage() {
   };
 
   const descargar = async () => {
-    const filename = modo === 'nomina' ? preview?.filename : rect?.filename;
+    const filename = modo === 'nomina' ? preview?.filename : modo === 'focer' ? focer?.filename : rect?.filename;
     if (!filename) return;
     setDescargando(true);
     try {
       const blob = modo === 'nomina'
         ? await nominaApi.archivo(companyId, year, month)
+        : modo === 'focer'
+        ? await nominaApi.focerArchivo(companyId, year, month)
         : await nominaApi.rectArchivo(companyId, year, month);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -69,6 +93,8 @@ export default function NominaPage() {
 
   const bloqueada = modo === 'nomina'
     ? (!preview || preview.errores.length > 0)
+    : modo === 'focer'
+    ? (!focer || focer.errores.length > 0)
     : (!rect || rect.errores.length > 0 || rect.diferencias.length === 0);
 
   return (
@@ -108,6 +134,7 @@ export default function NominaPage() {
           { key: 'nomina', label: 'Nómina (N)', icon: Landmark },
           { key: 'rectificativa', label: 'Rectificativa (R)', icon: FileDiff },
           { key: 'verificar', label: 'Verificación', icon: ShieldCheck },
+          ...(companyEsFocer ? [{ key: 'focer', label: 'FOCER', icon: HardHat }] as const : []),
         ] as const).map(({ key, label, icon: Icon }) => (
           <button
             key={key}
@@ -232,6 +259,17 @@ export default function NominaPage() {
           error={(verificarMutation.error as { response?: { data?: { error?: string } } })?.response?.data?.error}
           resultado={verificarMutation.data ?? null}
         />
+      ) : modo === 'focer' ? (
+        focerLoading ? (
+          <div className="card p-10 text-center text-ink-subtle">Calculando FOCER…</div>
+        ) : focerError ? (
+          <div className="card p-4 flex items-center gap-2 text-sm text-bad">
+            <AlertCircle size={16} />
+            {(focerError as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Error al calcular el FOCER.'}
+          </div>
+        ) : focer && (
+          <FocerPanel focer={focer} />
+        )
       ) : isLoading ? (
         <div className="card p-10 text-center text-ink-subtle">Generando vista previa…</div>
       ) : error ? (
@@ -480,6 +518,88 @@ function Dato({ label, val, fuerte }: { label: string; val: string; fuerte?: boo
     <div className={`p-3 rounded-lg ${fuerte ? 'bg-brand-50 col-span-2 md:col-span-1' : 'bg-canvas/70'}`}>
       <p className="text-xs text-ink-subtle">{label}</p>
       <p className={`figure font-semibold ${fuerte ? 'text-brand-700' : 'text-ink'}`}>$ {fmt(val)}</p>
+    </div>
+  );
+}
+
+// ── Panel FOCER (Fondo de Cesantía y Retiro de la construcción) ─────
+function FocerPanel({ focer }: { focer: FocerPreview }) {
+  return (
+    <div className="space-y-4">
+      {focer.errores.length > 0 && (
+        <div className="card p-4 border-bad/30 bg-bad-bg/40">
+          <div className="flex items-start gap-3">
+            <AlertCircle size={18} className="text-bad shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-ink mb-1 text-sm">Corregí esto antes de generar el archivo FOCER:</p>
+              <ul className="text-sm text-ink-muted list-disc pl-4 space-y-0.5">
+                {focer.errores.map((e, i) => <li key={i}>{e}</li>)}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+      {focer.advertencias.length > 0 && (
+        <div className="card p-4 border-warn/40 bg-warn-bg/40">
+          <div className="flex items-start gap-3">
+            <AlertTriangle size={18} className="text-warn shrink-0 mt-0.5" />
+            <ul className="text-sm text-ink-muted list-disc pl-4 space-y-0.5">
+              {focer.advertencias.map((a, i) => <li key={i}>{a}</li>)}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      <div className="card p-4 flex items-center gap-4 flex-wrap text-sm">
+        <div className="flex items-center gap-2">
+          <HardHat size={16} className="text-brand-600" />
+          <span className="font-mono text-xs">{focer.filename}</span>
+        </div>
+        <div className="ml-auto flex items-center gap-5">
+          <span><span className="text-ink-subtle">Total gravado: </span><span className="figure font-semibold text-ink">$ {fmt(focer.totalGravado)}</span></span>
+          <span><span className="text-ink-subtle">Total FOCER (5%): </span><span className="figure font-semibold text-brand-700">$ {fmt(focer.totalFocer)}</span></span>
+        </div>
+      </div>
+
+      <div className="card overflow-hidden">
+        <div className="px-5 py-3 border-b border-hairline text-sm font-semibold text-ink">Detalle por trabajador</div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="table-header">
+                <th className="px-4 py-2 text-left">Trabajador</th>
+                <th className="px-4 py-2 text-right">Jornales</th>
+                <th className="px-4 py-2 text-right">Gravado jornales</th>
+                <th className="px-4 py-2 text-right">Resto gravado</th>
+                <th className="px-4 py-2 text-right">Total gravado</th>
+                <th className="px-4 py-2 text-right">FOCER 5%</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-hairline/60">
+              {focer.empleados.map((e) => (
+                <tr key={e.ci}>
+                  <td className="px-4 py-2.5">
+                    <p className="font-medium text-ink">{e.nombre}</p>
+                    <p className="text-xs text-ink-subtle font-mono">{e.ci}</p>
+                  </td>
+                  <td className="px-4 py-2.5 text-right figure">{e.jornales ?? '—'}</td>
+                  <td className="px-4 py-2.5 text-right figure text-ink-muted">{fmt(e.gravadoJornales)}</td>
+                  <td className="px-4 py-2.5 text-right figure text-ink-muted">{fmt(e.restoGravado)}</td>
+                  <td className="px-4 py-2.5 text-right figure text-ink">{fmt(e.totalGravado)}</td>
+                  <td className="px-4 py-2.5 text-right figure font-semibold text-brand-700">{fmt(e.focer)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {focer.lineas.length > 0 && (
+        <details className="card p-4">
+          <summary className="text-sm font-medium text-ink-muted cursor-pointer">Ver contenido del archivo ({focer.lineas.length} líneas)</summary>
+          <pre className="mt-3 p-3 bg-navy text-white/90 rounded-lg text-[11px] leading-relaxed overflow-x-auto">{focer.lineas.join('\n')}</pre>
+        </details>
+      )}
     </div>
   );
 }

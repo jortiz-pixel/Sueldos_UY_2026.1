@@ -149,6 +149,9 @@ model GestoriaConfig {
   fax       String?
   contacto  String?
   email     String?
+  // Código FOCER (registro 2 de la nómina del Fondo de Cesantía y Retiro de la
+  // construcción). Lo asigna FOCER; sin él, el archivo sale con ese campo vacío.
+  focerCodigo String?
 
   @@map("gestoria_config")
 }

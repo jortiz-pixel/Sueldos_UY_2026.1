@@ -475,7 +475,29 @@ export const nominaApi = {
     api.get<RectificativaPreview>('/nomina/rectificativa/preview', { params: { companyId, year, month } }).then((r) => r.data),
   rectArchivo: (companyId: string, year: number, month: number) =>
     api.get('/nomina/rectificativa/archivo', { params: { companyId, year, month }, responseType: 'blob' }).then((r) => r.data as Blob),
+  focerPreview: (companyId: string, year: number, month: number) =>
+    api.get<FocerPreview>('/nomina/focer/preview', { params: { companyId, year, month } }).then((r) => r.data),
+  focerArchivo: (companyId: string, year: number, month: number) =>
+    api.get('/nomina/focer/archivo', { params: { companyId, year, month }, responseType: 'blob' }).then((r) => r.data as Blob),
 };
+
+export interface FocerPreview {
+  filename: string;
+  totalGravado: string;
+  totalFocer: string;
+  empleados: Array<{
+    ci: string;
+    nombre: string;
+    jornales: number | null;
+    gravadoJornales: string;
+    restoGravado: string;
+    totalGravado: string;
+    focer: string;
+  }>;
+  errores: string[];
+  advertencias: string[];
+  lineas: string[];
+}
 
 export const conceptsApi = {
   list: (companyId: string) => api.get<Concepto[]>('/concepts', { params: { companyId } }).then((r) => r.data),

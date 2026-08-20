@@ -13,6 +13,7 @@ import { authenticate, requireRole } from '../middleware/auth';
 import { assertCompanyAccess } from '../middleware/tenancy';
 import { AppError, NotFoundError } from '../middleware/errorHandler';
 import { generarNominaBps, importarNominaAtyr, generarRectificativaBps, registrarDeclaracion, compararNominaSubida } from '../services/nomina.service';
+import { generarFocer } from '../services/focer.service';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
@@ -119,6 +120,39 @@ nominaRouter.get('/rectificativa/archivo', authenticate, async (req: Request, re
     res.setHeader('Content-Type', 'text/plain; charset=iso-8859-1');
     res.setHeader('Content-Disposition', `attachment; filename="${rect.filename}"`);
     res.send(Buffer.from(rect.contenido, 'latin1'));
+  } catch (err) { next(err); }
+});
+
+// GET /api/nomina/focer/preview?companyId&year&month  → vista previa FOCER (Grupo 9.1)
+nominaRouter.get('/focer/preview', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { companyId, year, month } = parsePeriodo(req);
+    await assertCompanyAccess(req, companyId);
+    const focer = await generarFocer(companyId, year, month);
+    res.json({
+      filename: focer.filename,
+      totalGravado: focer.totalGravado,
+      totalFocer: focer.totalFocer,
+      empleados: focer.empleados,
+      errores: focer.errores,
+      advertencias: focer.advertencias,
+      lineas: focer.errores.length === 0 ? focer.lineas : [],
+    });
+  } catch (err) { next(err); }
+});
+
+// GET /api/nomina/focer/archivo?companyId&year&month  → descarga el archivo FOCER
+nominaRouter.get('/focer/archivo', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { companyId, year, month } = parsePeriodo(req);
+    await assertCompanyAccess(req, companyId);
+    const focer = await generarFocer(companyId, year, month);
+    if (focer.errores.length > 0) {
+      throw new AppError(409, `El FOCER tiene errores: ${focer.errores.join(' · ')}`);
+    }
+    res.setHeader('Content-Type', 'text/plain; charset=iso-8859-1');
+    res.setHeader('Content-Disposition', `attachment; filename="${focer.filename}"`);
+    res.send(Buffer.from(focer.contenido, 'latin1'));
   } catch (err) { next(err); }
 });
 
