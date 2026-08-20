@@ -19,8 +19,8 @@
 // El PIN FOCER del registro 2 se toma de la empresa (`company.focerPin`). En el
 // registro 4, la posición 206 es el "tipo de FOCER" (1 = 0,5% · 2 = 5%) y la 208
 // el "tipo de contrato" (1 indefinido · 2 a prueba · 3 a término · 4 suplencia),
-// ambos del contrato. Queda REPRODUCIDO del ejemplo GNS, a validar con más casos,
-// solo el bloque `1 1 198 2` (posiciones 153/155/157/161).
+// ambos del contrato; la 151 es el sexo. El bloque `1 1 198 2` (posiciones
+// 153/155/157/161) es FIJO en todas las declaraciones (confirmado por el estudio).
 import { LiquidationStatus, ItemType } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { divRoundHalfUp, salarioProporcional } from '../utils/money';
@@ -295,8 +295,6 @@ export async function generarFocer(companyId: string, year: number, month: numbe
   placeR(b2, 85, money(totGravado));
   placeR(b2, 100, money(totFocer));
   const reg2 = b2.join('');
-
-  advertencias.push('El bloque de códigos «1 1 198 2» del registro 4 se reproduce del ejemplo GNS: validá el archivo contra el de GNS antes de presentarlo.');
 
   const lineas = ['<FOCERINI>', reg1, reg2, ...reg4, ...reg6, '<FOCERFIN>'];
   const contenido = lineas.join('\r\n');
