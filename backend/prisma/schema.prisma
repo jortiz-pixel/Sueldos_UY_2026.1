@@ -524,6 +524,11 @@ model Contrato {
   exoneracionAporte  Int?
   acumulacionLaboral Int?
   horasSemanales     Int?
+  // FOCER (empresas de construcción Grupo 9.1). Se declaran en el registro 4.
+  // focerTipo: aportación del trabajador al fondo — 1 = 0,5% · 2 = 5% (default).
+  focerTipo          Int?
+  // focerTipoContrato: 1 indefinido · 2 a prueba · 3 a término · 4 suplencia.
+  focerTipoContrato  Int?
   observacion      String?
   activo           Boolean    @default(true)
   createdAt        DateTime   @default(now())

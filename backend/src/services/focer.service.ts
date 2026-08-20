@@ -16,17 +16,21 @@
 // Campos DERIVADOS de los datos del sistema: BPS, RUT, razón social,
 // domicilio, departamento, teléfono, e-mail, período, cantidad, nombres,
 // CI, tipo de documento, nacimiento, sexo, jornales, y los cuatro importes.
-// El PIN FOCER del registro 2 se toma de la configuración de la empresa
-// (`company.focerPin`, lo asigna FOCER a cada empresa). Campos REPRODUCIDOS del
-// ejemplo de GNS a la espera de validación con más casos (ver `advertencias`):
-// los códigos internos de los registros 4 (bloque `1 1 198 2` y el par `2 1`).
+// El PIN FOCER del registro 2 se toma de la empresa (`company.focerPin`). En el
+// registro 4, la posición 206 es el "tipo de FOCER" (1 = 0,5% · 2 = 5%) y la 208
+// el "tipo de contrato" (1 indefinido · 2 a prueba · 3 a término · 4 suplencia),
+// ambos del contrato. Queda REPRODUCIDO del ejemplo GNS, a validar con más casos,
+// solo el bloque `1 1 198 2` (posiciones 153/155/157/161).
 import { LiquidationStatus, ItemType } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { divRoundHalfUp, salarioProporcional } from '../utils/money';
 import { esEmpresaConstruccion, grupoConsejoDeEmpresa } from './construccion.service';
 
-// Tasa FOCER: 5% de la materia gravada (validado: 8525.57 × 5% = 426.28).
-const FOCER_RATE_BP = 500;
+// Tasa FOCER según el "tipo de FOCER" del contrato (registro 4, posición 206):
+//   1 → 0,5% (50 bp) · 2 → 5% (500 bp, default). Validado: 8525.57 × 5% = 426.28.
+function focerRateBp(focerTipo: number | null | undefined): number {
+  return focerTipo === 1 ? 50 : 500;
+}
 
 // ── Helpers de formato de ancho fijo ───────────────────────────────
 function padR(s: string, n: number): string {
@@ -194,7 +198,8 @@ export async function generarFocer(companyId: string, year: number, month: numbe
     if (materiaGravada < 0n) materiaGravada = 0n;
     if (gravadoJornales > materiaGravada) gravadoJornales = materiaGravada;
     const restoGravado = materiaGravada - gravadoJornales;
-    const focer = divRoundHalfUp(materiaGravada * BigInt(FOCER_RATE_BP), 10000n);
+    const focerTipo = contrato.focerTipo ?? 2; // default 5%
+    const focer = divRoundHalfUp(materiaGravada * BigInt(focerRateBp(focerTipo)), 10000n);
 
     // Jornales trabajados (mismo cálculo que los días del registro 6 de la nómina).
     const liqConDias = liqsPersona.find((l) => l.type === 'MENSUAL') ?? liqsPersona.find((l) => l.type === 'LIQUIDACION_FINAL');
@@ -235,9 +240,10 @@ export async function generarFocer(companyId: string, year: number, month: numbe
     placeR(b4, 185, money(restoGravado));
     placeR(b4, 195, money(materiaGravada));
     placeR(b4, 205, money(focer));
-    // Par de códigos final reproducido del ejemplo GNS (validar).
-    b4[206] = '2';
-    b4[208] = '1';
+    // 206 = tipo de FOCER (1 = 0,5% · 2 = 5%) · 208 = tipo de contrato
+    // (1 indefinido · 2 a prueba · 3 a término · 4 suplencia).
+    b4[206] = String(focerTipo);
+    b4[208] = String(contrato.focerTipoContrato ?? 1);
     place(b4, 215, '0.00');
     reg4.push(b4.join(''));
 
@@ -290,7 +296,7 @@ export async function generarFocer(companyId: string, year: number, month: numbe
   placeR(b2, 100, money(totFocer));
   const reg2 = b2.join('');
 
-  advertencias.push('Códigos internos de los registros 4 (bloque «1 1 198 2» y par final «2 1») reproducidos del ejemplo GNS: validá el archivo contra el de GNS antes de presentarlo.');
+  advertencias.push('El bloque de códigos «1 1 198 2» del registro 4 se reproduce del ejemplo GNS: validá el archivo contra el de GNS antes de presentarlo.');
 
   const lineas = ['<FOCERINI>', reg1, reg2, ...reg4, ...reg6, '<FOCERFIN>'];
   const contenido = lineas.join('\r\n');

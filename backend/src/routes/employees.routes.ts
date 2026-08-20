@@ -78,6 +78,9 @@ const contratoFields = {
   exoneracionAporte: z.number().int().optional().nullable(),
   acumulacionLaboral: z.number().int().optional().nullable(),
   horasSemanales: z.number().int().min(1).max(99).optional().nullable(),
+  // FOCER (construcción Grupo 9.1)
+  focerTipo: z.number().int().min(1).max(2).optional().nullable(),
+  focerTipoContrato: z.number().int().min(1).max(4).optional().nullable(),
   observacion: z.string().optional(),
 };
 
@@ -338,6 +341,8 @@ employeesRouter.post('/', authenticate, requireRole(UserRole.ADMIN, UserRole.OPE
         exoneracionAporte: c.exoneracionAporte ?? 9,
         acumulacionLaboral: c.acumulacionLaboral ?? 1,
         horasSemanales: c.horasSemanales ?? undefined,
+        focerTipo: c.focerTipo ?? undefined,
+        focerTipoContrato: c.focerTipoContrato ?? undefined,
         observacion: c.observacion,
       },
     });
@@ -493,6 +498,8 @@ employeesRouter.post('/:id/contracts', authenticate, requireRole(UserRole.ADMIN,
         exoneracionAporte: data.exoneracionAporte ?? 9,
         acumulacionLaboral: data.acumulacionLaboral ?? 1,
         horasSemanales: data.horasSemanales ?? undefined,
+        focerTipo: data.focerTipo ?? undefined,
+        focerTipoContrato: data.focerTipoContrato ?? undefined,
         observacion: data.observacion,
       },
     });

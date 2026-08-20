@@ -44,6 +44,8 @@ interface ContractForm {
   computosEspeciales?: string;
   exoneracionAporte?: string;
   horasSemanales?: number;
+  focerTipo?: string;
+  focerTipoContrato?: string;
   observacion?: string;
 }
 
@@ -188,7 +190,11 @@ export default function EmployeeDetailPage() {
   const salaryType = salaryTypeDeTipoRem(tipoRemuneracion);
   // Empresa elegida en el form: si es de CONSTRUCCIÓN se sugieren las categorías del laudo.
   const formCompanyId = watch('companyId');
-  const esConstruccion = esEmpresaConstruccion(companies?.find((co) => co.id === formCompanyId));
+  const empresaForm = companies?.find((co) => co.id === formCompanyId);
+  const esConstruccion = esEmpresaConstruccion(empresaForm);
+  // FOCER solo aplica al Grupo 9 · Subgrupo 1 (industria de la construcción).
+  const esFocer = esConstruccion && empresaForm?.grupoActividadNum === 9
+    && /^0*1(\D|$)/.test((empresaForm?.subgrupo || '1').trim());
   const categoriaActual = watch('categoria') ?? '';
   const recuadroEmpresa = companies?.find((co) => co.id === formCompanyId)?.tipoAporte === 4 ? 'INCLUIDOS' : 'NO_INCLUIDOS';
 
@@ -239,6 +245,8 @@ export default function EmployeeDetailPage() {
         computosEspeciales: data.computosEspeciales ? Number(data.computosEspeciales) : undefined,
         exoneracionAporte: data.exoneracionAporte ? Number(data.exoneracionAporte) : undefined,
         horasSemanales: data.horasSemanales ? Number(data.horasSemanales) : undefined,
+        focerTipo: data.focerTipo ? Number(data.focerTipo) : undefined,
+        focerTipoContrato: data.focerTipoContrato ? Number(data.focerTipoContrato) : undefined,
         observacion: data.observacion || undefined,
       };
       return editingContract
@@ -337,6 +345,8 @@ export default function EmployeeDetailPage() {
       computosEspeciales: c.computosEspeciales != null ? String(c.computosEspeciales) : '99',
       exoneracionAporte: c.exoneracionAporte != null ? String(c.exoneracionAporte) : '9',
       horasSemanales: c.horasSemanales ?? 44,
+      focerTipo: (c as unknown as { focerTipo?: number | null }).focerTipo != null ? String((c as unknown as { focerTipo?: number | null }).focerTipo) : '2',
+      focerTipoContrato: (c as unknown as { focerTipoContrato?: number | null }).focerTipoContrato != null ? String((c as unknown as { focerTipoContrato?: number | null }).focerTipoContrato) : '1',
       observacion: c.observacion ?? '',
     });
     setModalOpen(true);
@@ -399,6 +409,8 @@ export default function EmployeeDetailPage() {
       computosEspeciales: '99',
       exoneracionAporte: '9',
       horasSemanales: 44,
+      focerTipo: '2',
+      focerTipoContrato: '1',
     });
     setModalOpen(true);
   };
@@ -699,6 +711,27 @@ export default function EmployeeDetailPage() {
                       {CATEGORIAS_CONSTRUCCION.map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </div>
+                )}
+                {esFocer && (
+                  <>
+                    <div>
+                      <label className="form-label">Tipo de FOCER</label>
+                      <select {...register('focerTipo')} className="form-input">
+                        <option value="2">2 — Declara 5%</option>
+                        <option value="1">1 — Declara 0,5%</option>
+                      </select>
+                      <p className="text-xs text-gray-400 mt-1">Aportación al Fondo de Cesantía y Retiro.</p>
+                    </div>
+                    <div>
+                      <label className="form-label">Tipo de contrato (FOCER)</label>
+                      <select {...register('focerTipoContrato')} className="form-input">
+                        <option value="1">1 — Indefinido</option>
+                        <option value="2">2 — A prueba</option>
+                        <option value="3">3 — A término</option>
+                        <option value="4">4 — Suplencia</option>
+                      </select>
+                    </div>
+                  </>
                 )}
                 <div>
                   <label className="form-label">Nivel</label>

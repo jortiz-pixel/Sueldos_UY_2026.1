@@ -35,6 +35,9 @@ interface ContractForm {
   computosEspeciales?: string;
   exoneracionAporte?: string;
   horasSemanales?: number;
+  // FOCER (construcción Grupo 9.1)
+  focerTipo?: string;
+  focerTipoContrato?: string;
   observacion?: string;
 }
 
@@ -79,6 +82,9 @@ export default function ContractsPage() {
     enabled: !!companyId,
   });
   const esConstruccion = esEmpresaConstruccion(empresaDetalle);
+  // FOCER solo aplica al Grupo 9 · Subgrupo 1 (industria de la construcción).
+  const esFocer = esConstruccion && empresaDetalle?.grupoActividadNum === 9
+    && /^0*1(\D|$)/.test((empresaDetalle?.subgrupo || '1').trim());
   const { data: vinculos } = useQuery({ queryKey: ['cat-vinculos'], queryFn: () => catalogsApi.vinculosFuncionales(), staleTime: Infinity });
   const { data: segurosSalud } = useQuery({ queryKey: ['cat-seguros-salud'], queryFn: () => catalogsApi.segurosSalud(), staleTime: Infinity });
   const { data: computos } = useQuery({ queryKey: ['cat-computos'], queryFn: () => catalogsApi.computosEspeciales(), staleTime: Infinity });
@@ -123,7 +129,7 @@ export default function ContractsPage() {
     setFormError('');
     setBajaCausal('');
     const hoy = new Date().toISOString().slice(0, 10);
-    reset({ personId: '', vigenciaDesde: hoy, fechaIngreso: hoy, fechaFin: '', salaryType: 'MENSUAL', tipoRemuneracion: 1, salarioNominalPesos: 0, cargo: '', sector: '', categoria: '', nivel: '', tipoContrato: '', sucursal: '', cuentaSueldos: '', observacion: '', vinculoFuncional: '12', fictoCategoria: '', seguroSalud: '', computosEspeciales: '99', exoneracionAporte: '9', horasSemanales: 44 });
+    reset({ personId: '', vigenciaDesde: hoy, fechaIngreso: hoy, fechaFin: '', salaryType: 'MENSUAL', tipoRemuneracion: 1, salarioNominalPesos: 0, cargo: '', sector: '', categoria: '', nivel: '', tipoContrato: '', sucursal: '', cuentaSueldos: '', observacion: '', vinculoFuncional: '12', fictoCategoria: '', seguroSalud: '', computosEspeciales: '99', exoneracionAporte: '9', horasSemanales: 44, focerTipo: '2', focerTipoContrato: '1' });
     setModalOpen(true);
   };
 
@@ -150,6 +156,8 @@ export default function ContractsPage() {
       computosEspeciales: c.computosEspeciales != null ? String(c.computosEspeciales) : '99',
       exoneracionAporte: c.exoneracionAporte != null ? String(c.exoneracionAporte) : '9',
       horasSemanales: c.horasSemanales ?? 44,
+      focerTipo: (c as unknown as { focerTipo?: number | null }).focerTipo != null ? String((c as unknown as { focerTipo?: number | null }).focerTipo) : '2',
+      focerTipoContrato: (c as unknown as { focerTipoContrato?: number | null }).focerTipoContrato != null ? String((c as unknown as { focerTipoContrato?: number | null }).focerTipoContrato) : '1',
     });
     setModalOpen(true);
   };
@@ -178,6 +186,8 @@ export default function ContractsPage() {
         computosEspeciales: data.computosEspeciales ? Number(data.computosEspeciales) : undefined,
         exoneracionAporte: data.exoneracionAporte ? Number(data.exoneracionAporte) : undefined,
         horasSemanales: data.horasSemanales ? Number(data.horasSemanales) : undefined,
+        focerTipo: data.focerTipo ? Number(data.focerTipo) : undefined,
+        focerTipoContrato: data.focerTipoContrato ? Number(data.focerTipoContrato) : undefined,
         observacion: data.observacion || undefined,
       };
       return editing
@@ -471,6 +481,27 @@ export default function ContractsPage() {
                       {CATEGORIAS_CONSTRUCCION.map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </div>
+                )}
+                {esFocer && (
+                  <>
+                    <div>
+                      <label className="form-label">Tipo de FOCER</label>
+                      <select {...register('focerTipo')} className="form-input">
+                        <option value="2">2 — Declara 5%</option>
+                        <option value="1">1 — Declara 0,5%</option>
+                      </select>
+                      <p className="text-xs text-gray-400 mt-1">Aportación al Fondo de Cesantía y Retiro.</p>
+                    </div>
+                    <div>
+                      <label className="form-label">Tipo de contrato (FOCER)</label>
+                      <select {...register('focerTipoContrato')} className="form-input">
+                        <option value="1">1 — Indefinido</option>
+                        <option value="2">2 — A prueba</option>
+                        <option value="3">3 — A término</option>
+                        <option value="4">4 — Suplencia</option>
+                      </select>
+                    </div>
+                  </>
                 )}
                 <div>
                   <label className="form-label">Nivel</label>
