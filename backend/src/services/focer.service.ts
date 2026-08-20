@@ -63,6 +63,89 @@ function placeR(buf: string[], endExcl: number, s: string): void {
   place(buf, endExcl - s.length, s);
 }
 
+// ── Constructores de registros (ancho fijo) ─────────────────────────
+// PUROS y sin dependencias: las POSICIONES y ANCHOS están validados byte a byte
+// contra el archivo real de GNS. No cambiar una columna sin ajustar focer.test.ts.
+export interface FocerEmpresaLinea {
+  bps: string; rut: string; razonSocial: string; domicilio: string;
+  departamento: string; telefono: string; gestoria: string;
+  email: string; focerCodigo: string; month: number; year: number;
+  cantidad: number; totGravado: bigint; totFocer: bigint;
+}
+export interface FocerEmpleadoLinea {
+  tipoDoc: string; doc: string;
+  apellido: string; apellido2: string | null; nombre: string; nombre2: string | null;
+  fechaNacimiento: Date | null; sexoF: boolean; jornales: number | null;
+  gravadoJornales: bigint; restoGravado: bigint; materiaGravada: bigint; focer: bigint;
+  focerTipo: number; focerTipoContrato: number;
+  direccion: string; departamento: string; telefono: string; fechaIngreso: Date | null;
+}
+
+// Registro 1 — empresa (219). [0]tipo·[1)bps14·[15)rut14·[29)razón40·[69)dom80·[149)depto20·[169)tel15·[184)gestoría35
+export function buildFocerReg1(e: FocerEmpresaLinea): string {
+  return '1' + padR(e.bps, 14) + padR(e.rut, 14) + padR(e.razonSocial, 40)
+    + padR(e.domicilio, 80) + padR(e.departamento, 20) + padR(e.telefono, 15) + padR(e.gestoria, 35);
+}
+// Registro 2 — cabezal (100). [1)email50·[51)código8·[61)período6·rjust cant→71·totGrav→85·totFocer→100
+export function buildFocerReg2(e: FocerEmpresaLinea): string {
+  const b = new Array<string>(100).fill(' ');
+  b[0] = '2';
+  place(b, 1, padR(e.email, 50));
+  place(b, 51, padR(e.focerCodigo, 8));
+  place(b, 61, `${String(e.month).padStart(2, '0')}${e.year}`);
+  placeR(b, 71, String(e.cantidad));
+  placeR(b, 85, money(e.totGravado));
+  placeR(b, 100, money(e.totFocer));
+  return b.join('');
+}
+// Registro 4 — empleado (219). Nombres 30c/u, importes rjust, códigos 206/208.
+export function buildFocerReg4(p: FocerEmpleadoLinea): string {
+  const b = new Array<string>(219).fill(' ');
+  b[0] = '4';
+  b[3] = '1'; // país del documento (Uruguay)
+  place(b, 4, padR(p.tipoDoc, 2));
+  place(b, 6, padR(p.doc, 14));
+  place(b, 22, padR(nombreBps(p.apellido), 30));
+  place(b, 52, padR(nombreBps(p.apellido2), 30));
+  place(b, 82, padR(nombreBps(p.nombre), 30));
+  place(b, 112, padR(nombreBps(p.nombre2), 30));
+  place(b, 142, ddmmaaaa(p.fechaNacimiento));
+  b[151] = p.sexoF ? '2' : '1';
+  // Bloque de códigos FIJO en toda declaración FOCER: `1 1 198 2`.
+  b[153] = '1';
+  b[155] = '1';
+  place(b, 157, '198');
+  b[161] = '2';
+  if (p.jornales) placeR(b, 165, String(p.jornales));
+  placeR(b, 175, money(p.gravadoJornales));
+  placeR(b, 185, money(p.restoGravado));
+  placeR(b, 195, money(p.materiaGravada));
+  placeR(b, 205, money(p.focer));
+  // 206 = tipo de FOCER (1 = 0,5% · 2 = 5%) · 208 = tipo de contrato
+  // (1 indefinido · 2 a prueba · 3 a término · 4 suplencia).
+  b[206] = String(p.focerTipo);
+  b[208] = String(p.focerTipoContrato);
+  place(b, 215, '0.00');
+  return b.join('');
+}
+// Registro 6 — domicilio/depto/teléfono/ingreso del trabajador (155).
+export function buildFocerReg6(p: FocerEmpleadoLinea): string {
+  const b = new Array<string>(155).fill(' ');
+  b[0] = '6';
+  b[3] = '1';
+  place(b, 4, padR(p.tipoDoc, 2));
+  place(b, 6, padR(p.doc, 14));
+  place(b, 22, padR(p.direccion, 80));
+  place(b, 102, padR(p.departamento, 15));
+  place(b, 117, padR(p.telefono, 15));
+  place(b, 147, ddmmaaaa(p.fechaIngreso));
+  return b.join('');
+}
+// Ensambla el archivo completo (delimitadores + CRLF).
+export function ensamblarFocer(reg1: string, reg2: string, reg4: string[], reg6: string[]): string {
+  return ['<FOCERINI>', reg1, reg2, ...reg4, ...reg6, '<FOCERFIN>'].join('\r\n');
+}
+
 // ── ¿La empresa debe declarar FOCER? (Grupo 9 · Subgrupo 1) ─────────
 export function esEmpresaFocer(co?: {
   tipoAporte?: number | null;
@@ -221,37 +304,7 @@ export async function generarFocer(companyId: string, year: number, month: numbe
     totGravado += materiaGravada;
     totFocer += focer;
 
-    // ── Registro 4 (empleado) ───────────────────────────────────────
-    const b4 = new Array<string>(219).fill(' ');
-    b4[0] = '4';
-    b4[3] = '1'; // país del documento (Uruguay)
-    place(b4, 4, padR(tipoDoc, 2));
-    place(b4, 6, padR(doc, 14));
-    place(b4, 22, padR(nombreBps(e.apellido), 30));
-    place(b4, 52, padR(nombreBps(e.apellido2), 30));
-    place(b4, 82, padR(nombreBps(e.nombre), 30));
-    place(b4, 112, padR(nombreBps(e.nombre2), 30));
-    place(b4, 142, ddmmaaaa(e.fechaNacimiento));
-    b4[151] = e.sexo === 'F' ? '2' : '1';
-    // Bloque de códigos FIJO en toda declaración FOCER: `1 1 198 2`.
-    b4[153] = '1';
-    b4[155] = '1';
-    place(b4, 157, '198');
-    b4[161] = '2';
-    if (jornales) placeR(b4, 165, String(jornales));
-    placeR(b4, 175, money(gravadoJornales));
-    placeR(b4, 185, money(restoGravado));
-    placeR(b4, 195, money(materiaGravada));
-    placeR(b4, 205, money(focer));
-    // 206 = tipo de FOCER (1 = 0,5% · 2 = 5%) · 208 = tipo de contrato
-    // (1 indefinido · 2 a prueba · 3 a término · 4 suplencia).
-    b4[206] = String(focerTipo);
-    b4[208] = String(contrato.focerTipoContrato ?? 1);
-    place(b4, 215, '0.00');
-    reg4.push(b4.join(''));
-
-    // ── Registro 6 (domicilio, departamento, teléfono, fecha de ingreso) ──
-    // Datos propios del TRABAJADOR (se cargan en la ficha de la persona).
+    // Datos de contacto propios del TRABAJADOR (ficha de la persona).
     const direccion = (e.domicilio || e.localidad || '').toUpperCase();
     const departamento = e.departamento || '';
     const telefono = soloDigitos(e.telefono || '');
@@ -259,16 +312,17 @@ export async function generarFocer(companyId: string, year: number, month: numbe
       const faltan = [!direccion && 'dirección', !departamento && 'departamento', !telefono && 'teléfono'].filter(Boolean).join(', ');
       advertencias.push(`${quien}: falta ${faltan} en la ficha de la persona (FOCER los declara por trabajador).`);
     }
-    const b6 = new Array<string>(155).fill(' ');
-    b6[0] = '6';
-    b6[3] = '1';
-    place(b6, 4, padR(tipoDoc, 2));
-    place(b6, 6, padR(doc, 14));
-    place(b6, 22, padR(direccion, 80));
-    place(b6, 102, padR(departamento, 15));
-    place(b6, 117, padR(telefono, 15));
-    place(b6, 147, ddmmaaaa(e.fechaIngreso));
-    reg6.push(b6.join(''));
+
+    const lineaEmp: FocerEmpleadoLinea = {
+      tipoDoc, doc,
+      apellido: e.apellido, apellido2: e.apellido2, nombre: e.nombre, nombre2: e.nombre2,
+      fechaNacimiento: e.fechaNacimiento, sexoF: e.sexo === 'F', jornales,
+      gravadoJornales, restoGravado, materiaGravada, focer,
+      focerTipo, focerTipoContrato: contrato.focerTipoContrato ?? 1,
+      direccion, departamento, telefono, fechaIngreso: e.fechaIngreso,
+    };
+    reg4.push(buildFocerReg4(lineaEmp));
+    reg6.push(buildFocerReg6(lineaEmp));
 
     empleadosOut.push({
       ci: doc,
@@ -284,31 +338,24 @@ export async function generarFocer(companyId: string, year: number, month: numbe
     });
   }
 
-  // ── Registro 1 (empresa) ───────────────────────────────────────────
+  // ── Registros 1 y 2 (empresa + cabezal) ────────────────────────────
   const bps = soloDigitos(company.numeroBps ?? '').replace(/^0+(?=\d)/, '');
   const rut = soloDigitos(company.rut ?? '');
-  const reg1 =
-    '1' +
-    padR(bps, 14) +
-    padR(rut, 14) +
-    padR(company.razonSocial || '', 40) +
-    padR(company.domicilio || '', 80) +
-    padR(company.departamento || '', 20) +
-    padR(soloDigitos(company.telefono || ''), 15) +
-    padR(gestoria?.nombre || gestoria?.contacto || '', 35);
-
-  // ── Registro 2 (cabezal) ───────────────────────────────────────────
   const focerCodigo = company.focerPin || '';
   if (!focerCodigo) advertencias.push('Falta el PIN FOCER de la empresa (cargalo en la configuración de la empresa) para que el archivo coincida con FOCER.');
-  const b2 = new Array<string>(100).fill(' ');
-  b2[0] = '2';
-  place(b2, 1, padR(gestoria?.email || company.email || '', 50));
-  place(b2, 51, padR(focerCodigo, 8));
-  place(b2, 61, `${String(month).padStart(2, '0')}${year}`);
-  placeR(b2, 71, String(personas.length));
-  placeR(b2, 85, money(totGravado));
-  placeR(b2, 100, money(totFocer));
-  const reg2 = b2.join('');
+  const lineaEmpresa: FocerEmpresaLinea = {
+    bps, rut,
+    razonSocial: company.razonSocial || '',
+    domicilio: company.domicilio || '',
+    departamento: company.departamento || '',
+    telefono: soloDigitos(company.telefono || ''),
+    gestoria: gestoria?.nombre || gestoria?.contacto || '',
+    email: gestoria?.email || company.email || '',
+    focerCodigo, month, year,
+    cantidad: personas.length, totGravado, totFocer,
+  };
+  const reg1 = buildFocerReg1(lineaEmpresa);
+  const reg2 = buildFocerReg2(lineaEmpresa);
 
   const lineas = ['<FOCERINI>', reg1, reg2, ...reg4, ...reg6, '<FOCERFIN>'];
   const contenido = lineas.join('\r\n');
