@@ -50,6 +50,9 @@ const companySchema = z.object({
   exoFrl: z.number().int().min(0).max(10000).optional(),
   exoCcm: z.number().int().min(0).max(10000).optional(),
 
+  // PIN FOCER (empresas de construcción Grupo 9.1)
+  focerPin: z.string().optional(),
+
   // Configuración de licencia / calendario
   diaVencimientoBps: z.number().int().min(1).max(28).optional(),
   diasLicenciaAnio: z.number().int().min(0).max(60).optional(),

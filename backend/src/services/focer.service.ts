@@ -16,9 +16,10 @@
 // Campos DERIVADOS de los datos del sistema: BPS, RUT, razón social,
 // domicilio, departamento, teléfono, e-mail, período, cantidad, nombres,
 // CI, tipo de documento, nacimiento, sexo, jornales, y los cuatro importes.
-// Campos REPRODUCIDOS del ejemplo de GNS a la espera de validación con más
-// casos (ver `advertencias`): el "código FOCER" del registro 2 y los códigos
-// internos de los registros 4 (bloque `1 1 198 2` y el par final `2 1`).
+// El PIN FOCER del registro 2 se toma de la configuración de la empresa
+// (`company.focerPin`, lo asigna FOCER a cada empresa). Campos REPRODUCIDOS del
+// ejemplo de GNS a la espera de validación con más casos (ver `advertencias`):
+// los códigos internos de los registros 4 (bloque `1 1 198 2` y el par `2 1`).
 import { LiquidationStatus, ItemType } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { divRoundHalfUp, salarioProporcional } from '../utils/money';
@@ -277,8 +278,8 @@ export async function generarFocer(companyId: string, year: number, month: numbe
     padR(gestoria?.nombre || gestoria?.contacto || '', 35);
 
   // ── Registro 2 (cabezal) ───────────────────────────────────────────
-  const focerCodigo = gestoria?.focerCodigo || '';
-  if (!focerCodigo) advertencias.push('Falta el "código FOCER" del registro 2 (cargalo en Parámetros para que el archivo coincida con GNS).');
+  const focerCodigo = company.focerPin || '';
+  if (!focerCodigo) advertencias.push('Falta el PIN FOCER de la empresa (cargalo en la configuración de la empresa) para que el archivo coincida con FOCER.');
   const b2 = new Array<string>(100).fill(' ');
   b2[0] = '2';
   place(b2, 1, padR(gestoria?.email || company.email || '', 50));

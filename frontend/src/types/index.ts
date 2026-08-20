@@ -44,6 +44,7 @@ export interface Company {
   tipoContribuyente?: number | null;
   grupoActividadNum?: number | null;
   subgrupo?: string;
+  focerPin?: string | null;
   naturalezaJuridica?: string;
   convenioColectivo?: string;
   representanteLegal?: string;

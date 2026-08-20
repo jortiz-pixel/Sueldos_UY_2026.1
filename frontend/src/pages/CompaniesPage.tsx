@@ -24,6 +24,7 @@ interface CompanyForm {
   tipoContribuyente?: string;
   grupoActividadNum?: string;
   subgrupo?: string;
+  focerPin?: string;
   naturalezaJuridica?: string;
   convenioColectivo?: string;
   representanteLegal?: string;
@@ -104,6 +105,7 @@ export default function CompaniesPage() {
       tipoContribuyente: c.tipoContribuyente != null ? String(c.tipoContribuyente) : '',
       grupoActividadNum: c.grupoActividadNum != null ? String(c.grupoActividadNum) : '',
       subgrupo: c.subgrupo ?? '',
+      focerPin: c.focerPin ?? '',
       naturalezaJuridica: c.naturalezaJuridica ?? '',
       convenioColectivo: c.convenioColectivo ?? '',
       representanteLegal: c.representanteLegal ?? '',
@@ -432,6 +434,13 @@ export default function CompaniesPage() {
                     <label className="form-label">Subgrupo</label>
                     <input {...register('subgrupo')} className="form-input" placeholder="Número o nombre del subgrupo" />
                   </div>
+                  {Number(watch('grupoActividadNum')) === 9 && /^0*1(\D|$)/.test((watch('subgrupo') || '1').trim()) && (
+                    <div>
+                      <label className="form-label">PIN FOCER</label>
+                      <input {...register('focerPin')} className="form-input" placeholder="Código que asigna FOCER a la empresa" />
+                      <p className="text-xs text-gray-400 mt-1">Necesario para la declaración FOCER (Grupo 9.1 · construcción).</p>
+                    </div>
+                  )}
                   <div>
                     <label className="form-label">N° BPS (empresa)</label>
                     <input {...register('numeroBps')} className="form-input" />
