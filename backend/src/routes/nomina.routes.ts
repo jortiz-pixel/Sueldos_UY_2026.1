@@ -14,6 +14,7 @@ import { assertCompanyAccess } from '../middleware/tenancy';
 import { AppError, NotFoundError } from '../middleware/errorHandler';
 import { generarNominaBps, importarNominaAtyr, generarRectificativaBps, registrarDeclaracion, compararNominaSubida } from '../services/nomina.service';
 import { generarFocer } from '../services/focer.service';
+import { generarFacturaAg } from '../services/facturaAg.service';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
@@ -153,6 +154,15 @@ nominaRouter.get('/focer/archivo', authenticate, async (req: Request, res: Respo
     res.setHeader('Content-Type', 'text/plain; charset=iso-8859-1');
     res.setHeader('Content-Disposition', `attachment; filename="${focer.filename}"`);
     res.send(Buffer.from(focer.contenido, 'latin1'));
+  } catch (err) { next(err); }
+});
+
+// GET /api/nomina/factura-ag?companyId&year&month  → Factura AutoGestionada (Grupo 9.1)
+nominaRouter.get('/factura-ag', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { companyId, year, month } = parsePeriodo(req);
+    await assertCompanyAccess(req, companyId);
+    res.json(await generarFacturaAg(companyId, year, month));
   } catch (err) { next(err); }
 });
 

@@ -1,7 +1,7 @@
 import { useState, ChangeEvent } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { AlertCircle, AlertTriangle, Download, FileText, Landmark, FileDiff, ShieldCheck, Upload, Scale, HardHat, RefreshCw } from 'lucide-react';
-import { liquidationApi, nominaApi, companiesApi, ComparacionNomina, FocerPreview } from '../services/api';
+import { AlertCircle, AlertTriangle, Download, FileText, Landmark, FileDiff, ShieldCheck, Upload, Scale, HardHat, RefreshCw, Receipt } from 'lucide-react';
+import { liquidationApi, nominaApi, companiesApi, ComparacionNomina, FocerPreview, FacturaAg } from '../services/api';
 import { useCompany } from '../hooks/useCompany';
 import { MESES } from '../types';
 
@@ -19,7 +19,7 @@ function esEmpresaFocer(co?: { grupoActividadNum?: number | null; subgrupo?: str
 export default function NominaPage() {
   const { activeCompanyId: companyId } = useCompany();
   const [periodKey, setPeriodKey] = useState(''); // "year-month"
-  const [modo, setModo] = useState<'nomina' | 'rectificativa' | 'verificar' | 'focer'>('nomina');
+  const [modo, setModo] = useState<'nomina' | 'rectificativa' | 'verificar' | 'focer' | 'factura'>('nomina');
   const [descargando, setDescargando] = useState(false);
   const [verifFile, setVerifFile] = useState<File | null>(null);
 
@@ -58,6 +58,14 @@ export default function NominaPage() {
     enabled: !!companyId && !!periodKey && modo === 'focer',
     // Datos de la persona/contrato pueden haberse editado en otra pantalla:
     // siempre traer fresco al abrir FOCER (no usar la caché global de 5 min).
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
+
+  const { data: factura, isLoading: facturaLoading, error: facturaError } = useQuery({
+    queryKey: ['factura-ag', companyId, year, month],
+    queryFn: () => nominaApi.facturaAg(companyId, year, month),
+    enabled: !!companyId && !!periodKey && modo === 'factura',
     staleTime: 0,
     refetchOnMount: 'always',
   });
@@ -123,7 +131,7 @@ export default function NominaPage() {
               </option>
             ))}
           </select>
-          {modo !== 'verificar' && (
+          {modo !== 'verificar' && modo !== 'factura' && (
             <button onClick={descargar} disabled={bloqueada || descargando} className="btn-primary">
               <Download size={16} />
               {descargando ? 'Generando…' : 'Descargar archivo'}
@@ -138,7 +146,7 @@ export default function NominaPage() {
           { key: 'nomina', label: 'Nómina (N)', icon: Landmark },
           { key: 'rectificativa', label: 'Rectificativa (R)', icon: FileDiff },
           { key: 'verificar', label: 'Verificación', icon: ShieldCheck },
-          ...(companyEsFocer ? [{ key: 'focer', label: 'FOCER', icon: HardHat }] as const : []),
+          ...(companyEsFocer ? [{ key: 'focer', label: 'FOCER', icon: HardHat }, { key: 'factura', label: 'Factura AG', icon: Receipt }] as const : []),
         ] as const).map(({ key, label, icon: Icon }) => (
           <button
             key={key}
@@ -273,6 +281,17 @@ export default function NominaPage() {
           </div>
         ) : focer && (
           <FocerPanel focer={focer} onRefresh={() => refetchFocer()} refreshing={focerFetching} />
+        )
+      ) : modo === 'factura' ? (
+        facturaLoading ? (
+          <div className="card p-10 text-center text-ink-subtle">Calculando la factura…</div>
+        ) : facturaError ? (
+          <div className="card p-4 flex items-center gap-2 text-sm text-bad">
+            <AlertCircle size={16} />
+            {(facturaError as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Error al calcular la factura.'}
+          </div>
+        ) : factura && (
+          <FacturaAgPanel factura={factura} />
         )
       ) : isLoading ? (
         <div className="card p-10 text-center text-ink-subtle">Generando vista previa…</div>
@@ -613,6 +632,72 @@ function FocerPanel({ focer, onRefresh, refreshing }: { focer: FocerPreview; onR
           <pre className="mt-3 p-3 bg-navy text-white/90 rounded-lg text-[11px] leading-relaxed overflow-x-auto">{focer.lineas.join('\n')}</pre>
         </details>
       )}
+    </div>
+  );
+}
+
+// ── Panel Factura AutoGestionada (BPS, construcción 9.1) ────────────
+function FacturaAgPanel({ factura }: { factura: FacturaAg }) {
+  return (
+    <div className="space-y-4">
+      {factura.errores.length > 0 && (
+        <div className="card p-4 border-bad/30 bg-bad-bg/40 text-sm text-ink-muted">
+          <ul className="list-disc pl-4 space-y-0.5">{factura.errores.map((e, i) => <li key={i}>{e}</li>)}</ul>
+        </div>
+      )}
+      {factura.advertencias.length > 0 && (
+        <div className="card p-4 border-warn/40 bg-warn-bg/40 text-sm text-ink-muted flex items-start gap-2">
+          <AlertTriangle size={16} className="text-warn shrink-0 mt-0.5" />
+          <ul className="list-disc pl-4 space-y-0.5">{factura.advertencias.map((a, i) => <li key={i}>{a}</li>)}</ul>
+        </div>
+      )}
+
+      <div className="card p-4 text-sm space-y-1">
+        <div className="flex items-center gap-2 font-semibold text-ink mb-1">
+          <Receipt size={16} className="text-brand-600" /> Fondos de la Construcción · F.R.L. · S.N.I.S. · I.R.P.F.
+        </div>
+        <p><span className="text-ink-subtle">Contratista: </span><span className="text-ink">{factura.contratista}</span></p>
+        <p><span className="text-ink-subtle">Aportación: </span><span className="text-ink">{factura.aportacion}</span>
+           <span className="text-ink-subtle ml-4">Nº Obra: </span><span className="text-ink">{factura.nObra}</span></p>
+      </div>
+
+      <div className="card overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="table-header">
+                <th className="px-4 py-2 text-left">Concepto</th>
+                <th className="px-4 py-2 text-right">Cantidad</th>
+                <th className="px-4 py-2 text-right">Gravado</th>
+                <th className="px-4 py-2 text-right">Total</th>
+                <th className="px-4 py-2 text-left">Nota</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-hairline/60">
+              {factura.lineas.map((l) => (
+                <tr key={l.key}>
+                  <td className="px-4 py-2.5 font-medium text-ink">{l.label}</td>
+                  <td className="px-4 py-2.5 text-right figure">{l.cantidad}</td>
+                  <td className="px-4 py-2.5 text-right figure text-ink-muted">{fmt(l.gravado)}</td>
+                  <td className="px-4 py-2.5 text-right figure font-semibold text-ink">{fmt(l.total)}</td>
+                  <td className="px-4 py-2.5 text-xs text-ink-subtle">{l.nota}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-hairline">
+                <td className="px-4 py-2.5 font-semibold text-ink" colSpan={3}>Total factura</td>
+                <td className="px-4 py-2.5 text-right figure font-bold text-brand-700">{fmt(factura.totalFactura)}</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+      <p className="text-xs text-ink-subtle">
+        Los montos salen de las liquidaciones confirmadas del mes. Las líneas marcadas con ⚠️ usan tasas
+        provisionales (retro-calculadas del ejemplo de GNS): validá la factura contra BPS y avisá si alguna difiere.
+      </p>
     </div>
   );
 }

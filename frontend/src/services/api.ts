@@ -479,7 +479,22 @@ export const nominaApi = {
     api.get<FocerPreview>('/nomina/focer/preview', { params: { companyId, year, month } }).then((r) => r.data),
   focerArchivo: (companyId: string, year: number, month: number) =>
     api.get('/nomina/focer/archivo', { params: { companyId, year, month }, responseType: 'blob' }).then((r) => r.data as Blob),
+  facturaAg: (companyId: string, year: number, month: number) =>
+    api.get<FacturaAg>('/nomina/factura-ag', { params: { companyId, year, month } }).then((r) => r.data),
 };
+
+export interface FacturaAg {
+  contratista: string;
+  aportacion: string;
+  titular: string;
+  nObra: string;
+  mes: number;
+  anio: number;
+  lineas: Array<{ key: string; label: string; cantidad: number; gravado: string; total: string; nota: string }>;
+  totalFactura: string;
+  errores: string[];
+  advertencias: string[];
+}
 
 export interface FocerPreview {
   filename: string;
