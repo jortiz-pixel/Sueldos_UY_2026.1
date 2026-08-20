@@ -493,6 +493,9 @@ export interface FocerPreview {
     restoGravado: string;
     totalGravado: string;
     focer: string;
+    direccion: string;
+    departamento: string;
+    telefono: string;
   }>;
   errores: string[];
   advertencias: string[];

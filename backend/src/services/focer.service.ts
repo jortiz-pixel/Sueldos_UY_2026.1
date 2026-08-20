@@ -94,6 +94,9 @@ export interface FocerGenerado {
     restoGravado: string;
     totalGravado: string;
     focer: string;
+    direccion: string;
+    departamento: string;
+    telefono: string;
   }>;
   lineas: string[];
   errores: string[];
@@ -230,7 +233,7 @@ export async function generarFocer(companyId: string, year: number, month: numbe
     place(b4, 112, padR(nombreBps(e.nombre2), 30));
     place(b4, 142, ddmmaaaa(e.fechaNacimiento));
     b4[151] = e.sexo === 'F' ? '2' : '1';
-    // Bloque de códigos reproducido del ejemplo GNS (validar): `1 1 198 2`.
+    // Bloque de códigos FIJO en toda declaración FOCER: `1 1 198 2`.
     b4[153] = '1';
     b4[155] = '1';
     place(b4, 157, '198');
@@ -247,15 +250,20 @@ export async function generarFocer(companyId: string, year: number, month: numbe
     place(b4, 215, '0.00');
     reg4.push(b4.join(''));
 
-    // ── Registro 6 (domicilio + fecha de ingreso) ───────────────────
+    // ── Registro 6 (domicilio, departamento, teléfono, fecha de ingreso) ──
+    // Datos del trabajador; si su ficha no los tiene, caen a los de la empresa
+    // para que la declaración siempre los lleve.
+    const direccion = (e.domicilio || e.localidad || company.domicilio || '').toUpperCase();
+    const departamento = e.departamento || company.departamento || '';
+    const telefono = soloDigitos(e.telefono || company.telefono || '');
     const b6 = new Array<string>(155).fill(' ');
     b6[0] = '6';
     b6[3] = '1';
     place(b6, 4, padR(tipoDoc, 2));
     place(b6, 6, padR(doc, 14));
-    place(b6, 22, padR((e.localidad || e.domicilio || '').toUpperCase(), 80));
-    place(b6, 102, padR(e.departamento || '', 15));
-    place(b6, 117, padR(soloDigitos(e.telefono || ''), 15));
+    place(b6, 22, padR(direccion, 80));
+    place(b6, 102, padR(departamento, 15));
+    place(b6, 117, padR(telefono, 15));
     place(b6, 147, ddmmaaaa(e.fechaIngreso));
     reg6.push(b6.join(''));
 
@@ -267,6 +275,9 @@ export async function generarFocer(companyId: string, year: number, month: numbe
       restoGravado: money(restoGravado),
       totalGravado: money(materiaGravada),
       focer: money(focer),
+      direccion,
+      departamento,
+      telefono,
     });
   }
 

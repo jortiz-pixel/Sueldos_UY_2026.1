@@ -581,6 +581,9 @@ function FocerPanel({ focer }: { focer: FocerPreview }) {
                   <td className="px-4 py-2.5">
                     <p className="font-medium text-ink">{e.nombre}</p>
                     <p className="text-xs text-ink-subtle font-mono">{e.ci}</p>
+                    <p className="text-xs text-ink-subtle mt-0.5">
+                      {[e.direccion, e.departamento, e.telefono].filter(Boolean).join(' · ') || '— sin domicilio/teléfono —'}
+                    </p>
                   </td>
                   <td className="px-4 py-2.5 text-right figure">{e.jornales ?? '—'}</td>
                   <td className="px-4 py-2.5 text-right figure text-ink-muted">{fmt(e.gravadoJornales)}</td>
