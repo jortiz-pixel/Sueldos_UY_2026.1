@@ -1,6 +1,6 @@
 import { useState, ChangeEvent } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { AlertCircle, AlertTriangle, Download, FileText, Landmark, FileDiff, ShieldCheck, Upload, Scale, HardHat } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Download, FileText, Landmark, FileDiff, ShieldCheck, Upload, Scale, HardHat, RefreshCw } from 'lucide-react';
 import { liquidationApi, nominaApi, companiesApi, ComparacionNomina, FocerPreview } from '../services/api';
 import { useCompany } from '../hooks/useCompany';
 import { MESES } from '../types';
@@ -52,10 +52,14 @@ export default function NominaPage() {
     enabled: !!companyId && !!periodKey && modo === 'rectificativa',
   });
 
-  const { data: focer, isLoading: focerLoading, error: focerError } = useQuery({
+  const { data: focer, isLoading: focerLoading, error: focerError, refetch: refetchFocer, isFetching: focerFetching } = useQuery({
     queryKey: ['focer-preview', companyId, year, month],
     queryFn: () => nominaApi.focerPreview(companyId, year, month),
     enabled: !!companyId && !!periodKey && modo === 'focer',
+    // Datos de la persona/contrato pueden haberse editado en otra pantalla:
+    // siempre traer fresco al abrir FOCER (no usar la caché global de 5 min).
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 
   const verificarMutation = useMutation({
@@ -268,7 +272,7 @@ export default function NominaPage() {
             {(focerError as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Error al calcular el FOCER.'}
           </div>
         ) : focer && (
-          <FocerPanel focer={focer} />
+          <FocerPanel focer={focer} onRefresh={() => refetchFocer()} refreshing={focerFetching} />
         )
       ) : isLoading ? (
         <div className="card p-10 text-center text-ink-subtle">Generando vista previa…</div>
@@ -523,9 +527,15 @@ function Dato({ label, val, fuerte }: { label: string; val: string; fuerte?: boo
 }
 
 // ── Panel FOCER (Fondo de Cesantía y Retiro de la construcción) ─────
-function FocerPanel({ focer }: { focer: FocerPreview }) {
+function FocerPanel({ focer, onRefresh, refreshing }: { focer: FocerPreview; onRefresh: () => void; refreshing: boolean }) {
   return (
     <div className="space-y-4">
+      <div className="flex justify-end -mb-1">
+        <button onClick={onRefresh} disabled={refreshing} className="btn-secondary text-xs">
+          <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+          {refreshing ? 'Actualizando…' : 'Actualizar datos'}
+        </button>
+      </div>
       {focer.errores.length > 0 && (
         <div className="card p-4 border-bad/30 bg-bad-bg/40">
           <div className="flex items-start gap-3">
