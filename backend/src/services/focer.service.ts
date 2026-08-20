@@ -251,11 +251,14 @@ export async function generarFocer(companyId: string, year: number, month: numbe
     reg4.push(b4.join(''));
 
     // ── Registro 6 (domicilio, departamento, teléfono, fecha de ingreso) ──
-    // Datos del trabajador; si su ficha no los tiene, caen a los de la empresa
-    // para que la declaración siempre los lleve.
-    const direccion = (e.domicilio || e.localidad || company.domicilio || '').toUpperCase();
-    const departamento = e.departamento || company.departamento || '';
-    const telefono = soloDigitos(e.telefono || company.telefono || '');
+    // Datos propios del TRABAJADOR (se cargan en la ficha de la persona).
+    const direccion = (e.domicilio || e.localidad || '').toUpperCase();
+    const departamento = e.departamento || '';
+    const telefono = soloDigitos(e.telefono || '');
+    if (!direccion || !telefono || !departamento) {
+      const faltan = [!direccion && 'dirección', !departamento && 'departamento', !telefono && 'teléfono'].filter(Boolean).join(', ');
+      advertencias.push(`${quien}: falta ${faltan} en la ficha de la persona (FOCER los declara por trabajador).`);
+    }
     const b6 = new Array<string>(155).fill(' ');
     b6[0] = '6';
     b6[3] = '1';
