@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Download, CheckCircle, XCircle, RotateCcw, RefreshCw, X, Plus, Pencil, Check, HardHat } from 'lucide-react';
+import { ArrowLeft, Download, CheckCircle, XCircle, RotateCcw, RefreshCw, X, Plus, Pencil, Check, HardHat, CalendarDays } from 'lucide-react';
 import { liquidationApi, conceptsApi, companiesApi, employeesApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
@@ -344,6 +344,11 @@ export default function LiquidationDetailPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['liquidation', id] }),
   });
 
+  const fechaPagoMutation = useMutation({
+    mutationFn: (fecha: string | null) => liquidationApi.setFechaPago(id!, fecha),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['liquidation', id] }),
+  });
+
   const recalcularMutation = useMutation({
     mutationFn: () => liquidationApi.recalcular(id!),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['liquidation', id] }),
@@ -633,6 +638,26 @@ export default function LiquidationDetailPage() {
           <p className="text-xs text-gray-500">Líquido a Percibir</p>
           <p className="text-lg font-bold text-emerald-700 mt-1">{formatPesos(liq.liquidoPercibir)}</p>
         </div>
+      </div>
+
+      {/* Fecha de pago — la carga el operador; figura en el recibo PDF */}
+      <div className="card p-4 flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <CalendarDays size={16} className="text-brand-600" />
+          <span className="text-sm font-medium text-gray-700">Fecha de Pago</span>
+        </div>
+        <input
+          type="date"
+          key={liq.fechaPago ?? 'sin'}
+          defaultValue={liq.fechaPago ? liq.fechaPago.slice(0, 10) : ''}
+          disabled={!isOperator || fechaPagoMutation.isPending}
+          onChange={(e) => fechaPagoMutation.mutate(e.target.value || null)}
+          className="form-input w-auto"
+        />
+        <span className="text-xs text-gray-400">
+          Aparece en el recibo PDF.{' '}
+          {fechaPagoMutation.isPending ? 'Guardando…' : fechaPagoMutation.isSuccess ? 'Guardado ✓' : ''}
+        </span>
       </div>
 
       {/* Construcción: horas del mes y cantidades del laudo */}

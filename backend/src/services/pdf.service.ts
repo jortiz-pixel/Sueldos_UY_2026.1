@@ -18,6 +18,7 @@ interface LiquidationForPdf {
   type: string;
   status: string;
   diasTrabajados: number;
+  fechaPago?: Date | null;
   totalHaberes: bigint;
   totalDescuentos: bigint;
   totalPatronal: bigint;
@@ -272,6 +273,8 @@ export function generateReciboPDF(
       y += 12;
       label(X0 + 6, y, 'Fecha de Egreso:', fechaEgresoRec ? ddmmyy(fechaEgresoRec) : '', 66);
       if (contrato?.regimenHorario) label(MIDX + 6, y, 'Horario:', contrato.regimenHorario, 40);
+      y += 12;
+      label(X0 + 6, y, 'Fecha de Pago:', liquidation.fechaPago ? ddmmyy(liquidation.fechaPago) : '', 66);
       y += 12;
       doc.rect(X0, eTop - 3, Wt, y - eTop + 1).stroke();
 

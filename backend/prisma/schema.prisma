@@ -681,6 +681,8 @@ model Liquidation {
 
   parametersSnapshot Json?
 
+  // Fecha de pago del recibo (la carga el operador; figura en el recibo PDF).
+  fechaPago       DateTime?
   confirmedAt     DateTime?
   confirmedBy     String?
   notes           String?

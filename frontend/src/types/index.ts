@@ -200,6 +200,7 @@ export interface Liquidation {
   year: number;
   month: number;
   diasTrabajados: number;
+  fechaPago?: string | null;
   totalHaberes: string;
   totalDescuentos: string;
   totalPatronal: string;

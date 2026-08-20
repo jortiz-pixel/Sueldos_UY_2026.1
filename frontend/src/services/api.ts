@@ -575,6 +575,8 @@ export const liquidationApi = {
   unconfirm: (id: string) => api.post(`/liquidation/${id}/unconfirm`).then((r) => r.data),
   recalcular: (id: string) => api.post(`/liquidation/${id}/recalcular`).then((r) => r.data),
   cancel: (id: string) => api.post(`/liquidation/${id}/cancel`).then((r) => r.data),
+  setFechaPago: (id: string, fechaPago: string | null) =>
+    api.patch(`/liquidation/${id}/fecha-pago`, { fechaPago: fechaPago ?? '' }).then((r) => r.data),
   addAdjustment: (id: string, data: object) =>
     api.post(`/liquidation/${id}/adjustment`, data).then((r) => r.data),
   addItem: (id: string, data: { descripcion: string; monto?: number; cantidad?: number; porcentaje?: number; itemType: 'HABER' | 'DESCUENTO_OBRERO' }) =>

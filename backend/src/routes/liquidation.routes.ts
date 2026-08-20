@@ -481,6 +481,23 @@ liquidationRouter.post('/:id/unconfirm', authenticate, requireRole(UserRole.ADMI
   } catch (err) { next(err); }
 });
 
+// PATCH /api/liquidation/:id/fecha-pago — carga/edita la fecha de pago del recibo.
+liquidationRouter.patch('/:id/fecha-pago', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const liquidation = await prisma.liquidation.findUnique({ where: { id: req.params.id } });
+    if (!liquidation) throw new NotFoundError('Liquidación');
+    await assertLiquidationAccess(req, req.params.id);
+    const { fechaPago } = z.object({
+      fechaPago: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().or(z.literal('')),
+    }).parse(req.body);
+    await prisma.liquidation.update({
+      where: { id: req.params.id },
+      data: { fechaPago: fechaPago ? new Date(`${fechaPago}T00:00:00`) : null },
+    });
+    res.json({ message: 'Fecha de pago actualizada' });
+  } catch (err) { next(err); }
+});
+
 // DELETE /api/liquidation/:id — elimina una liquidación (y sus ítems/ajustes).
 // Solo en BORRADOR: si está confirmada hay que desconfirmarla primero (así la
 // nómina ya declarada no queda inconsistente).
