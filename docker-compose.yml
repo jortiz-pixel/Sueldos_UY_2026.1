@@ -35,7 +35,7 @@ services:
       # Orígenes del navegador permitidos (CORS). El dominio de producción debe
       # estar acá o el login se bloquea con "Not allowed by CORS". Se puede
       # sobreescribir definiendo ALLOWED_ORIGINS en el archivo .env.
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://sueldos.gro.com.uy,http://localhost:5173}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://sueldos.gro.com.uy,https://agenda.gro.com.uy,http://localhost:5173}
       # Login con Google. El Client ID es público (solo verifica el ID token).
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-452392392541-o8r6toecbd4s09iccfaiaehtfvt9oq6l.apps.googleusercontent.com}
       # Dominios con alta automática por Google (coma-separados). Vacío = solo
@@ -76,6 +76,13 @@ services:
       - "traefik.http.routers.sueldos.entrypoints=websecure"
       - "traefik.http.routers.sueldos.tls.certresolver=letsencrypt"
       - "traefik.http.services.sueldos.loadbalancer.server.port=80"
+      # Segunda dirección: agenda.gro.com.uy → MISMO contenedor/servicio. El
+      # frontend detecta el host y abre directo en la Agenda del estudio.
+      # (Requiere el registro DNS de agenda.gro.com.uy apuntando al servidor.)
+      - "traefik.http.routers.agenda.rule=Host(`agenda.gro.com.uy`)"
+      - "traefik.http.routers.agenda.entrypoints=websecure"
+      - "traefik.http.routers.agenda.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.agenda.service=sueldos"
 
 volumes:
   postgres_data:

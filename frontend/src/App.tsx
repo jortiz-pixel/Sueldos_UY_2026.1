@@ -4,6 +4,7 @@ import { CompanyProvider } from './hooks/useCompany';
 import Layout from './components/layout/Layout';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
+import { isAgendaHost } from './utils/host';
 import CompaniesPage from './pages/CompaniesPage';
 import ConceptsPage from './pages/ConceptsPage';
 import ContractsPage from './pages/ContractsPage';
@@ -71,7 +72,7 @@ function AppRoutes() {
       <Route path="/portal-empresa" element={<Navigate to="/portal/empresa" replace />} />
 
       <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
-        <Route index element={<DashboardPage />} />
+        <Route index element={isAgendaHost ? <Navigate to="/tareas" replace /> : <DashboardPage />} />
         <Route path="companies" element={<CompaniesPage />} />
         <Route path="concepts" element={<ConceptsPage />} />
         <Route path="contracts" element={<ContractsPage />} />

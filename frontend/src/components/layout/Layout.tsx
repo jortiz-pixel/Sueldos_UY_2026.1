@@ -9,6 +9,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useCompany } from '../../hooks/useCompany';
 import { versionApi } from '../../services/api';
 import AsysTaxLogo from '../AsysTaxLogo';
+import { isAgendaHost } from '../../utils/host';
 
 const navItems = [
   { to: '/', label: 'Panel', icon: LayoutDashboard, end: true },
@@ -57,7 +58,10 @@ export default function Layout() {
         </div>
 
         <nav className="flex-1 px-3 py-2 space-y-0.5 overflow-y-auto">
-          {navItems.filter((it) => (!it.adminOnly || user?.role === 'ADMIN') && (!it.staffOnly || user?.role === 'ADMIN' || user?.role === 'OPERATOR')).map(({ to, label, icon: Icon, end }) => (
+          {navItems.filter((it) => isAgendaHost
+            ? it.to === '/tareas'
+            : (!it.adminOnly || user?.role === 'ADMIN') && (!it.staffOnly || user?.role === 'ADMIN' || user?.role === 'OPERATOR')
+          ).map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
               to={to}
@@ -109,7 +113,9 @@ export default function Layout() {
               <Menu size={22} />
             </button>
             <Building2 size={16} className="text-brand-600 hidden sm:block shrink-0" />
-            {companies.length > 0 ? (
+            {isAgendaHost ? (
+              <span className="text-ink font-semibold text-sm truncate">Agenda del estudio</span>
+            ) : companies.length > 0 ? (
               <select
                 value={activeCompanyId}
                 onChange={(e) => setActiveCompanyId(e.target.value)}
