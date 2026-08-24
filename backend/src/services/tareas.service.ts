@@ -96,8 +96,9 @@ export async function resumenAgenda(diasProximos = 15) {
   const hoyUtc = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth(), hoy.getUTCDate()));
   const limite = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth(), hoy.getUTCDate() + diasProximos));
 
+  // Alerta = todo lo que NO esté PROCESADO (COMPLETADA) para su fecha límite.
   const pendientes = await prisma.tareaVencimiento.findMany({
-    where: { estado: 'PENDIENTE', fecha: { lte: limite } },
+    where: { estado: { not: 'COMPLETADA' }, fecha: { lte: limite } },
     include: { tarea: { include: { company: { select: { razonSocial: true, nombreFantasia: true } } } } },
     orderBy: { fecha: 'asc' },
   });

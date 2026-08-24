@@ -9,7 +9,7 @@ const CATEGORIAS = ['BPS', 'DGI', 'Sueldos', 'Balances', 'Interno', 'Otros'];
 
 const ESTADO_INFO: Record<string, { label: string; badge: string; dot: string }> = {
   PENDIENTE: { label: 'Pendiente', badge: 'badge-yellow', dot: 'bg-warn' },
-  COMPLETADA: { label: 'Realizada', badge: 'badge-green', dot: 'bg-ok' },
+  COMPLETADA: { label: 'Procesada', badge: 'badge-green', dot: 'bg-ok' },
   NO_COMPLETADA: { label: 'No realizada', badge: 'badge-red', dot: 'bg-bad' },
   CON_FALTAS: { label: 'Con faltantes', badge: 'badge-yellow', dot: 'bg-orange-500' },
 };
@@ -20,8 +20,9 @@ function ymd(d: Date): string {
 function nombreCliente(t: Tarea): string {
   return t.company ? (t.company.nombreFantasia || t.company.razonSocial) : 'Estudio (interna)';
 }
+// Vencida = pasó la fecha límite y todavía NO está procesada (Realizada).
 function esVencido(v: Vencimiento): boolean {
-  return v.estado === 'PENDIENTE' && new Date(v.fecha) < new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z');
+  return v.estado !== 'COMPLETADA' && new Date(v.fecha) < new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z');
 }
 
 export default function TareasPage() {
@@ -171,8 +172,9 @@ function Agenda() {
           <div className="divide-y divide-hairline/60">
             {vencimientos.map((v) => (
               <div key={v.id} className={`px-4 py-3 flex items-center gap-3 flex-wrap ${esVencido(v) ? 'bg-bad-bg/20' : ''}`}>
-                <div className="w-16 text-center shrink-0">
-                  <div className="text-lg font-bold text-ink figure">{new Date(v.fecha).getUTCDate()}</div>
+                <div className={`w-16 text-center shrink-0 rounded-lg py-1 ${esVencido(v) ? 'bg-bad-bg' : ''}`}>
+                  <div className="text-[9px] text-ink-subtle uppercase leading-none">vence</div>
+                  <div className={`text-lg font-bold figure leading-tight ${esVencido(v) ? 'text-bad' : 'text-ink'}`}>{new Date(v.fecha).getUTCDate()}</div>
                   <div className="text-[10px] text-ink-subtle uppercase">{MESES[new Date(v.fecha).getUTCMonth() + 1]?.slice(0, 3)}</div>
                 </div>
                 <div className="flex-1 min-w-[180px]">
@@ -186,7 +188,12 @@ function Agenda() {
                     {v.tarea.responsable && ` · ${v.tarea.responsable.nombre} ${v.tarea.responsable.apellido}`}
                   </p>
                 </div>
-                {esVencido(v) && <span className="badge badge-red shrink-0">Vencida</span>}
+                {esVencido(v) && <span className="badge badge-red shrink-0 flex items-center gap-1"><AlertTriangle size={12} /> Sin procesar</span>}
+                {v.estado !== 'COMPLETADA' && (
+                  <button onClick={() => estadoMut.mutate({ id: v.id, estado: 'COMPLETADA' })} className="btn-primary btn-sm shrink-0" title="Marcar como procesada">
+                    ✓ Procesada
+                  </button>
+                )}
                 <span className={`w-2 h-2 rounded-full shrink-0 ${ESTADO_INFO[v.estado].dot}`} title={ESTADO_INFO[v.estado].label} />
                 <select
                   value={v.estado}
@@ -195,7 +202,7 @@ function Agenda() {
                   title="Cambiar estado"
                 >
                   <option value="PENDIENTE">Pendiente</option>
-                  <option value="COMPLETADA">Realizada</option>
+                  <option value="COMPLETADA">Procesada</option>
                   <option value="CON_FALTAS">Con faltantes</option>
                   <option value="NO_COMPLETADA">No realizada</option>
                 </select>
