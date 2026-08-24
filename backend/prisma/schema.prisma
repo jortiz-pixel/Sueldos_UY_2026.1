@@ -215,6 +215,7 @@ model Company {
   memberships      Membership[]
   entitlements     Entitlement[]
   attachments      Attachment[]
+  tareas           Tarea[]
 
   @@map("companies")
 }
@@ -273,6 +274,7 @@ model User {
   auditLogs    AuditLog[]
   memberships        Membership[] @relation("UserMemberships")
   invitedMemberships Membership[] @relation("MembershipInvitedBy")
+  tareasResponsable  Tarea[]      @relation("TareaResponsable")
 
   @@map("users")
 }
@@ -832,4 +834,55 @@ model CompanyPortalCredential {
   updatedAt      DateTime  @updatedAt
 
   @@map("company_portal_credentials")
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// AGENDA DEL ESTUDIO — tareas y vencimientos (uso interno de GRO)
+// ═══════════════════════════════════════════════════════════════════
+// Herramienta interna del estudio para llevar las tareas de sus clientes.
+// Una Tarea es la definición (puntual o recurrente); cada vencimiento concreto
+// es un TareaVencimiento con su estado. Las recurrentes generan sus vencimientos
+// automáticamente. companyId nulo = tarea INTERNA del estudio.
+model Tarea {
+  id            String   @id @default(cuid())
+  titulo        String
+  descripcion   String?
+  categoria     String?              // BPS, DGI, Sueldos, Balances, Interno…
+  companyId     String?              // null = tarea del estudio (interna)
+  responsableId String?
+  tipo          String   @default("RECURRENTE") // PUNTUAL | RECURRENTE
+  recurrencia   String?              // MENSUAL|BIMESTRAL|TRIMESTRAL|SEMESTRAL|ANUAL
+  diaVencimiento Int?                // día del mes (1-31) para recurrentes
+  mesAncla      Int?                 // mes de anclaje del ciclo (1-12); default: creación
+  fechaVencimiento DateTime?         // para PUNTUAL
+  activa        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  company       Company? @relation(fields: [companyId], references: [id])
+  responsable   User?    @relation("TareaResponsable", fields: [responsableId], references: [id])
+  vencimientos  TareaVencimiento[]
+
+  @@index([companyId])
+  @@index([activa])
+  @@map("tareas")
+}
+
+model TareaVencimiento {
+  id            String    @id @default(cuid())
+  tareaId       String
+  fecha         DateTime                        // fecha de vencimiento
+  estado        String    @default("PENDIENTE") // PENDIENTE|COMPLETADA|NO_COMPLETADA|CON_FALTAS
+  completadoPor String?
+  completadoAt  DateTime?
+  nota          String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  tarea         Tarea     @relation(fields: [tareaId], references: [id], onDelete: Cascade)
+
+  @@unique([tareaId, fecha])
+  @@index([fecha])
+  @@index([estado])
+  @@map("tarea_vencimientos")
 }

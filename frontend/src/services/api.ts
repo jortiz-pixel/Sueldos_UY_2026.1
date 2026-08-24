@@ -517,6 +517,57 @@ export interface FocerPreview {
   lineas: string[];
 }
 
+// ── Agenda del estudio (tareas y vencimientos) ─────────────────────
+export type EstadoVenc = 'PENDIENTE' | 'COMPLETADA' | 'NO_COMPLETADA' | 'CON_FALTAS';
+
+export interface Tarea {
+  id: string;
+  titulo: string;
+  descripcion?: string | null;
+  categoria?: string | null;
+  companyId?: string | null;
+  responsableId?: string | null;
+  tipo: 'PUNTUAL' | 'RECURRENTE';
+  recurrencia?: string | null;
+  diaVencimiento?: number | null;
+  mesAncla?: number | null;
+  fechaVencimiento?: string | null;
+  activa: boolean;
+  company?: { id: string; razonSocial: string; nombreFantasia: string | null } | null;
+  responsable?: { id: string; nombre: string; apellido: string } | null;
+}
+
+export interface Vencimiento {
+  id: string;
+  tareaId: string;
+  fecha: string;
+  estado: EstadoVenc;
+  nota?: string | null;
+  completadoAt?: string | null;
+  tarea: Tarea;
+}
+
+export interface AgendaResumen {
+  vencidos: Vencimiento[];
+  proximos: Vencimiento[];
+  totalVencidos: number;
+  totalProximos: number;
+}
+
+export const tareasApi = {
+  usuarios: () => api.get<Array<{ id: string; nombre: string; apellido: string; role: string }>>('/tareas/usuarios').then((r) => r.data),
+  list: (params?: { companyId?: string; responsableId?: string; categoria?: string; activa?: boolean }) =>
+    api.get<Tarea[]>('/tareas', { params }).then((r) => r.data),
+  create: (data: Partial<Tarea> & { companyIds?: string[] }) => api.post('/tareas', data).then((r) => r.data),
+  update: (id: string, data: Partial<Tarea>) => api.put<Tarea>(`/tareas/${id}`, data).then((r) => r.data),
+  remove: (id: string) => api.delete(`/tareas/${id}`).then((r) => r.data),
+  vencimientos: (from: string, to: string, filtros?: { companyId?: string; responsableId?: string; categoria?: string; estado?: string }) =>
+    api.get<Vencimiento[]>('/tareas/agenda/vencimientos', { params: { from, to, ...filtros } }).then((r) => r.data),
+  setEstado: (id: string, estado: EstadoVenc, nota?: string | null) =>
+    api.patch<Vencimiento>(`/tareas/agenda/vencimientos/${id}`, { estado, nota }).then((r) => r.data),
+  resumen: () => api.get<AgendaResumen>('/tareas/agenda/resumen').then((r) => r.data),
+};
+
 export const conceptsApi = {
   list: (companyId: string) => api.get<Concepto[]>('/concepts', { params: { companyId } }).then((r) => r.data),
   create: (data: object) => api.post<Concepto>('/concepts', data).then((r) => r.data),

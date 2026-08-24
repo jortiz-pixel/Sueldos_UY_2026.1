@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, FileText, BarChart2,
-  Settings, LogOut, Building2, Calculator, Briefcase, UserCog, Upload, Menu, X, Landmark, CalendarDays, ListChecks, ShieldCheck,
+  Settings, LogOut, Building2, Calculator, Briefcase, UserCog, Upload, Menu, X, Landmark, CalendarDays, ListChecks, ShieldCheck, ClipboardList,
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useCompany } from '../../hooks/useCompany';
@@ -21,6 +21,7 @@ const navItems = [
   { to: '/liquidation', label: 'Liquidaciones', icon: FileText },
   { to: '/nomina', label: 'Nómina BPS', icon: Landmark },
   { to: '/calendario', label: 'Calendario', icon: CalendarDays },
+  { to: '/tareas', label: 'Agenda estudio', icon: ClipboardList, staffOnly: true },
   { to: '/reports', label: 'Reportes', icon: BarChart2 },
   { to: '/access', label: 'Accesos', icon: UserCog },
   { to: '/audit', label: 'Auditoría', icon: ShieldCheck, adminOnly: true },
@@ -56,7 +57,7 @@ export default function Layout() {
         </div>
 
         <nav className="flex-1 px-3 py-2 space-y-0.5 overflow-y-auto">
-          {navItems.filter((it) => !it.adminOnly || user?.role === 'ADMIN').map(({ to, label, icon: Icon, end }) => (
+          {navItems.filter((it) => (!it.adminOnly || user?.role === 'ADMIN') && (!it.staffOnly || user?.role === 'ADMIN' || user?.role === 'OPERATOR')).map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
               to={to}
