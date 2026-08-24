@@ -303,16 +303,30 @@ function Tareas() {
     qc.invalidateQueries({ queryKey: ['agenda-venc'] });
     qc.invalidateQueries({ queryKey: ['agenda-resumen'] });
   };
-  // Alta de cliente exclusivo de Tareas (no aparece en Sueldos).
+  // Alta/edición de cliente exclusivo de Tareas (no aparece en Sueldos).
   const [cliModal, setCliModal] = useState(false);
+  const [cliEditId, setCliEditId] = useState<string | null>(null);
   const [cliNombre, setCliNombre] = useState('');
   const [cliRut, setCliRut] = useState('');
   const [cliError, setCliError] = useState('');
-  const crearClienteMut = useMutation({
-    mutationFn: () => tareasApi.crearCliente(cliNombre.trim(), cliRut.trim() || undefined),
-    onSuccess: (c) => { qc.invalidateQueries({ queryKey: ['tareas-clientes'] }); setCliModal(false); setCliNombre(''); setCliRut(''); setClienteSel(c.id); },
-    onError: (e: unknown) => setCliError((e as { response?: { data?: { error?: string } } })?.response?.data?.error || 'No se pudo crear la empresa.'),
+  const guardarClienteMut = useMutation({
+    mutationFn: () => cliEditId
+      ? tareasApi.editarCliente(cliEditId, cliNombre.trim(), cliRut.trim() || undefined)
+      : tareasApi.crearCliente(cliNombre.trim(), cliRut.trim() || undefined),
+    onSuccess: (c) => { qc.invalidateQueries({ queryKey: ['tareas-clientes'] }); setCliModal(false); setClienteSel(c.id); },
+    onError: (e: unknown) => setCliError((e as { response?: { data?: { error?: string } } })?.response?.data?.error || 'No se pudo guardar la empresa.'),
   });
+  const eliminarClienteMut = useMutation({
+    mutationFn: (id: string) => tareasApi.eliminarCliente(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['tareas-clientes'] }); qc.invalidateQueries({ queryKey: ['tareas'] }); setClienteSel(null); },
+    onError: (e: unknown) => alert((e as { response?: { data?: { error?: string } } })?.response?.data?.error || 'No se pudo eliminar la empresa.'),
+  });
+  const abrirNuevoCliente = () => { setCliEditId(null); setCliError(''); setCliNombre(''); setCliRut(''); setCliModal(true); };
+  const abrirEditCliente = () => {
+    const c = clientes.find((x) => x.id === clienteSel);
+    if (!c) return;
+    setCliEditId(c.id); setCliError(''); setCliNombre(c.razonSocial); setCliRut(''); setCliModal(true);
+  };
   const estadoMut = useMutation({
     mutationFn: ({ id, estado }: { id: string; estado: EstadoVenc }) => tareasApi.setEstado(id, estado),
     onSuccess: invalidar,
@@ -383,7 +397,7 @@ function Tareas() {
             <span className="font-semibold text-ink w-36 text-center text-sm">{MESES[cursor.m]} {cursor.y}</span>
             <button onClick={() => moverMes(1)} className="p-1.5 rounded hover:bg-white" title="Mes siguiente"><ChevronRight size={16} /></button>
           </div>
-          {!clienteSel && <button onClick={() => { setCliError(''); setCliNombre(''); setCliRut(''); setCliModal(true); }} className="btn-secondary btn-sm"><Building2 size={15} /> Agregar empresa</button>}
+          {!clienteSel && <button onClick={abrirNuevoCliente} className="btn-secondary btn-sm"><Building2 size={15} /> Agregar empresa</button>}
           <button onClick={abrirNueva} className="btn-primary btn-sm"><Plus size={15} /> Nueva tarea</button>
         </div>
       </div>
@@ -417,7 +431,18 @@ function Tareas() {
       ) : (
       /* ── Nivel 2: tareas del cliente seleccionado ───────────── */
       <>
-      <h2 className="text-lg font-semibold text-ink">{clienteNombre}</h2>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <h2 className="text-lg font-semibold text-ink">{clienteNombre}</h2>
+        {clientes.find((c) => c.id === clienteSel)?.soloTareas && (
+          <div className="flex items-center gap-2">
+            <button onClick={abrirEditCliente} className="btn-secondary btn-sm"><Pencil size={13} /> Editar empresa</button>
+            <button
+              onClick={() => { if (confirm(`¿Eliminar la empresa "${clienteNombre}" y TODAS sus tareas? Esta acción no se puede deshacer.`)) eliminarClienteMut.mutate(clienteSel!); }}
+              className="btn-secondary btn-sm text-bad"
+            ><Trash2 size={13} /> Eliminar empresa</button>
+          </div>
+        )}
+      </div>
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -595,7 +620,7 @@ function Tareas() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setCliModal(false)}>
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
             <div className="px-5 py-4 border-b border-hairline flex items-center justify-between">
-              <h2 className="font-semibold text-ink">Agregar empresa (solo Tareas)</h2>
+              <h2 className="font-semibold text-ink">{cliEditId ? 'Editar empresa' : 'Agregar empresa'} (solo Tareas)</h2>
               <button onClick={() => setCliModal(false)} className="text-ink-subtle hover:text-ink"><X size={18} /></button>
             </div>
             <div className="p-5 space-y-3">
@@ -612,8 +637,8 @@ function Tareas() {
             </div>
             <div className="px-5 py-4 border-t border-hairline flex justify-end gap-2">
               <button onClick={() => setCliModal(false)} className="btn-secondary btn-sm">Cancelar</button>
-              <button onClick={() => { setCliError(''); if (!cliNombre.trim()) { setCliError('El nombre es obligatorio.'); return; } crearClienteMut.mutate(); }} disabled={crearClienteMut.isPending} className="btn-primary btn-sm">
-                {crearClienteMut.isPending ? 'Creando…' : 'Crear empresa'}
+              <button onClick={() => { setCliError(''); if (!cliNombre.trim()) { setCliError('El nombre es obligatorio.'); return; } guardarClienteMut.mutate(); }} disabled={guardarClienteMut.isPending} className="btn-primary btn-sm">
+                {guardarClienteMut.isPending ? 'Guardando…' : cliEditId ? 'Guardar' : 'Crear empresa'}
               </button>
             </div>
           </div>

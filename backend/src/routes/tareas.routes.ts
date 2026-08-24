@@ -65,6 +65,42 @@ tareasRouter.post('/clientes', async (req: Request, res: Response, next: NextFun
   } catch (err) { next(err); }
 });
 
+// PUT /api/tareas/clientes/:id — edita una empresa SOLO de Tareas (no las de Sueldos).
+tareasRouter.put('/clientes/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { nombre, rut } = z.object({ nombre: z.string().min(1), rut: z.string().optional().nullable() }).parse(req.body);
+    const empresa = await prisma.company.findUnique({ where: { id: req.params.id } });
+    if (!empresa) throw new NotFoundError('Empresa');
+    if (!empresa.soloTareas) throw new AppError(409, 'Esta empresa se gestiona desde Sueldos (Empresas), no desde Tareas.');
+    const nuevoRut = rut && rut.trim() ? rut.trim() : empresa.rut;
+    if (nuevoRut !== empresa.rut) {
+      const dup = await prisma.company.findUnique({ where: { rut: nuevoRut } });
+      if (dup) throw new AppError(409, 'Ya existe una empresa con ese RUT.');
+    }
+    const cliente = await prisma.company.update({
+      where: { id: req.params.id },
+      data: { razonSocial: nombre.trim(), rut: nuevoRut },
+      select: { id: true, razonSocial: true, nombreFantasia: true, soloTareas: true },
+    });
+    res.json(cliente);
+  } catch (err) { next(err); }
+});
+
+// DELETE /api/tareas/clientes/:id — elimina una empresa SOLO de Tareas y sus tareas.
+tareasRouter.delete('/clientes/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const empresa = await prisma.company.findUnique({ where: { id: req.params.id } });
+    if (!empresa) throw new NotFoundError('Empresa');
+    if (!empresa.soloTareas) throw new AppError(409, 'Esta empresa se gestiona desde Sueldos (Empresas), no desde Tareas.');
+    // Borra las tareas de la empresa (sus vencimientos van en cascada) y la empresa.
+    await prisma.$transaction([
+      prisma.tarea.deleteMany({ where: { companyId: req.params.id } }),
+      prisma.company.delete({ where: { id: req.params.id } }),
+    ]);
+    res.json({ message: 'Empresa eliminada' });
+  } catch (err) { next(err); }
+});
+
 // GET /api/tareas/usuarios — staff del estudio (para asignar responsables).
 tareasRouter.get('/usuarios', async (_req: Request, res: Response, next: NextFunction) => {
   try {
