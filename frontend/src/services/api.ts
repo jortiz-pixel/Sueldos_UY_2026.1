@@ -556,8 +556,12 @@ export interface AgendaResumen {
   totalProximos: number;
 }
 
+export interface ClienteTareas { id: string; razonSocial: string; nombreFantasia: string | null; soloTareas: boolean }
+
 export const tareasApi = {
   usuarios: () => api.get<Array<{ id: string; nombre: string; apellido: string; role: string }>>('/tareas/usuarios').then((r) => r.data),
+  clientes: () => api.get<ClienteTareas[]>('/tareas/clientes').then((r) => r.data),
+  crearCliente: (nombre: string, rut?: string) => api.post<ClienteTareas>('/tareas/clientes', { nombre, rut }).then((r) => r.data),
   list: (params?: { companyId?: string; responsableId?: string; categoria?: string; activa?: boolean; year?: number; month?: number }) =>
     api.get<Tarea[]>('/tareas', { params }).then((r) => r.data),
   create: (data: Partial<Tarea> & { companyIds?: string[] }) => api.post('/tareas', data).then((r) => r.data),

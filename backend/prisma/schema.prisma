@@ -202,6 +202,9 @@ model Company {
 
   active           Boolean  @default(true)
   hidden           Boolean  @default(false)
+  // Cliente creado desde la Agenda del estudio (Tareas): el estudio le hace
+  // trabajos que NO son de sueldos. No aparece en el sistema de Sueldos.
+  soloTareas       Boolean  @default(false)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 

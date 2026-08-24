@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { CalendarDays, ListChecks, Plus, Pencil, Trash2, ChevronLeft, ChevronRight, AlertTriangle, X } from 'lucide-react';
-import { tareasApi, companiesApi, Tarea, Vencimiento, EstadoVenc } from '../services/api';
+import { CalendarDays, ListChecks, Plus, Pencil, Trash2, ChevronLeft, ChevronRight, AlertTriangle, X, Building2 } from 'lucide-react';
+import { tareasApi, Tarea, Vencimiento, EstadoVenc } from '../services/api';
 import { MESES } from '../types';
 
 const RECURRENCIAS = ['MENSUAL', 'BIMESTRAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL'];
@@ -60,7 +60,7 @@ function Agenda() {
   const from = ymd(new Date(Date.UTC(cursor.y, cursor.m - 1, 1)));
   const to = ymd(new Date(Date.UTC(cursor.y, cursor.m, 0)));
 
-  const { data: companies } = useQuery({ queryKey: ['companies'], queryFn: () => companiesApi.list() });
+  const { data: companies = [] } = useQuery({ queryKey: ['tareas-clientes'], queryFn: () => tareasApi.clientes() });
   const { data: resumen } = useQuery({ queryKey: ['agenda-resumen'], queryFn: () => tareasApi.resumen(), staleTime: 0 });
   const { data: vencimientos = [], isLoading } = useQuery({
     queryKey: ['agenda-venc', from, to, fCliente, fCategoria, fEstado],
@@ -270,33 +270,49 @@ function Tareas() {
     queryKey: ['tareas', cursor.y, cursor.m],
     queryFn: () => tareasApi.list({ year: cursor.y, month: cursor.m }),
   });
-  const { data: companies } = useQuery({ queryKey: ['companies'], queryFn: () => companiesApi.list() });
+  const { data: clientes = [] } = useQuery({ queryKey: ['tareas-clientes'], queryFn: () => tareasApi.clientes() });
   const { data: usuarios } = useQuery({ queryKey: ['tareas-usuarios'], queryFn: () => tareasApi.usuarios() });
 
   const hoyIso = new Date().toISOString().slice(0, 10) + 'T00:00:00Z';
   const sinProcesar = (t: Tarea) => !!t.vencimientoActual && t.vencimientoActual.estado !== 'COMPLETADA';
   const vencidaTarea = (t: Tarea) => sinProcesar(t) && new Date(t.vencimientoActual!.fecha) < new Date(hoyIso);
-  // Agrupar las tareas por cliente (companyId), con "Estudio (interna)" aparte.
+  // Cliente → tareas: se listan TODOS los clientes (empresas de Sueldos + las de
+  // Tareas) más "Estudio (interna)", con las cuentas del mes elegido.
   const grupos = useMemo(() => {
-    const map = new Map<string, { key: string; nombre: string; total: number; pendientes: number; vencidas: number }>();
+    const cnt = new Map<string, { total: number; pendientes: number; vencidas: number }>();
     for (const t of tareas) {
       const k = t.companyId ?? 'estudio';
-      const nombre = t.company ? (t.company.nombreFantasia || t.company.razonSocial) : 'Estudio (interna)';
-      const g = map.get(k) ?? map.set(k, { key: k, nombre, total: 0, pendientes: 0, vencidas: 0 }).get(k)!;
+      const g = cnt.get(k) ?? cnt.set(k, { total: 0, pendientes: 0, vencidas: 0 }).get(k)!;
       g.total++;
       if (sinProcesar(t)) g.pendientes++;
       if (vencidaTarea(t)) g.vencidas++;
     }
-    return [...map.values()].sort((a, b) => b.vencidas - a.vencidas || a.nombre.localeCompare(b.nombre, 'es'));
-  }, [tareas]);
+    const cero = { total: 0, pendientes: 0, vencidas: 0 };
+    const list = [
+      { key: 'estudio', nombre: 'Estudio (interna)', soloTareas: false, interna: true, ...(cnt.get('estudio') ?? cero) },
+      ...clientes.map((c) => ({ key: c.id, nombre: c.nombreFantasia || c.razonSocial, soloTareas: c.soloTareas, interna: false, ...(cnt.get(c.id) ?? cero) })),
+    ];
+    return list.sort((a, b) => b.vencidas - a.vencidas || b.total - a.total || a.nombre.localeCompare(b.nombre, 'es'));
+  }, [tareas, clientes]);
   const tareasCliente = tareas.filter((t) => (t.companyId ?? 'estudio') === clienteSel);
   const clienteNombre = grupos.find((g) => g.key === clienteSel)?.nombre ?? (clienteSel === 'estudio' ? 'Estudio (interna)' : '');
 
   const invalidar = () => {
     qc.invalidateQueries({ queryKey: ['tareas'] });
+    qc.invalidateQueries({ queryKey: ['tareas-clientes'] });
     qc.invalidateQueries({ queryKey: ['agenda-venc'] });
     qc.invalidateQueries({ queryKey: ['agenda-resumen'] });
   };
+  // Alta de cliente exclusivo de Tareas (no aparece en Sueldos).
+  const [cliModal, setCliModal] = useState(false);
+  const [cliNombre, setCliNombre] = useState('');
+  const [cliRut, setCliRut] = useState('');
+  const [cliError, setCliError] = useState('');
+  const crearClienteMut = useMutation({
+    mutationFn: () => tareasApi.crearCliente(cliNombre.trim(), cliRut.trim() || undefined),
+    onSuccess: (c) => { qc.invalidateQueries({ queryKey: ['tareas-clientes'] }); setCliModal(false); setCliNombre(''); setCliRut(''); setClienteSel(c.id); },
+    onError: (e: unknown) => setCliError((e as { response?: { data?: { error?: string } } })?.response?.data?.error || 'No se pudo crear la empresa.'),
+  });
   const estadoMut = useMutation({
     mutationFn: ({ id, estado }: { id: string; estado: EstadoVenc }) => tareasApi.setEstado(id, estado),
     onSuccess: invalidar,
@@ -367,6 +383,7 @@ function Tareas() {
             <span className="font-semibold text-ink w-36 text-center text-sm">{MESES[cursor.m]} {cursor.y}</span>
             <button onClick={() => moverMes(1)} className="p-1.5 rounded hover:bg-white" title="Mes siguiente"><ChevronRight size={16} /></button>
           </div>
+          {!clienteSel && <button onClick={() => { setCliError(''); setCliNombre(''); setCliRut(''); setCliModal(true); }} className="btn-secondary btn-sm"><Building2 size={15} /> Agregar empresa</button>}
           <button onClick={abrirNueva} className="btn-primary btn-sm"><Plus size={15} /> Nueva tarea</button>
         </div>
       </div>
@@ -381,14 +398,17 @@ function Tareas() {
               <button key={g.key} onClick={() => setClienteSel(g.key)}
                 className="card p-4 text-left hover:ring-2 hover:ring-brand-300 transition-all">
                 <div className="flex items-start justify-between gap-2">
-                  <p className="font-semibold text-ink">{g.nombre}</p>
+                  <p className="font-semibold text-ink">
+                    {g.nombre}
+                    {g.soloTareas && <span className="ml-2 badge badge-gray text-[10px]">solo tareas</span>}
+                  </p>
                   <ChevronRight size={16} className="text-ink-subtle shrink-0 mt-0.5" />
                 </div>
-                <div className="flex items-center gap-3 mt-2 text-xs">
+                <div className="flex items-center gap-2 mt-2 text-xs flex-wrap">
                   <span className="text-ink-subtle">{g.total} tarea{g.total !== 1 ? 's' : ''}</span>
                   {g.vencidas > 0 && <span className="badge badge-red">{g.vencidas} vencida{g.vencidas !== 1 ? 's' : ''}</span>}
                   {g.pendientes - g.vencidas > 0 && <span className="badge badge-yellow">{g.pendientes - g.vencidas} sin procesar</span>}
-                  {g.pendientes === 0 && <span className="badge badge-green">Al día</span>}
+                  {g.total > 0 && g.pendientes === 0 && <span className="badge badge-green">Al día</span>}
                 </div>
               </button>
             ))}
@@ -550,10 +570,10 @@ function Tareas() {
                 </label>
                 {!form.interna && (
                   <div className="border border-hairline rounded-lg max-h-40 overflow-y-auto p-2 space-y-1">
-                    {companies?.map((c) => (
+                    {clientes.map((c) => (
                       <label key={c.id} className="flex items-center gap-2 text-sm">
                         <input type="checkbox" checked={form.companyIds.includes(c.id)} onChange={() => toggleCompany(c.id)} disabled={!!editId && form.companyIds.length >= 1 && !form.companyIds.includes(c.id)} />
-                        {c.nombreFantasia || c.razonSocial}
+                        {c.nombreFantasia || c.razonSocial}{c.soloTareas && <span className="text-[10px] text-ink-subtle">(solo tareas)</span>}
                       </label>
                     ))}
                   </div>
@@ -565,6 +585,35 @@ function Tareas() {
               <button onClick={() => setModal(false)} className="btn-secondary btn-sm">Cancelar</button>
               <button onClick={() => { setError(''); if (!form.titulo.trim()) { setError('El título es obligatorio.'); return; } if (!editId && !form.interna && form.companyIds.length === 0) { setError('Elegí al menos un cliente o marcá "interna".'); return; } saveMut.mutate(); }} disabled={saveMut.isPending} className="btn-primary btn-sm">
                 {saveMut.isPending ? 'Guardando…' : 'Guardar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {cliModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setCliModal(false)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-hairline flex items-center justify-between">
+              <h2 className="font-semibold text-ink">Agregar empresa (solo Tareas)</h2>
+              <button onClick={() => setCliModal(false)} className="text-ink-subtle hover:text-ink"><X size={18} /></button>
+            </div>
+            <div className="p-5 space-y-3">
+              {cliError && <div className="p-2 bg-bad-bg text-bad text-sm rounded">{cliError}</div>}
+              <p className="text-xs text-ink-subtle">Esta empresa es para trabajos que NO son de sueldos. No aparece en el sistema de Sueldos.</p>
+              <div>
+                <label className="form-label">Nombre / Razón social *</label>
+                <input value={cliNombre} onChange={(e) => setCliNombre(e.target.value)} className="form-input" placeholder="Nombre del cliente" autoFocus />
+              </div>
+              <div>
+                <label className="form-label">RUT (opcional)</label>
+                <input value={cliRut} onChange={(e) => setCliRut(e.target.value)} className="form-input" placeholder="Si no tiene, se deja en blanco" />
+              </div>
+            </div>
+            <div className="px-5 py-4 border-t border-hairline flex justify-end gap-2">
+              <button onClick={() => setCliModal(false)} className="btn-secondary btn-sm">Cancelar</button>
+              <button onClick={() => { setCliError(''); if (!cliNombre.trim()) { setCliError('El nombre es obligatorio.'); return; } crearClienteMut.mutate(); }} disabled={crearClienteMut.isPending} className="btn-primary btn-sm">
+                {crearClienteMut.isPending ? 'Creando…' : 'Crear empresa'}
               </button>
             </div>
           </div>

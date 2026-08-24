@@ -1,5 +1,6 @@
 // Agenda del estudio — tareas y vencimientos (uso interno; solo staff).
 import { Router, Request, Response, NextFunction } from 'express';
+import { randomBytes } from 'crypto';
 import { z } from 'zod';
 import { UserRole } from '@prisma/client';
 import { prisma } from '../utils/prisma';
@@ -31,6 +32,38 @@ const tareaSchema = z.object({
 function toFecha(s?: string | null): Date | null {
   return s ? new Date(`${s}T00:00:00Z`) : null;
 }
+
+// GET /api/tareas/clientes — TODOS los clientes visibles en Tareas: las empresas
+// de Sueldos + las creadas solo para Tareas.
+tareasRouter.get('/clientes', async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const clientes = await prisma.company.findMany({
+      where: { active: true },
+      orderBy: { razonSocial: 'asc' },
+      select: { id: true, razonSocial: true, nombreFantasia: true, soloTareas: true },
+    });
+    res.json(clientes);
+  } catch (err) { next(err); }
+});
+
+// POST /api/tareas/clientes — crea un cliente SOLO para Tareas (no aparece en
+// Sueldos). Necesita un nombre; el RUT es opcional (se genera un marcador único).
+tareasRouter.post('/clientes', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { nombre, rut } = z.object({
+      nombre: z.string().min(1),
+      rut: z.string().optional().nullable(),
+    }).parse(req.body);
+    const rutFinal = (rut && rut.trim()) || `TAR-${randomBytes(6).toString('hex')}`;
+    const existe = await prisma.company.findUnique({ where: { rut: rutFinal } });
+    if (existe) throw new AppError(409, 'Ya existe una empresa con ese RUT.');
+    const cliente = await prisma.company.create({
+      data: { razonSocial: nombre.trim(), rut: rutFinal, soloTareas: true },
+      select: { id: true, razonSocial: true, nombreFantasia: true, soloTareas: true },
+    });
+    res.status(201).json(cliente);
+  } catch (err) { next(err); }
+});
 
 // GET /api/tareas/usuarios — staff del estudio (para asignar responsables).
 tareasRouter.get('/usuarios', async (_req: Request, res: Response, next: NextFunction) => {

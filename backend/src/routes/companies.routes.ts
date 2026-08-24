@@ -70,7 +70,7 @@ companiesRouter.get('/', authenticate, async (req: Request, res: Response, next:
     const where = ids === 'ALL' ? {} : { id: { in: ids } };
 
     const companies = await prisma.company.findMany({
-      where: { ...where, active: true },
+      where: { ...where, active: true, soloTareas: false },
       orderBy: { razonSocial: 'asc' },
       include: { _count: { select: { employees: { where: { active: true } } } } },
     });
