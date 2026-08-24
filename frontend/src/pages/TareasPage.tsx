@@ -270,7 +270,8 @@ function Tareas() {
     queryKey: ['tareas', cursor.y, cursor.m],
     queryFn: () => tareasApi.list({ year: cursor.y, month: cursor.m }),
   });
-  const { data: clientes = [] } = useQuery({ queryKey: ['tareas-clientes'], queryFn: () => tareasApi.clientes() });
+  const [verInactivas, setVerInactivas] = useState(false);
+  const { data: clientes = [] } = useQuery({ queryKey: ['tareas-clientes', verInactivas], queryFn: () => tareasApi.clientes(verInactivas) });
   const { data: usuarios } = useQuery({ queryKey: ['tareas-usuarios'], queryFn: () => tareasApi.usuarios() });
 
   const hoyIso = new Date().toISOString().slice(0, 10) + 'T00:00:00Z';
@@ -289,8 +290,8 @@ function Tareas() {
     }
     const cero = { total: 0, pendientes: 0, vencidas: 0 };
     const list = [
-      { key: 'estudio', nombre: 'Estudio (interna)', soloTareas: false, interna: true, ...(cnt.get('estudio') ?? cero) },
-      ...clientes.map((c) => ({ key: c.id, nombre: c.nombreFantasia || c.razonSocial, soloTareas: c.soloTareas, interna: false, ...(cnt.get(c.id) ?? cero) })),
+      { key: 'estudio', nombre: 'Estudio (interna)', soloTareas: false, interna: true, active: true, ...(cnt.get('estudio') ?? cero) },
+      ...clientes.map((c) => ({ key: c.id, nombre: c.nombreFantasia || c.razonSocial, soloTareas: c.soloTareas, interna: false, active: c.active ?? true, ...(cnt.get(c.id) ?? cero) })),
     ];
     return list.sort((a, b) => b.vencidas - a.vencidas || b.total - a.total || a.nombre.localeCompare(b.nombre, 'es'));
   }, [tareas, clientes]);
@@ -320,6 +321,11 @@ function Tareas() {
     mutationFn: (id: string) => tareasApi.eliminarCliente(id),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['tareas-clientes'] }); qc.invalidateQueries({ queryKey: ['tareas'] }); setClienteSel(null); },
     onError: (e: unknown) => alert((e as { response?: { data?: { error?: string } } })?.response?.data?.error || 'No se pudo eliminar la empresa.'),
+  });
+  const setActivaMut = useMutation({
+    mutationFn: ({ id, activa }: { id: string; activa: boolean }) => tareasApi.setClienteActiva(id, activa),
+    onSuccess: () => invalidar(),
+    onError: (e: unknown) => alert((e as { response?: { data?: { error?: string } } })?.response?.data?.error || 'No se pudo cambiar el estado de la empresa.'),
   });
   const abrirNuevoCliente = () => { setCliEditId(null); setCliError(''); setCliNombre(''); setCliRut(''); setCliModal(true); };
   const abrirEditCliente = () => {
@@ -397,6 +403,11 @@ function Tareas() {
             <span className="font-semibold text-ink w-36 text-center text-sm">{MESES[cursor.m]} {cursor.y}</span>
             <button onClick={() => moverMes(1)} className="p-1.5 rounded hover:bg-white" title="Mes siguiente"><ChevronRight size={16} /></button>
           </div>
+          {!clienteSel && (
+            <label className="flex items-center gap-1.5 text-xs text-ink-muted cursor-pointer">
+              <input type="checkbox" checked={verInactivas} onChange={(e) => setVerInactivas(e.target.checked)} /> Ver inactivas
+            </label>
+          )}
           {!clienteSel && <button onClick={abrirNuevoCliente} className="btn-secondary btn-sm"><Building2 size={15} /> Agregar empresa</button>}
           <button onClick={abrirNueva} className="btn-primary btn-sm"><Plus size={15} /> Nueva tarea</button>
         </div>
@@ -410,19 +421,24 @@ function Tareas() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {grupos.map((g) => (
               <button key={g.key} onClick={() => setClienteSel(g.key)}
-                className="card p-4 text-left hover:ring-2 hover:ring-brand-300 transition-all">
+                className={`card p-4 text-left hover:ring-2 hover:ring-brand-300 transition-all ${!g.active ? 'opacity-60' : ''}`}>
                 <div className="flex items-start justify-between gap-2">
                   <p className="font-semibold text-ink">
                     {g.nombre}
                     {g.soloTareas && <span className="ml-2 badge badge-gray text-[10px]">solo tareas</span>}
+                    {!g.active && <span className="ml-2 badge badge-gray text-[10px]">inactiva</span>}
                   </p>
                   <ChevronRight size={16} className="text-ink-subtle shrink-0 mt-0.5" />
                 </div>
                 <div className="flex items-center gap-2 mt-2 text-xs flex-wrap">
                   <span className="text-ink-subtle">{g.total} tarea{g.total !== 1 ? 's' : ''}</span>
-                  {g.vencidas > 0 && <span className="badge badge-red">{g.vencidas} vencida{g.vencidas !== 1 ? 's' : ''}</span>}
-                  {g.pendientes - g.vencidas > 0 && <span className="badge badge-yellow">{g.pendientes - g.vencidas} sin procesar</span>}
-                  {g.total > 0 && g.pendientes === 0 && <span className="badge badge-green">Al día</span>}
+                  {g.active && g.vencidas > 0 && <span className="badge badge-red">{g.vencidas} vencida{g.vencidas !== 1 ? 's' : ''}</span>}
+                  {g.active && g.pendientes - g.vencidas > 0 && <span className="badge badge-yellow">{g.pendientes - g.vencidas} sin procesar</span>}
+                  {g.active && g.total > 0 && g.pendientes === 0 && <span className="badge badge-green">Al día</span>}
+                  {!g.active && g.soloTareas && (
+                    <span onClick={(e) => { e.stopPropagation(); setActivaMut.mutate({ id: g.key, activa: true }); }}
+                      className="badge badge-blue cursor-pointer">Reactivar</span>
+                  )}
                 </div>
               </button>
             ))}
@@ -434,8 +450,13 @@ function Tareas() {
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h2 className="text-lg font-semibold text-ink">{clienteNombre}</h2>
         {clientes.find((c) => c.id === clienteSel)?.soloTareas && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <button onClick={abrirEditCliente} className="btn-secondary btn-sm"><Pencil size={13} /> Editar empresa</button>
+            {clientes.find((c) => c.id === clienteSel)?.active === false ? (
+              <button onClick={() => setActivaMut.mutate({ id: clienteSel!, activa: true })} className="btn-secondary btn-sm">Reactivar</button>
+            ) : (
+              <button onClick={() => { if (confirm(`¿Desactivar "${clienteNombre}"? Se oculta y sus tareas quedan pausadas (no alertan). Podés reactivarla cuando quieras.`)) setActivaMut.mutate({ id: clienteSel!, activa: false }); }} className="btn-secondary btn-sm">Desactivar</button>
+            )}
             <button
               onClick={() => { if (confirm(`¿Eliminar la empresa "${clienteNombre}" y TODAS sus tareas? Esta acción no se puede deshacer.`)) eliminarClienteMut.mutate(clienteSel!); }}
               className="btn-secondary btn-sm text-bad"

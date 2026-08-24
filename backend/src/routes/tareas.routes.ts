@@ -35,14 +35,28 @@ function toFecha(s?: string | null): Date | null {
 
 // GET /api/tareas/clientes — TODOS los clientes visibles en Tareas: las empresas
 // de Sueldos + las creadas solo para Tareas.
-tareasRouter.get('/clientes', async (_req: Request, res: Response, next: NextFunction) => {
+tareasRouter.get('/clientes', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const incluirInactivas = req.query.incluirInactivas === 'true';
     const clientes = await prisma.company.findMany({
-      where: { active: true },
+      where: incluirInactivas ? {} : { active: true },
       orderBy: { razonSocial: 'asc' },
-      select: { id: true, razonSocial: true, nombreFantasia: true, soloTareas: true },
+      select: { id: true, razonSocial: true, nombreFantasia: true, soloTareas: true, active: true },
     });
     res.json(clientes);
+  } catch (err) { next(err); }
+});
+
+// PATCH /api/tareas/clientes/:id/activa — desactivar/reactivar una empresa
+// solo-Tareas (oculta la empresa y pausa sus tareas, sin borrar nada).
+tareasRouter.patch('/clientes/:id/activa', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { activa } = z.object({ activa: z.boolean() }).parse(req.body);
+    const empresa = await prisma.company.findUnique({ where: { id: req.params.id } });
+    if (!empresa) throw new NotFoundError('Empresa');
+    if (!empresa.soloTareas) throw new AppError(409, 'Esta empresa se gestiona desde Sueldos (Empresas), no desde Tareas.');
+    await prisma.company.update({ where: { id: req.params.id }, data: { active: activa } });
+    res.json({ message: activa ? 'Empresa reactivada' : 'Empresa desactivada' });
   } catch (err) { next(err); }
 });
 

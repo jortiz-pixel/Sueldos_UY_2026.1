@@ -556,11 +556,12 @@ export interface AgendaResumen {
   totalProximos: number;
 }
 
-export interface ClienteTareas { id: string; razonSocial: string; nombreFantasia: string | null; soloTareas: boolean }
+export interface ClienteTareas { id: string; razonSocial: string; nombreFantasia: string | null; soloTareas: boolean; active?: boolean }
 
 export const tareasApi = {
   usuarios: () => api.get<Array<{ id: string; nombre: string; apellido: string; role: string }>>('/tareas/usuarios').then((r) => r.data),
-  clientes: () => api.get<ClienteTareas[]>('/tareas/clientes').then((r) => r.data),
+  clientes: (incluirInactivas?: boolean) => api.get<ClienteTareas[]>('/tareas/clientes', { params: incluirInactivas ? { incluirInactivas: true } : {} }).then((r) => r.data),
+  setClienteActiva: (id: string, activa: boolean) => api.patch(`/tareas/clientes/${id}/activa`, { activa }).then((r) => r.data),
   crearCliente: (nombre: string, rut?: string) => api.post<ClienteTareas>('/tareas/clientes', { nombre, rut }).then((r) => r.data),
   editarCliente: (id: string, nombre: string, rut?: string) => api.put<ClienteTareas>(`/tareas/clientes/${id}`, { nombre, rut }).then((r) => r.data),
   eliminarCliente: (id: string) => api.delete(`/tareas/clientes/${id}`).then((r) => r.data),

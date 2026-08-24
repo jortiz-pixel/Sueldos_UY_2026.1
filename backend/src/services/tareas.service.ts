@@ -25,8 +25,12 @@ function ocurreEnMes(recurrencia: string | null, mesAncla: number | null, month1
 
 // Crea los TareaVencimiento que falten en el rango [from, to] para las tareas
 // activas (recurrentes: según su periodicidad; puntuales: su única fecha).
+// Tareas "vivas": activas y de una empresa activa (o internas del estudio). Las
+// de empresas desactivadas quedan pausadas (no generan ni alertan).
+const TAREA_VIVA = { activa: true, OR: [{ companyId: null }, { company: { is: { active: true } } }] };
+
 export async function materializarVencimientos(from: Date, to: Date): Promise<void> {
-  const tareas = await prisma.tarea.findMany({ where: { activa: true } });
+  const tareas = await prisma.tarea.findMany({ where: TAREA_VIVA });
   const faltantes: Array<{ tareaId: string; fecha: Date }> = [];
 
   for (const t of tareas) {
@@ -64,7 +68,8 @@ export interface FiltrosAgenda {
 
 export async function listarVencimientos(from: Date, to: Date, filtros: FiltrosAgenda = {}) {
   await materializarVencimientos(from, to);
-  const tareaWhere: Record<string, unknown> = {};
+  // Excluye tareas de empresas desactivadas (salvo que se filtre por una empresa).
+  const tareaWhere: Record<string, unknown> = filtros.companyId ? {} : { ...TAREA_VIVA };
   if (filtros.companyId) tareaWhere.companyId = filtros.companyId;
   if (filtros.responsableId) tareaWhere.responsableId = filtros.responsableId;
   if (filtros.categoria) tareaWhere.categoria = filtros.categoria;
@@ -98,7 +103,7 @@ export async function resumenAgenda(diasProximos = 15) {
 
   // Alerta = todo lo que NO esté PROCESADO (COMPLETADA) para su fecha límite.
   const pendientes = await prisma.tareaVencimiento.findMany({
-    where: { estado: { not: 'COMPLETADA' }, fecha: { lte: limite } },
+    where: { estado: { not: 'COMPLETADA' }, fecha: { lte: limite }, tarea: { is: TAREA_VIVA } },
     include: { tarea: { include: { company: { select: { razonSocial: true, nombreFantasia: true } } } } },
     orderBy: { fecha: 'asc' },
   });
