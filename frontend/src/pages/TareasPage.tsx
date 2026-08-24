@@ -255,10 +255,31 @@ function Tareas() {
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [error, setError] = useState('');
+  // Vista cliente → tareas: null = lista de clientes; 'estudio' o companyId = detalle.
+  const [clienteSel, setClienteSel] = useState<string | null>(null);
 
   const { data: tareas = [] } = useQuery({ queryKey: ['tareas'], queryFn: () => tareasApi.list() });
   const { data: companies } = useQuery({ queryKey: ['companies'], queryFn: () => companiesApi.list() });
   const { data: usuarios } = useQuery({ queryKey: ['tareas-usuarios'], queryFn: () => tareasApi.usuarios() });
+
+  const hoyIso = new Date().toISOString().slice(0, 10) + 'T00:00:00Z';
+  const sinProcesar = (t: Tarea) => !!t.vencimientoActual && t.vencimientoActual.estado !== 'COMPLETADA';
+  const vencidaTarea = (t: Tarea) => sinProcesar(t) && new Date(t.vencimientoActual!.fecha) < new Date(hoyIso);
+  // Agrupar las tareas por cliente (companyId), con "Estudio (interna)" aparte.
+  const grupos = useMemo(() => {
+    const map = new Map<string, { key: string; nombre: string; total: number; pendientes: number; vencidas: number }>();
+    for (const t of tareas) {
+      const k = t.companyId ?? 'estudio';
+      const nombre = t.company ? (t.company.nombreFantasia || t.company.razonSocial) : 'Estudio (interna)';
+      const g = map.get(k) ?? map.set(k, { key: k, nombre, total: 0, pendientes: 0, vencidas: 0 }).get(k)!;
+      g.total++;
+      if (sinProcesar(t)) g.pendientes++;
+      if (vencidaTarea(t)) g.vencidas++;
+    }
+    return [...map.values()].sort((a, b) => b.vencidas - a.vencidas || a.nombre.localeCompare(b.nombre, 'es'));
+  }, [tareas]);
+  const tareasCliente = tareas.filter((t) => (t.companyId ?? 'estudio') === clienteSel);
+  const clienteNombre = grupos.find((g) => g.key === clienteSel)?.nombre ?? (clienteSel === 'estudio' ? 'Estudio (interna)' : '');
 
   const invalidar = () => {
     qc.invalidateQueries({ queryKey: ['tareas'] });
@@ -298,7 +319,16 @@ function Tareas() {
     onSuccess: invalidar,
   });
 
-  const abrirNueva = () => { setEditId(null); setForm(emptyForm); setError(''); setModal(true); };
+  const abrirNueva = () => {
+    setEditId(null);
+    // Si estás dentro de un cliente, precargarlo.
+    const pre = clienteSel === 'estudio'
+      ? { ...emptyForm, interna: true }
+      : clienteSel
+        ? { ...emptyForm, companyIds: [clienteSel] }
+        : emptyForm;
+    setForm(pre); setError(''); setModal(true);
+  };
   const abrirEdit = (t: Tarea) => {
     setEditId(t.id);
     setForm({
@@ -316,16 +346,46 @@ function Tareas() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        {clienteSel ? (
+          <button onClick={() => setClienteSel(null)} className="btn-secondary btn-sm"><ChevronLeft size={15} /> Volver a clientes</button>
+        ) : <div />}
         <button onClick={abrirNueva} className="btn-primary btn-sm"><Plus size={15} /> Nueva tarea</button>
       </div>
+
+      {!clienteSel ? (
+        /* ── Nivel 1: lista de clientes ─────────────────────────── */
+        grupos.length === 0 ? (
+          <div className="card p-10 text-center text-ink-subtle">Todavía no hay tareas. Creá la primera con "Nueva tarea".</div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {grupos.map((g) => (
+              <button key={g.key} onClick={() => setClienteSel(g.key)}
+                className="card p-4 text-left hover:ring-2 hover:ring-brand-300 transition-all">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="font-semibold text-ink">{g.nombre}</p>
+                  <ChevronRight size={16} className="text-ink-subtle shrink-0 mt-0.5" />
+                </div>
+                <div className="flex items-center gap-3 mt-2 text-xs">
+                  <span className="text-ink-subtle">{g.total} tarea{g.total !== 1 ? 's' : ''}</span>
+                  {g.vencidas > 0 && <span className="badge badge-red">{g.vencidas} vencida{g.vencidas !== 1 ? 's' : ''}</span>}
+                  {g.pendientes - g.vencidas > 0 && <span className="badge badge-yellow">{g.pendientes - g.vencidas} sin procesar</span>}
+                  {g.pendientes === 0 && <span className="badge badge-green">Al día</span>}
+                </div>
+              </button>
+            ))}
+          </div>
+        )
+      ) : (
+      /* ── Nivel 2: tareas del cliente seleccionado ───────────── */
+      <>
+      <h2 className="text-lg font-semibold text-ink">{clienteNombre}</h2>
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="table-header">
                 <th className="px-4 py-2 text-left">Tarea</th>
-                <th className="px-4 py-2 text-left">Cliente</th>
                 <th className="px-4 py-2 text-left">Periodicidad</th>
                 <th className="px-4 py-2 text-left">Responsable</th>
                 <th className="px-4 py-2 text-left">Estado (este período)</th>
@@ -333,8 +393,8 @@ function Tareas() {
               </tr>
             </thead>
             <tbody className="divide-y divide-hairline/60">
-              {tareas.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-ink-subtle">Todavía no hay tareas. Creá la primera.</td></tr>}
-              {tareas.map((t) => (
+              {tareasCliente.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-ink-subtle">Este cliente no tiene tareas. Agregá una con "Nueva tarea".</td></tr>}
+              {tareasCliente.map((t) => (
                 <tr key={t.id} className={t.activa ? '' : 'opacity-50'}>
                   <td className="px-4 py-2.5">
                     <p className="font-medium text-ink">
@@ -343,7 +403,6 @@ function Tareas() {
                     </p>
                     {t.categoria && <span className="text-xs text-ink-subtle">{t.categoria}</span>}
                   </td>
-                  <td className="px-4 py-2.5 text-ink-muted">{nombreCliente(t)}</td>
                   <td className="px-4 py-2.5 text-ink-muted text-xs">
                     {t.tipo === 'PUNTUAL' ? `Puntual · ${t.fechaVencimiento?.slice(0, 10) ?? ''}` : `${t.recurrencia}${t.diaVencimiento ? ` · día ${t.diaVencimiento}` : ''}`}
                   </td>
@@ -382,6 +441,8 @@ function Tareas() {
           </table>
         </div>
       </div>
+      </>
+      )}
 
       {modal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setModal(false)}>
