@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { CalendarDays, ListChecks, Plus, Pencil, Trash2, ChevronLeft, ChevronRight, AlertTriangle, CheckCircle2, X, Circle } from 'lucide-react';
+import { CalendarDays, ListChecks, Plus, Pencil, Trash2, ChevronLeft, ChevronRight, AlertTriangle, X } from 'lucide-react';
 import { tareasApi, companiesApi, Tarea, Vencimiento, EstadoVenc } from '../services/api';
 import { MESES } from '../types';
 
@@ -9,9 +9,9 @@ const CATEGORIAS = ['BPS', 'DGI', 'Sueldos', 'Balances', 'Interno', 'Otros'];
 
 const ESTADO_INFO: Record<string, { label: string; badge: string; dot: string }> = {
   PENDIENTE: { label: 'Pendiente', badge: 'badge-yellow', dot: 'bg-warn' },
-  COMPLETADA: { label: 'Completada', badge: 'badge-green', dot: 'bg-ok' },
-  NO_COMPLETADA: { label: 'No completada', badge: 'badge-red', dot: 'bg-bad' },
-  CON_FALTAS: { label: 'Con faltas', badge: 'badge-yellow', dot: 'bg-orange-500' },
+  COMPLETADA: { label: 'Realizada', badge: 'badge-green', dot: 'bg-ok' },
+  NO_COMPLETADA: { label: 'No realizada', badge: 'badge-red', dot: 'bg-bad' },
+  CON_FALTAS: { label: 'Con faltantes', badge: 'badge-yellow', dot: 'bg-orange-500' },
 };
 
 function ymd(d: Date): string {
@@ -177,30 +177,25 @@ function Agenda() {
                     {v.tarea.responsable && ` · ${v.tarea.responsable.nombre} ${v.tarea.responsable.apellido}`}
                   </p>
                 </div>
-                <span className={`badge ${esVencido(v) ? 'badge-red' : ESTADO_INFO[v.estado].badge}`}>
-                  {esVencido(v) ? 'Vencida' : ESTADO_INFO[v.estado].label}
-                </span>
-                <div className="flex items-center gap-1">
-                  <EstadoBtn active={v.estado === 'COMPLETADA'} onClick={() => estadoMut.mutate({ id: v.id, estado: 'COMPLETADA' })} title="Completada" cls="hover:text-ok" icon={CheckCircle2} />
-                  <EstadoBtn active={v.estado === 'CON_FALTAS'} onClick={() => estadoMut.mutate({ id: v.id, estado: 'CON_FALTAS' })} title="Con faltas" cls="hover:text-orange-500" icon={AlertTriangle} />
-                  <EstadoBtn active={v.estado === 'NO_COMPLETADA'} onClick={() => estadoMut.mutate({ id: v.id, estado: 'NO_COMPLETADA' })} title="No completada" cls="hover:text-bad" icon={X} />
-                  <EstadoBtn active={v.estado === 'PENDIENTE'} onClick={() => estadoMut.mutate({ id: v.id, estado: 'PENDIENTE' })} title="Marcar pendiente" cls="hover:text-ink-muted" icon={Circle} />
-                </div>
+                {esVencido(v) && <span className="badge badge-red shrink-0">Vencida</span>}
+                <span className={`w-2 h-2 rounded-full shrink-0 ${ESTADO_INFO[v.estado].dot}`} title={ESTADO_INFO[v.estado].label} />
+                <select
+                  value={v.estado}
+                  onChange={(e) => estadoMut.mutate({ id: v.id, estado: e.target.value as EstadoVenc })}
+                  className="form-input w-auto text-sm py-1.5"
+                  title="Cambiar estado"
+                >
+                  <option value="PENDIENTE">Pendiente</option>
+                  <option value="COMPLETADA">Realizada</option>
+                  <option value="CON_FALTAS">Con faltantes</option>
+                  <option value="NO_COMPLETADA">No realizada</option>
+                </select>
               </div>
             ))}
           </div>
         )}
       </div>
     </div>
-  );
-}
-
-function EstadoBtn({ active, onClick, title, cls, icon: Icon }: { active: boolean; onClick: () => void; title: string; cls: string; icon: typeof CheckCircle2 }) {
-  return (
-    <button onClick={onClick} title={title}
-      className={`p-1.5 rounded ${cls} ${active ? 'text-ink bg-canvas' : 'text-ink-subtle/50'}`}>
-      <Icon size={16} />
-    </button>
   );
 }
 
