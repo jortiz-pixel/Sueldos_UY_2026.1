@@ -336,9 +336,9 @@ function Tareas() {
                   <td className="px-4 py-2.5 text-ink-muted text-xs">{t.responsable ? `${t.responsable.nombre} ${t.responsable.apellido}` : '—'}</td>
                   <td className="px-4 py-2.5">{t.activa ? <span className="badge badge-green">Activa</span> : <span className="badge badge-gray">Inactiva</span>}</td>
                   <td className="px-4 py-2.5">
-                    <div className="flex items-center gap-1 justify-end">
-                      <button onClick={() => abrirEdit(t)} className="p-1.5 text-ink-subtle hover:text-brand-600 rounded" title="Editar"><Pencil size={14} /></button>
-                      <button onClick={() => { if (confirm(`¿Eliminar "${t.titulo}" y sus vencimientos?`)) delMut.mutate(t.id); }} className="p-1.5 text-ink-subtle hover:text-bad rounded" title="Eliminar"><Trash2 size={14} /></button>
+                    <div className="flex items-center gap-2 justify-end">
+                      <button onClick={() => abrirEdit(t)} className="btn-secondary btn-sm"><Pencil size={13} /> Editar</button>
+                      <button onClick={() => { if (confirm(`¿Eliminar "${t.titulo}" y sus vencimientos?`)) delMut.mutate(t.id); }} className="p-1.5 text-bad/70 hover:text-bad hover:bg-bad-bg rounded" title="Eliminar"><Trash2 size={15} /></button>
                     </div>
                   </td>
                 </tr>
