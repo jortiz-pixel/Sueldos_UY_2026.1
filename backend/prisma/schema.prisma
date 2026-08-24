@@ -855,6 +855,9 @@ model Tarea {
   diaVencimiento Int?                // día del mes (1-31) para recurrentes
   mesAncla      Int?                 // mes de anclaje del ciclo (1-12); default: creación
   fechaVencimiento DateTime?         // para PUNTUAL
+  // Vencimiento fiscal (pago de impuesto / presentación de DDJJ): estos SÍ se
+  // muestran en el calendario. Las tareas comunes solo van en la lista.
+  esVencimiento Boolean  @default(false)
   activa        Boolean  @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt

@@ -82,10 +82,12 @@ function Agenda() {
     return { y: c.y, m: nm };
   });
 
-  // Vencimientos por día (para el calendario).
+  // El CALENDARIO muestra solo los vencimientos FISCALES (pagos de impuestos y
+  // presentación de DDJJ). Las tareas comunes quedan en la lista de abajo.
   const porDia = useMemo(() => {
     const map = new Map<number, Vencimiento[]>();
     for (const v of vencimientos) {
+      if (!v.tarea.esVencimiento) continue;
       const d = new Date(v.fecha).getUTCDate();
       (map.get(d) ?? map.set(d, []).get(d)!).push(v);
     }
@@ -126,8 +128,12 @@ function Agenda() {
         </select>
       </div>
 
-      {/* Calendario del mes */}
+      {/* Calendario del mes — solo vencimientos fiscales (impuestos / DDJJ) */}
       <div className="card p-3">
+        <div className="flex items-center gap-2 text-xs text-ink-subtle mb-2 px-1">
+          <CalendarDays size={13} className="text-brand-600" />
+          Vencimientos de pagos de impuestos y presentación de declaraciones juradas.
+        </div>
         <div className="grid grid-cols-7 gap-1 text-center text-xs text-ink-subtle mb-1">
           {['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'].map((d) => <div key={d}>{d}</div>)}
         </div>
@@ -170,7 +176,10 @@ function Agenda() {
                   <div className="text-[10px] text-ink-subtle uppercase">{MESES[new Date(v.fecha).getUTCMonth() + 1]?.slice(0, 3)}</div>
                 </div>
                 <div className="flex-1 min-w-[180px]">
-                  <p className="font-medium text-ink">{v.tarea.titulo}</p>
+                  <p className="font-medium text-ink">
+                    {v.tarea.titulo}
+                    {v.tarea.esVencimiento && <span className="ml-2 text-[10px] uppercase tracking-wide badge badge-blue">Vencimiento</span>}
+                  </p>
                   <p className="text-xs text-ink-subtle">
                     {nombreCliente(v.tarea)}
                     {v.tarea.categoria && ` · ${v.tarea.categoria}`}
@@ -226,11 +235,11 @@ function AlertaCard({ titulo, icon: Icon, color, items }: { titulo: string; icon
 interface FormState {
   titulo: string; descripcion: string; categoria: string; responsableId: string;
   tipo: 'PUNTUAL' | 'RECURRENTE'; recurrencia: string; diaVencimiento: string; mesAncla: string;
-  fechaVencimiento: string; companyIds: string[]; interna: boolean; activa: boolean;
+  fechaVencimiento: string; companyIds: string[]; interna: boolean; esVencimiento: boolean; activa: boolean;
 }
 const emptyForm: FormState = {
   titulo: '', descripcion: '', categoria: '', responsableId: '', tipo: 'RECURRENTE',
-  recurrencia: 'MENSUAL', diaVencimiento: '', mesAncla: '', fechaVencimiento: '', companyIds: [], interna: false, activa: true,
+  recurrencia: 'MENSUAL', diaVencimiento: '', mesAncla: '', fechaVencimiento: '', companyIds: [], interna: false, esVencimiento: false, activa: true,
 };
 
 function Tareas() {
@@ -261,6 +270,7 @@ function Tareas() {
         diaVencimiento: form.tipo === 'RECURRENTE' && form.diaVencimiento ? Number(form.diaVencimiento) : null,
         mesAncla: form.tipo === 'RECURRENTE' && form.mesAncla ? Number(form.mesAncla) : null,
         fechaVencimiento: form.tipo === 'PUNTUAL' ? form.fechaVencimiento : null,
+        esVencimiento: form.esVencimiento,
       };
       if (editId) {
         return tareasApi.update(editId, { ...payload, companyId: form.interna ? null : (form.companyIds[0] ?? null) });
@@ -284,7 +294,7 @@ function Tareas() {
       titulo: t.titulo, descripcion: t.descripcion ?? '', categoria: t.categoria ?? '', responsableId: t.responsableId ?? '',
       tipo: t.tipo, recurrencia: t.recurrencia ?? 'MENSUAL', diaVencimiento: t.diaVencimiento != null ? String(t.diaVencimiento) : '',
       mesAncla: t.mesAncla != null ? String(t.mesAncla) : '', fechaVencimiento: t.fechaVencimiento ? t.fechaVencimiento.slice(0, 10) : '',
-      companyIds: t.companyId ? [t.companyId] : [], interna: !t.companyId, activa: t.activa,
+      companyIds: t.companyId ? [t.companyId] : [], interna: !t.companyId, esVencimiento: !!t.esVencimiento, activa: t.activa,
     });
     setError(''); setModal(true);
   };
@@ -411,6 +421,13 @@ function Tareas() {
                   )}
                 </div>
               )}
+              <label className="flex items-start gap-2 text-sm p-2.5 rounded-lg bg-canvas border border-hairline cursor-pointer">
+                <input type="checkbox" className="mt-0.5" checked={form.esVencimiento} onChange={(e) => setForm({ ...form, esVencimiento: e.target.checked })} />
+                <span>
+                  <span className="font-medium text-ink">Es un vencimiento fiscal</span> (pago de impuesto o presentación de DDJJ)
+                  <span className="block text-[11px] text-ink-subtle">Si lo marcás, aparece en el calendario. Las tareas comunes solo van en la lista.</span>
+                </span>
+              </label>
               <div>
                 <label className="form-label">Cliente(s)</label>
                 <label className="flex items-center gap-2 text-sm mb-1.5">

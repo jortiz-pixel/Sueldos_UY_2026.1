@@ -532,6 +532,7 @@ export interface Tarea {
   diaVencimiento?: number | null;
   mesAncla?: number | null;
   fechaVencimiento?: string | null;
+  esVencimiento?: boolean;
   activa: boolean;
   company?: { id: string; razonSocial: string; nombreFantasia: string | null } | null;
   responsable?: { id: string; nombre: string; apellido: string } | null;

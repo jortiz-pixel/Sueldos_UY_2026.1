@@ -24,6 +24,7 @@ const tareaSchema = z.object({
   diaVencimiento: z.number().int().min(1).max(31).optional().nullable(),
   mesAncla: z.number().int().min(1).max(12).optional().nullable(),
   fechaVencimiento: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  esVencimiento: z.boolean().optional(),
   activa: z.boolean().optional(),
 });
 
@@ -81,6 +82,7 @@ tareasRouter.post('/', async (req: Request, res: Response, next: NextFunction) =
       diaVencimiento: data.tipo === 'RECURRENTE' ? (data.diaVencimiento ?? null) : null,
       mesAncla: data.tipo === 'RECURRENTE' ? (data.mesAncla ?? null) : null,
       fechaVencimiento: data.tipo === 'PUNTUAL' ? toFecha(data.fechaVencimiento) : null,
+      esVencimiento: data.esVencimiento ?? false,
       activa: data.activa ?? true,
     };
 
@@ -113,6 +115,7 @@ tareasRouter.put('/:id', async (req: Request, res: Response, next: NextFunction)
         ...(data.diaVencimiento !== undefined ? { diaVencimiento: data.diaVencimiento ?? null } : {}),
         ...(data.mesAncla !== undefined ? { mesAncla: data.mesAncla ?? null } : {}),
         ...(data.fechaVencimiento !== undefined ? { fechaVencimiento: toFecha(data.fechaVencimiento) } : {}),
+        ...(data.esVencimiento !== undefined ? { esVencimiento: data.esVencimiento } : {}),
         ...(data.activa !== undefined ? { activa: data.activa } : {}),
       },
     });
