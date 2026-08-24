@@ -257,8 +257,19 @@ function Tareas() {
   const [error, setError] = useState('');
   // Vista cliente → tareas: null = lista de clientes; 'estudio' o companyId = detalle.
   const [clienteSel, setClienteSel] = useState<string | null>(null);
+  const hoy = new Date();
+  const [cursor, setCursor] = useState({ y: hoy.getUTCFullYear(), m: hoy.getUTCMonth() + 1 });
+  const moverMes = (delta: number) => setCursor((c) => {
+    const nm = c.m + delta;
+    if (nm < 1) return { y: c.y - 1, m: 12 };
+    if (nm > 12) return { y: c.y + 1, m: 1 };
+    return { y: c.y, m: nm };
+  });
 
-  const { data: tareas = [] } = useQuery({ queryKey: ['tareas'], queryFn: () => tareasApi.list() });
+  const { data: tareas = [] } = useQuery({
+    queryKey: ['tareas', cursor.y, cursor.m],
+    queryFn: () => tareasApi.list({ year: cursor.y, month: cursor.m }),
+  });
   const { data: companies } = useQuery({ queryKey: ['companies'], queryFn: () => companiesApi.list() });
   const { data: usuarios } = useQuery({ queryKey: ['tareas-usuarios'], queryFn: () => tareasApi.usuarios() });
 
@@ -350,7 +361,14 @@ function Tareas() {
         {clienteSel ? (
           <button onClick={() => setClienteSel(null)} className="btn-secondary btn-sm"><ChevronLeft size={15} /> Volver a clientes</button>
         ) : <div />}
-        <button onClick={abrirNueva} className="btn-primary btn-sm"><Plus size={15} /> Nueva tarea</button>
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-1 bg-canvas rounded-lg px-1">
+            <button onClick={() => moverMes(-1)} className="p-1.5 rounded hover:bg-white" title="Mes anterior"><ChevronLeft size={16} /></button>
+            <span className="font-semibold text-ink w-36 text-center text-sm">{MESES[cursor.m]} {cursor.y}</span>
+            <button onClick={() => moverMes(1)} className="p-1.5 rounded hover:bg-white" title="Mes siguiente"><ChevronRight size={16} /></button>
+          </div>
+          <button onClick={abrirNueva} className="btn-primary btn-sm"><Plus size={15} /> Nueva tarea</button>
+        </div>
       </div>
 
       {!clienteSel ? (

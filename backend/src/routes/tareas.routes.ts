@@ -48,12 +48,13 @@ tareasRouter.get('/usuarios', async (_req: Request, res: Response, next: NextFun
 // (para poder cambiar el estado directo desde la lista de tareas).
 tareasRouter.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { companyId, responsableId, categoria, activa } = req.query;
-    // Materializar la ventana [mes actual, mes siguiente] para tener el
-    // vencimiento vigente de las recurrentes y puntuales cercanas.
+    const { companyId, responsableId, categoria, activa, year, month } = req.query;
+    // Vencimiento del MES elegido (por defecto, el mes actual).
     const hoy = new Date();
-    const inicioMes = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth(), 1));
-    const finVentana = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth() + 2, 0, 23, 59, 59));
+    const yy = year ? Number(year) : hoy.getUTCFullYear();
+    const mm = month ? Number(month) : hoy.getUTCMonth() + 1;
+    const inicioMes = new Date(Date.UTC(yy, mm - 1, 1));
+    const finVentana = new Date(Date.UTC(yy, mm, 0, 23, 59, 59));
     await materializarVencimientos(inicioMes, finVentana);
 
     const tareas = await prisma.tarea.findMany({

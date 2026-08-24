@@ -558,7 +558,7 @@ export interface AgendaResumen {
 
 export const tareasApi = {
   usuarios: () => api.get<Array<{ id: string; nombre: string; apellido: string; role: string }>>('/tareas/usuarios').then((r) => r.data),
-  list: (params?: { companyId?: string; responsableId?: string; categoria?: string; activa?: boolean }) =>
+  list: (params?: { companyId?: string; responsableId?: string; categoria?: string; activa?: boolean; year?: number; month?: number }) =>
     api.get<Tarea[]>('/tareas', { params }).then((r) => r.data),
   create: (data: Partial<Tarea> & { companyIds?: string[] }) => api.post('/tareas', data).then((r) => r.data),
   update: (id: string, data: Partial<Tarea>) => api.put<Tarea>(`/tareas/${id}`, data).then((r) => r.data),
