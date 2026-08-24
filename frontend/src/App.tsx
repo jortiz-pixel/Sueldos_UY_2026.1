@@ -4,7 +4,7 @@ import { CompanyProvider } from './hooks/useCompany';
 import Layout from './components/layout/Layout';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
-import { isAgendaHost } from './utils/host';
+import { ViewModeProvider, useViewMode } from './hooks/useViewMode';
 import CompaniesPage from './pages/CompaniesPage';
 import ConceptsPage from './pages/ConceptsPage';
 import ContractsPage from './pages/ContractsPage';
@@ -52,6 +52,7 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 
 function AppRoutes() {
   const { user } = useAuth();
+  const { mode } = useViewMode();
 
   return (
     <Routes>
@@ -72,7 +73,7 @@ function AppRoutes() {
       <Route path="/portal-empresa" element={<Navigate to="/portal/empresa" replace />} />
 
       <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
-        <Route index element={isAgendaHost ? <Navigate to="/tareas" replace /> : <DashboardPage />} />
+        <Route index element={mode === 'tareas' ? <Navigate to="/tareas" replace /> : <DashboardPage />} />
         <Route path="companies" element={<CompaniesPage />} />
         <Route path="concepts" element={<ConceptsPage />} />
         <Route path="contracts" element={<ContractsPage />} />
@@ -102,7 +103,9 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <CompanyProvider>
-          <AppRoutes />
+          <ViewModeProvider>
+            <AppRoutes />
+          </ViewModeProvider>
         </CompanyProvider>
       </AuthProvider>
     </BrowserRouter>

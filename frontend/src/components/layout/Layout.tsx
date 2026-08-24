@@ -9,7 +9,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useCompany } from '../../hooks/useCompany';
 import { versionApi } from '../../services/api';
 import AsysTaxLogo from '../AsysTaxLogo';
-import { isAgendaHost } from '../../utils/host';
+import { useViewMode } from '../../hooks/useViewMode';
 
 const navItems = [
   { to: '/', label: 'Panel', icon: LayoutDashboard, end: true },
@@ -32,7 +32,10 @@ const navItems = [
 export default function Layout() {
   const { user, logout } = useAuth();
   const { companies, activeCompanyId, setActiveCompanyId } = useCompany();
+  const { mode, setMode } = useViewMode();
   const navigate = useNavigate();
+  const esStaff = user?.role === 'ADMIN' || user?.role === 'OPERATOR';
+  const cambiarModo = (m: 'sueldos' | 'tareas') => { setMode(m); setOpen(false); navigate('/'); };
   const [open, setOpen] = useState(false);
   const { data: appVersion } = useQuery({ queryKey: ['app-version'], queryFn: () => versionApi.get(), staleTime: 5 * 60 * 1000 });
 
@@ -57,10 +60,24 @@ export default function Layout() {
           </button>
         </div>
 
+        {/* Selector de área: Sueldos / Tareas del estudio (solo staff) */}
+        {esStaff && (
+          <div className="px-3 pb-2">
+            <div className="flex gap-1 bg-white/10 p-1 rounded-lg">
+              {([{ k: 'sueldos', label: 'Sueldos', icon: Landmark }, { k: 'tareas', label: 'Tareas', icon: ClipboardList }] as const).map(({ k, label, icon: Icon }) => (
+                <button key={k} onClick={() => cambiarModo(k)}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${mode === k ? 'bg-white text-navy shadow-sm' : 'text-white/70 hover:text-white'}`}>
+                  <Icon size={13} /> {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <nav className="flex-1 px-3 py-2 space-y-0.5 overflow-y-auto">
-          {navItems.filter((it) => isAgendaHost
+          {navItems.filter((it) => mode === 'tareas'
             ? it.to === '/tareas'
-            : (!it.adminOnly || user?.role === 'ADMIN') && (!it.staffOnly || user?.role === 'ADMIN' || user?.role === 'OPERATOR')
+            : it.to !== '/tareas' && (!it.adminOnly || user?.role === 'ADMIN')
           ).map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
@@ -113,7 +130,7 @@ export default function Layout() {
               <Menu size={22} />
             </button>
             <Building2 size={16} className="text-brand-600 hidden sm:block shrink-0" />
-            {isAgendaHost ? (
+            {mode === 'tareas' ? (
               <span className="text-ink font-semibold text-sm truncate">Agenda del estudio</span>
             ) : companies.length > 0 ? (
               <select
