@@ -29,6 +29,10 @@ function ocurreEnMes(recurrencia: string | null, mesAncla: number | null, month1
 // de empresas desactivadas quedan pausadas (no generan ni alertan).
 const TAREA_VIVA = { activa: true, OR: [{ companyId: null }, { company: { is: { active: true } } }] };
 
+// La agenda arranca en agosto 2026: no se generan vencimientos recurrentes
+// anteriores a esta fecha (las tareas anteriores no quedan pendientes).
+export const AGENDA_INICIO = new Date(Date.UTC(2026, 7, 1));
+
 export async function materializarVencimientos(from: Date, to: Date): Promise<void> {
   const tareas = await prisma.tarea.findMany({ where: TAREA_VIVA });
   const faltantes: Array<{ tareaId: string; fecha: Date }> = [];
@@ -41,14 +45,19 @@ export async function materializarVencimientos(from: Date, to: Date): Promise<vo
       }
       continue;
     }
-    // Recurrente: recorrer los meses del rango.
+    // Recurrente: recorrer los meses del rango, desde el piso de la agenda o el
+    // inicio del mes de creación de la tarea (lo más tarde de los dos).
     const dia = t.diaVencimiento && t.diaVencimiento >= 1 ? t.diaVencimiento : 1;
+    const piso = new Date(Math.max(
+      AGENDA_INICIO.getTime(),
+      Date.UTC(t.createdAt.getUTCFullYear(), t.createdAt.getUTCMonth(), 1),
+    ));
     let y = from.getUTCFullYear(), m = from.getUTCMonth() + 1;
     const endY = to.getUTCFullYear(), endM = to.getUTCMonth() + 1;
     while (y < endY || (y === endY && m <= endM)) {
       if (ocurreEnMes(t.recurrencia, t.mesAncla, m)) {
         const fecha = utcDate(y, m, dia);
-        if (fecha >= from && fecha <= to) faltantes.push({ tareaId: t.id, fecha });
+        if (fecha >= from && fecha <= to && fecha >= piso) faltantes.push({ tareaId: t.id, fecha });
       }
       if (m === 12) { m = 1; y++; } else { m++; }
     }
