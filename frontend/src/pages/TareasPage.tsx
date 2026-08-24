@@ -265,6 +265,10 @@ function Tareas() {
     qc.invalidateQueries({ queryKey: ['agenda-venc'] });
     qc.invalidateQueries({ queryKey: ['agenda-resumen'] });
   };
+  const estadoMut = useMutation({
+    mutationFn: ({ id, estado }: { id: string; estado: EstadoVenc }) => tareasApi.setEstado(id, estado),
+    onSuccess: invalidar,
+  });
   const saveMut = useMutation({
     mutationFn: () => {
       const payload = {
@@ -324,7 +328,7 @@ function Tareas() {
                 <th className="px-4 py-2 text-left">Cliente</th>
                 <th className="px-4 py-2 text-left">Periodicidad</th>
                 <th className="px-4 py-2 text-left">Responsable</th>
-                <th className="px-4 py-2 text-left">Estado</th>
+                <th className="px-4 py-2 text-left">Estado (este período)</th>
                 <th className="px-4 py-2"></th>
               </tr>
             </thead>
@@ -333,7 +337,10 @@ function Tareas() {
               {tareas.map((t) => (
                 <tr key={t.id} className={t.activa ? '' : 'opacity-50'}>
                   <td className="px-4 py-2.5">
-                    <p className="font-medium text-ink">{t.titulo}</p>
+                    <p className="font-medium text-ink">
+                      {t.titulo}
+                      {!t.activa && <span className="ml-2 badge badge-gray">Inactiva</span>}
+                    </p>
                     {t.categoria && <span className="text-xs text-ink-subtle">{t.categoria}</span>}
                   </td>
                   <td className="px-4 py-2.5 text-ink-muted">{nombreCliente(t)}</td>
@@ -341,7 +348,28 @@ function Tareas() {
                     {t.tipo === 'PUNTUAL' ? `Puntual · ${t.fechaVencimiento?.slice(0, 10) ?? ''}` : `${t.recurrencia}${t.diaVencimiento ? ` · día ${t.diaVencimiento}` : ''}`}
                   </td>
                   <td className="px-4 py-2.5 text-ink-muted text-xs">{t.responsable ? `${t.responsable.nombre} ${t.responsable.apellido}` : '—'}</td>
-                  <td className="px-4 py-2.5">{t.activa ? <span className="badge badge-green">Activa</span> : <span className="badge badge-gray">Inactiva</span>}</td>
+                  <td className="px-4 py-2.5">
+                    {t.vencimientoActual ? (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[11px] text-ink-subtle figure">vence {t.vencimientoActual.fecha.slice(8, 10)}/{t.vencimientoActual.fecha.slice(5, 7)}</span>
+                        {t.vencimientoActual.estado !== 'COMPLETADA' && (
+                          <button onClick={() => estadoMut.mutate({ id: t.vencimientoActual!.id, estado: 'COMPLETADA' })} className="btn-primary btn-sm">✓ Procesada</button>
+                        )}
+                        <select
+                          value={t.vencimientoActual.estado}
+                          onChange={(e) => estadoMut.mutate({ id: t.vencimientoActual!.id, estado: e.target.value as EstadoVenc })}
+                          className="form-input w-auto text-xs py-1"
+                        >
+                          <option value="PENDIENTE">Pendiente</option>
+                          <option value="COMPLETADA">Procesada</option>
+                          <option value="CON_FALTAS">Con faltantes</option>
+                          <option value="NO_COMPLETADA">No realizada</option>
+                        </select>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-ink-subtle">— sin vencimiento este mes —</span>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-2 justify-end">
                       <button onClick={() => abrirEdit(t)} className="btn-secondary btn-sm"><Pencil size={13} /> Editar</button>

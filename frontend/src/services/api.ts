@@ -536,6 +536,7 @@ export interface Tarea {
   activa: boolean;
   company?: { id: string; razonSocial: string; nombreFantasia: string | null } | null;
   responsable?: { id: string; nombre: string; apellido: string } | null;
+  vencimientoActual?: { id: string; fecha: string; estado: EstadoVenc } | null;
 }
 
 export interface Vencimiento {

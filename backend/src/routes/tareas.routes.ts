@@ -5,7 +5,7 @@ import { UserRole } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { authenticate, requireRole } from '../middleware/auth';
 import { AppError, NotFoundError } from '../middleware/errorHandler';
-import { listarVencimientos, resumenAgenda, ESTADOS } from '../services/tareas.service';
+import { listarVencimientos, resumenAgenda, materializarVencimientos, ESTADOS } from '../services/tareas.service';
 
 export const tareasRouter = Router();
 
@@ -44,10 +44,18 @@ tareasRouter.get('/usuarios', async (_req: Request, res: Response, next: NextFun
   } catch (err) { next(err); }
 });
 
-// GET /api/tareas — lista de definiciones de tareas.
+// GET /api/tareas — definiciones de tareas + el vencimiento del período vigente
+// (para poder cambiar el estado directo desde la lista de tareas).
 tareasRouter.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { companyId, responsableId, categoria, activa } = req.query;
+    // Materializar la ventana [mes actual, mes siguiente] para tener el
+    // vencimiento vigente de las recurrentes y puntuales cercanas.
+    const hoy = new Date();
+    const inicioMes = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth(), 1));
+    const finVentana = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth() + 2, 0, 23, 59, 59));
+    await materializarVencimientos(inicioMes, finVentana);
+
     const tareas = await prisma.tarea.findMany({
       where: {
         ...(companyId ? { companyId: String(companyId) } : {}),
@@ -58,10 +66,20 @@ tareasRouter.get('/', async (req: Request, res: Response, next: NextFunction) =>
       include: {
         company: { select: { id: true, razonSocial: true, nombreFantasia: true } },
         responsable: { select: { id: true, nombre: true, apellido: true } },
+        vencimientos: {
+          where: { fecha: { gte: inicioMes, lte: finVentana } },
+          orderBy: { fecha: 'asc' },
+          select: { id: true, fecha: true, estado: true },
+        },
       },
       orderBy: [{ activa: 'desc' }, { titulo: 'asc' }],
     });
-    res.json(tareas);
+    // vencimientoActual = el vigente del período (el más cercano de la ventana).
+    const out = tareas.map((t) => {
+      const { vencimientos, ...rest } = t;
+      return { ...rest, vencimientoActual: vencimientos[0] ?? null };
+    });
+    res.json(out);
   } catch (err) { next(err); }
 });
 
