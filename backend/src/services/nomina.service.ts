@@ -317,11 +317,12 @@ export async function generarNominaBps(companyId: string, year: number, month: n
     // se les descuentan las FALTAS, que en el recibo van como haber negativo
     // (días × valor de un día). Si no hay liquidación o quedó en $0 (no trabajó:
     // subsidio, licencia sin goce, ausencia total), se declaran 0 días — no 30.
-    // EXCEPCIÓN: el TITULAR unipersonal (vínculo funcional 1) declara sus días
-    // (30 en el mes completo) aunque su Total de Haberes sea 0, porque el ficto
-    // es un haber INFORMATIVO: igual aporta sobre el ficto/mayor sueldo.
-    const esTitularUnipersonal = contrato.vinculoFuncional === 1;
+    // EXCEPCIÓN: el TITULAR / socio SIN REMUNERACIÓN (vínculo 1 o "Aporta Por")
+    // declara sus días (30 en el mes completo) aunque su Total de Haberes sea 0,
+    // porque el ficto es un haber INFORMATIVO: igual aporta sobre el ficto/mayor
+    // sueldo. Se detecta por la presencia del ítem SUELDO_FICTO en su recibo.
     const liqConDias = liqsPersona.find((l) => l.type === 'MENSUAL') ?? liqsPersona.find((l) => l.type === 'LIQUIDACION_FINAL');
+    const esTitularUnipersonal = !!liqConDias?.items.some((i) => i.concepto === 'SUELDO_FICTO');
     let diasTrabajados = 0;
     if (liqConDias && (liqConDias.totalHaberes > 0n || esTitularUnipersonal)) {
       // Valor de un día para traducir el monto de faltas a cantidad de días

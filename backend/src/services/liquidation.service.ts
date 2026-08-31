@@ -152,7 +152,11 @@ export async function generarLiquidacionMensual(
   // (27,72) + Seguro x Enfermedad 3% de 6,5 BPC (44.616 → 1.338,48) +
   // Adicional según seguro de salud sobre 6,5 BPC (SS1: 3% → 1.338,48) +
   // IRPF 0,00. Líquido NEGATIVO (−6.862,59 = lo que el titular paga).
-  if (contrato.vinculoFuncional === 1) {
+  // Se liquida SIN REMUNERACIÓN (recibo en 0, aporta a BPS por ficto o mayor
+  // sueldo) si es el vínculo 1 (Patrón unipersonal — histórico) o si el contrato
+  // tiene definido "Aporta Por" (MAXIMO_SUELDO / FICTO), lo que habilita el mismo
+  // trato para cualquier vínculo sin remuneración (p. ej. 122 Director SAS).
+  if (esContratoSinRemuneracion(contrato)) {
     return generarLiquidacionTitularUnipersonal(input, period.companyId, contrato, labor.salarioNominal, asOfDate, params, employee);
   }
 
@@ -907,10 +911,22 @@ export async function generarLiquidacionMensual(
 // unidades de BFC (Base Ficta de Contribución).
 const UNIDADES_BFC = [11, 15, 20, 25, 30, 36, 42, 48, 54, 60];
 
+// "Aporta Por" que marcan a un contrato como SIN REMUNERACIÓN (titular/socio).
+const APORTA_POR_SIN_REMUNERACION = ['MAXIMO_SUELDO', 'FICTO'];
+
+// ¿El contrato se liquida sin remuneración (aporta por ficto o mayor sueldo)?
+// El vínculo 1 (Patrón unipersonal) siempre; el resto, si tiene "Aporta Por".
+export function esContratoSinRemuneracion(
+  contrato: { vinculoFuncional: number | null; aportaPor: string | null },
+): boolean {
+  return contrato.vinculoFuncional === 1
+    || (contrato.aportaPor != null && APORTA_POR_SIN_REMUNERACION.includes(contrato.aportaPor));
+}
+
 async function generarLiquidacionTitularUnipersonal(
   input: LiquidacionInput,
   companyId: string,
-  contrato: { id: string; fictoCategoria: number | null; seguroSalud: number | null },
+  contrato: { id: string; fictoCategoria: number | null; seguroSalud: number | null; vinculoFuncional: number | null; aportaPor: string | null },
   salarioNominalContrato: bigint,
   asOfDate: Date,
   params: Awaited<ReturnType<typeof parametersService.getPayrollParameters>>,
@@ -932,8 +948,14 @@ async function generarLiquidacionTitularUnipersonal(
   // estén liquidados (al regenerar el titular después toma el mayor actualizado).
   const year = asOfDate.getFullYear();
   const month = asOfDate.getMonth() + 1;
+  // Dependientes = trabajadores con remuneración (excluye a los titulares/socios
+  // sin remuneración: vínculo 1 o con "Aporta Por").
   const contratosDep = await prisma.contrato.findMany({
-    where: { companyId, NOT: { vinculoFuncional: 1 } },
+    where: {
+      companyId,
+      vinculoFuncional: { not: 1 },
+      NOT: { aportaPor: { in: APORTA_POR_SIN_REMUNERACION } },
+    },
     select: { employeeId: true },
   });
   const depIds = [...new Set(contratosDep.map((c) => c.employeeId))];
@@ -949,7 +971,12 @@ async function generarLiquidacionTitularUnipersonal(
       if (base > mayorSueldo) mayorSueldo = base;
     }
   }
-  const aportaPorMayor = mayorSueldo > fictoBase;
+  // Base de aporte según "Aporta Por":
+  //  FICTO         → siempre el ficto de la categoría.
+  //  MAXIMO_SUELDO → el mayor entre el ficto y el mayor sueldo de los dependientes.
+  //  (vínculo 1 sin "Aporta Por" → histórico: el mayor de ambos, como antes).
+  const forzarFicto = contrato.aportaPor === 'FICTO';
+  const aportaPorMayor = !forzarFicto && mayorSueldo > fictoBase;
   const ficto = aportaPorMayor ? mayorSueldo : fictoBase;
 
   // Aporte Jubilatorio personal 15% + FRL 0,10% sobre la base (ficto o mayor sueldo).
@@ -1153,7 +1180,11 @@ export async function recalcularTitularDelPeriodo(
   userId?: string,
 ): Promise<void> {
   const titulares = await prisma.contrato.findMany({
-    where: { companyId, vinculoFuncional: 1, activo: true },
+    where: {
+      companyId,
+      activo: true,
+      OR: [{ vinculoFuncional: 1 }, { aportaPor: { in: APORTA_POR_SIN_REMUNERACION } }],
+    },
     select: { employeeId: true },
   });
   if (titulares.length === 0) return;

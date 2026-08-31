@@ -32,6 +32,7 @@ interface ContractForm {
   vinculoFuncional?: string;
   fictoCategoria?: string;
   seguroSalud?: string;
+  aportaPor?: string;
   computosEspeciales?: string;
   exoneracionAporte?: string;
   horasSemanales?: number;
@@ -129,7 +130,7 @@ export default function ContractsPage() {
     setFormError('');
     setBajaCausal('');
     const hoy = new Date().toISOString().slice(0, 10);
-    reset({ personId: '', vigenciaDesde: hoy, fechaIngreso: hoy, fechaFin: '', salaryType: 'MENSUAL', tipoRemuneracion: 1, salarioNominalPesos: 0, cargo: '', sector: '', categoria: '', nivel: '', tipoContrato: '', sucursal: '', cuentaSueldos: '', observacion: '', vinculoFuncional: '12', fictoCategoria: '', seguroSalud: '', computosEspeciales: '99', exoneracionAporte: '9', horasSemanales: 44, focerTipo: '2', focerTipoContrato: '1' });
+    reset({ personId: '', vigenciaDesde: hoy, fechaIngreso: hoy, fechaFin: '', salaryType: 'MENSUAL', tipoRemuneracion: 1, salarioNominalPesos: 0, cargo: '', sector: '', categoria: '', nivel: '', tipoContrato: '', sucursal: '', cuentaSueldos: '', observacion: '', vinculoFuncional: '12', fictoCategoria: '', seguroSalud: '', aportaPor: '', computosEspeciales: '99', exoneracionAporte: '9', horasSemanales: 44, focerTipo: '2', focerTipoContrato: '1' });
     setModalOpen(true);
   };
 
@@ -153,6 +154,7 @@ export default function ContractsPage() {
       vinculoFuncional: c.vinculoFuncional != null ? String(c.vinculoFuncional) : '12',
       fictoCategoria: (c as unknown as { fictoCategoria?: number | null }).fictoCategoria != null ? String((c as unknown as { fictoCategoria?: number | null }).fictoCategoria) : '',
       seguroSalud: c.seguroSalud != null ? String(c.seguroSalud) : '',
+      aportaPor: (c as unknown as { aportaPor?: string | null }).aportaPor ?? '',
       computosEspeciales: c.computosEspeciales != null ? String(c.computosEspeciales) : '99',
       exoneracionAporte: c.exoneracionAporte != null ? String(c.exoneracionAporte) : '9',
       horasSemanales: c.horasSemanales ?? 44,
@@ -183,6 +185,7 @@ export default function ContractsPage() {
         vinculoFuncional: data.vinculoFuncional ? Number(data.vinculoFuncional) : undefined,
         fictoCategoria: data.fictoCategoria ? Number(data.fictoCategoria) : null,
         seguroSalud: data.seguroSalud ? Number(data.seguroSalud) : undefined,
+        aportaPor: data.aportaPor ? data.aportaPor : null,
         computosEspeciales: data.computosEspeciales ? Number(data.computosEspeciales) : undefined,
         exoneracionAporte: data.exoneracionAporte ? Number(data.exoneracionAporte) : undefined,
         horasSemanales: data.horasSemanales ? Number(data.horasSemanales) : undefined,
@@ -546,8 +549,17 @@ export default function ContractsPage() {
                         {vinculos?.map((v) => <option key={v.codigo} value={v.codigo}>{v.codigo} — {v.nombre}</option>)}
                       </select>
                     </div>
-                    {watch('vinculoFuncional') === '1' && (
-                      <div>
+                    <div>
+                      <label className="form-label">Aporta por (titular / socio sin remuneración)</label>
+                      <select {...register('aportaPor')} className="form-input">
+                        <option value="">Con remuneración (empleado normal)</option>
+                        <option value="MAXIMO_SUELDO">Sin remuneración — Máximo sueldo</option>
+                        <option value="FICTO">Sin remuneración — Ficto de categoría</option>
+                      </select>
+                      <p className="text-xs text-gray-400 mt-1">Sin remuneración: el recibo sale en 0 con 30 días; a BPS aporta por el mayor sueldo de los dependientes o por el ficto. Sirve para cualquier vínculo sin remuneración (1 Patrón unipersonal, 122 Director SAS, …).</p>
+                    </div>
+                    {(watch('vinculoFuncional') === '1' || watch('aportaPor') === 'FICTO') && (
+                      <div className="col-span-2">
                         <label className="form-label">Categoría de aporte del titular (sueldo ficto)</label>
                         <select {...register('fictoCategoria')} className="form-input">
                           <option value="">— Usar el sueldo del contrato —</option>

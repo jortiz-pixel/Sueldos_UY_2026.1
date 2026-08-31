@@ -525,6 +525,15 @@ model Contrato {
   // 1..10 (11/15/20/25/30/36/42/48/54/60 BFC). Define el sueldo ficto.
   fictoCategoria     Int?
   seguroSalud        Int?
+  // Cómo aporta el TITULAR / socio SIN REMUNERACIÓN (pantalla GNS "Aporta Por"):
+  //  null / 'SUELDO' → empleado normal (aporta por su sueldo real).
+  //  'MAXIMO_SUELDO' → sin remuneración; aporta por el MAYOR sueldo de los
+  //                    dependientes (o el ficto si es mayor). GNS "FI(SUELMAYOR)".
+  //  'FICTO'         → sin remuneración; aporta por el ficto de su categoría.
+  // Con 'MAXIMO_SUELDO'/'FICTO' el recibo sale sin remuneración (30 días, total 0)
+  // y en la nómina se declara el importe como concepto 1. Vale para cualquier
+  // vínculo funcional sin remuneración (1 Patrón unipersonal, 122 Director SAS, …).
+  aportaPor          String?
   computosEspeciales Int?
   exoneracionAporte  Int?
   acumulacionLaboral Int?
