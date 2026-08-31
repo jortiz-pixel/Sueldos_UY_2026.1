@@ -5,7 +5,7 @@ import { prisma } from '../utils/prisma';
 import { authenticate, requireRole } from '../middleware/auth';
 import { assertCompanyAccess } from '../middleware/tenancy';
 import { AppError, NotFoundError } from '../middleware/errorHandler';
-import { generarLiquidacionMensual, confirmarLiquidacion, valorJornalFalta, calcularPrimaAntiguedad } from '../services/liquidation.service';
+import { generarLiquidacionMensual, confirmarLiquidacion, valorJornalFalta, calcularPrimaAntiguedad, recalcularTitularDelPeriodo } from '../services/liquidation.service';
 import { esMiCasaSA, grupoConsejoDeEmpresa } from '../services/construccion.service';
 import { applyRate, divRoundHalfUp } from '../utils/money';
 import { calcularAguinaldo, calcularAguinaldoBrutoSemestre } from '../services/aguinaldo.service';
@@ -107,6 +107,10 @@ liquidationRouter.post('/confirm-batch', authenticate, requireRole(UserRole.ADMI
     if (!period) throw new NotFoundError('Período');
     await assertCompanyAccess(req, period.companyId);
     if (period.status === PeriodStatus.CERRADO) throw new AppError(409, 'El período está cerrado.');
+
+    // Antes de confirmar, recalcular el titular del mes para que su ficto tome
+    // el mayor sueldo definitivo de los trabajadores (solo su BORRADOR).
+    await recalcularTitularDelPeriodo(period.companyId, period.year, period.month, req.user!.userId);
 
     const borradores = await prisma.liquidation.findMany({ where: { periodId, status: LiquidationStatus.BORRADOR }, select: { id: true } });
     let confirmed = 0;
@@ -241,6 +245,11 @@ liquidationRouter.post('/generate', authenticate, requireRole(UserRole.ADMIN, Us
     }
 
     const result = await generarLiquidacionMensual({ ...input, userId: req.user!.userId });
+    // Si la empresa tiene un titular que aporta por el mayor sueldo, al
+    // generar/regenerar cualquier liquidación del mes se recalcula solo su
+    // BORRADOR para que tome el nuevo mayor sueldo del recibo. Idempotente
+    // (regenerar el titular da el mismo resultado) y sin loop.
+    await recalcularTitularDelPeriodo(period.companyId, input.year, input.month, req.user!.userId);
     const { totalHaberes, totalDescuentos, totalPatronal, liquidoPercibir, items, ...restResult } = result;
     res.json({
       ...restResult,
@@ -311,6 +320,10 @@ liquidationRouter.post('/generate-batch', authenticate, requireRole(UserRole.ADM
         errors.push({ employeeId: c.employeeId, error: (err as Error).message });
       }
     }
+
+    // Una vez generados todos los trabajadores, recalcular el titular del mes
+    // para que su ficto tome el mayor sueldo actualizado (solo BORRADOR).
+    await recalcularTitularDelPeriodo(companyId, year, month, req.user!.userId);
 
     res.json({ generated: results.length, failed: errors.length, results, errors });
   } catch (err) { next(err); }
@@ -454,6 +467,10 @@ liquidationRouter.post('/:id/confirm', authenticate, requireRole(UserRole.ADMIN,
     // manuales gravados) antes de cerrar la liquidación.
     await recalcularLiquidacion(req.params.id);
     await confirmarLiquidacion(req.params.id, req.user!.userId);
+    // Al confirmar un trabajador, refrescar el titular del mes (su BORRADOR)
+    // para que su ficto tome el mayor sueldo actualizado.
+    const periodConf = await prisma.payrollPeriod.findUnique({ where: { id: liquidation.periodId }, select: { companyId: true } });
+    if (periodConf) await recalcularTitularDelPeriodo(periodConf.companyId, liquidation.year, liquidation.month, req.user!.userId);
     res.json({ message: 'Liquidación confirmada exitosamente' });
   } catch (err) { next(err); }
 });
@@ -1132,6 +1149,10 @@ liquidationRouter.post('/:id/recalcular', authenticate, requireRole(UserRole.ADM
       throw new AppError(409, 'Solo se puede recalcular en BORRADOR. Desconfirmá primero.');
     }
     await recalcularLiquidacion(req.params.id);
+    // Recalcular el titular del mes: si cambió la materia gravada de un
+    // trabajador, su ficto (mayor sueldo) puede haberse movido.
+    const periodRec = await prisma.payrollPeriod.findUnique({ where: { id: liquidation.periodId }, select: { companyId: true } });
+    if (periodRec) await recalcularTitularDelPeriodo(periodRec.companyId, liquidation.year, liquidation.month, req.user!.userId);
     res.json({ message: 'Liquidación recalculada' });
   } catch (err) { next(err); }
 });

@@ -1138,3 +1138,36 @@ export async function confirmarLiquidacion(
     },
   });
 }
+
+/**
+ * Regenera automáticamente la liquidación del/los TITULAR(es) unipersonal(es) de
+ * la empresa en el período, para que tomen el MAYOR SUELDO actualizado de los
+ * trabajadores. Se llama después de generar/recalcular a un trabajador. Solo
+ * regenera titulares en BORRADOR (no pisa confirmadas). Idempotente y sin loop
+ * (regenerar el titular no vuelve a disparar esto).
+ */
+export async function recalcularTitularDelPeriodo(
+  companyId: string,
+  year: number,
+  month: number,
+  userId?: string,
+): Promise<void> {
+  const titulares = await prisma.contrato.findMany({
+    where: { companyId, vinculoFuncional: 1, activo: true },
+    select: { employeeId: true },
+  });
+  if (titulares.length === 0) return;
+  const period = await prisma.payrollPeriod.findFirst({ where: { companyId, year, month } });
+  if (!period) return;
+  for (const t of titulares) {
+    const liq = await prisma.liquidation.findFirst({
+      where: { periodId: period.id, employeeId: t.employeeId, type: LiquidationType.MENSUAL },
+      select: { id: true, status: true },
+    });
+    // Solo si ya existe su liquidación del mes y está en BORRADOR.
+    if (!liq || liq.status !== LiquidationStatus.BORRADOR) continue;
+    try {
+      await generarLiquidacionMensual({ employeeId: t.employeeId, periodId: period.id, year, month, userId });
+    } catch { /* si el titular no puede regenerarse, no bloquea al trabajador */ }
+  }
+}
