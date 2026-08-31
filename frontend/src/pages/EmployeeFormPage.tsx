@@ -51,6 +51,8 @@ interface EmployeeForm {
   // Historia Laboral BPS (primer contrato)
   vinculoFuncional?: string;
   seguroSalud?: string;
+  aportaPor?: string;
+  fictoCategoria?: string;
   horasSemanales?: number;
 }
 
@@ -61,7 +63,7 @@ const emptyForm: EmployeeForm = {
   irpfMetodo: 'PROYECCION', fonasaFamilia: false, banco: '', bancoSucursal: '', bancoCuenta: '', bancoMoneda: 'UYU', observaciones: '',
   companyId: '', fechaIngreso: '', cargo: '', categoria: '', nivel: '',
   salaryType: 'MENSUAL', tipoRemuneracion: 1, salarioNominalPesos: 0, jornalPesos: 0,
-  vinculoFuncional: '12', seguroSalud: '', horasSemanales: 44,
+  vinculoFuncional: '12', seguroSalud: '', aportaPor: '', fictoCategoria: '', horasSemanales: 44,
 };
 
 export default function EmployeeFormPage() {
@@ -181,6 +183,8 @@ export default function EmployeeFormPage() {
             ? String(Math.round(Number(data.jornalPesos) * 100)) : undefined,
           vinculoFuncional: data.vinculoFuncional ? Number(data.vinculoFuncional) : undefined,
           seguroSalud: data.seguroSalud ? Number(data.seguroSalud) : undefined,
+          aportaPor: data.aportaPor ? data.aportaPor : undefined,
+          fictoCategoria: data.fictoCategoria ? Number(data.fictoCategoria) : undefined,
           horasSemanales: data.horasSemanales ? Number(data.horasSemanales) : undefined,
         },
       });
@@ -450,6 +454,29 @@ export default function EmployeeFormPage() {
                   {segurosSalud?.map((v) => <option key={v.codigo} value={v.codigo}>{v.codigo} — {v.nombre}</option>)}
                 </select>
               </div>
+              <div>
+                <label className="form-label">Aporta por (titular / socio sin remuneración)</label>
+                <select {...register('aportaPor')} className="form-input">
+                  <option value="">Con remuneración (empleado normal)</option>
+                  <option value="MAXIMO_SUELDO">Sin remuneración — Máximo sueldo</option>
+                  <option value="FICTO">Sin remuneración — Ficto de categoría</option>
+                </select>
+                <p className="text-xs text-gray-400 mt-1">Sin remuneración: el recibo sale en 0 con 30 días; a BPS aporta por el mayor sueldo de los dependientes o por el ficto. Vale para cualquier vínculo sin remuneración (1 Patrón unipersonal, 122 Director SAS…).</p>
+              </div>
+              {(watch('vinculoFuncional') === '1' || watch('aportaPor') === 'FICTO') && (
+                <div>
+                  <label className="form-label">Categoría de aporte del titular (sueldo ficto)</label>
+                  <select {...register('fictoCategoria')} className="form-input">
+                    <option value="">— Usar el sueldo del contrato —</option>
+                    {[
+                      [1, 11], [2, 15], [3, 20], [4, 25], [5, 30],
+                      [6, 36], [7, 42], [8, 48], [9, 54], [10, 60],
+                    ].map(([cat, bfc]) => (
+                      <option key={cat} value={cat}>{cat}.ª — {bfc} BFC (${(bfc * 1847.96).toLocaleString('es-UY', { maximumFractionDigits: 0 })})</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="form-label">Horas semanales</label>
                 <select {...register('horasSemanales', { valueAsNumber: true })} className="form-input">

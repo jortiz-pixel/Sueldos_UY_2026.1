@@ -41,6 +41,8 @@ interface ContractForm {
   // Historia Laboral BPS
   vinculoFuncional?: string;
   seguroSalud?: string;
+  aportaPor?: string;
+  fictoCategoria?: string;
   computosEspeciales?: string;
   exoneracionAporte?: string;
   horasSemanales?: number;
@@ -242,6 +244,8 @@ export default function EmployeeDetailPage() {
         cuentaSueldos: data.cuentaSueldos || undefined,
         vinculoFuncional: data.vinculoFuncional ? Number(data.vinculoFuncional) : undefined,
         seguroSalud: data.seguroSalud ? Number(data.seguroSalud) : undefined,
+        aportaPor: data.aportaPor ? data.aportaPor : null,
+        fictoCategoria: data.fictoCategoria ? Number(data.fictoCategoria) : null,
         computosEspeciales: data.computosEspeciales ? Number(data.computosEspeciales) : undefined,
         exoneracionAporte: data.exoneracionAporte ? Number(data.exoneracionAporte) : undefined,
         horasSemanales: data.horasSemanales ? Number(data.horasSemanales) : undefined,
@@ -342,6 +346,8 @@ export default function EmployeeDetailPage() {
       cuentaSueldos: c.cuentaSueldos ?? '',
       vinculoFuncional: c.vinculoFuncional != null ? String(c.vinculoFuncional) : '12',
       seguroSalud: c.seguroSalud != null ? String(c.seguroSalud) : '',
+      aportaPor: (c as unknown as { aportaPor?: string | null }).aportaPor ?? '',
+      fictoCategoria: (c as unknown as { fictoCategoria?: number | null }).fictoCategoria != null ? String((c as unknown as { fictoCategoria?: number | null }).fictoCategoria) : '',
       computosEspeciales: c.computosEspeciales != null ? String(c.computosEspeciales) : '99',
       exoneracionAporte: c.exoneracionAporte != null ? String(c.exoneracionAporte) : '9',
       horasSemanales: c.horasSemanales ?? 44,
@@ -406,6 +412,8 @@ export default function EmployeeDetailPage() {
       jornalPesos: employee?.jornal ? Number(employee.jornal) / 100 : undefined,
       vinculoFuncional: '12',
       seguroSalud: '',
+      aportaPor: '',
+      fictoCategoria: '',
       computosEspeciales: '99',
       exoneracionAporte: '9',
       horasSemanales: 44,
@@ -782,6 +790,28 @@ export default function EmployeeDetailPage() {
                         {segurosSalud?.map((v) => <option key={v.codigo} value={v.codigo}>{v.codigo} — {v.nombre}</option>)}
                       </select>
                     </div>
+                    <div>
+                      <label className="form-label">Aporta por (titular / socio sin remuneración)</label>
+                      <select {...register('aportaPor')} className="form-input">
+                        <option value="">Con remuneración (empleado normal)</option>
+                        <option value="MAXIMO_SUELDO">Sin remuneración — Máximo sueldo</option>
+                        <option value="FICTO">Sin remuneración — Ficto de categoría</option>
+                      </select>
+                    </div>
+                    {(watch('vinculoFuncional') === '1' || watch('aportaPor') === 'FICTO') && (
+                      <div>
+                        <label className="form-label">Categoría de aporte del titular (sueldo ficto)</label>
+                        <select {...register('fictoCategoria')} className="form-input">
+                          <option value="">— Usar el sueldo del contrato —</option>
+                          {[
+                            [1, 11], [2, 15], [3, 20], [4, 25], [5, 30],
+                            [6, 36], [7, 42], [8, 48], [9, 54], [10, 60],
+                          ].map(([cat, bfc]) => (
+                            <option key={cat} value={cat}>{cat}.ª — {bfc} BFC (${(bfc * 1847.96).toLocaleString('es-UY', { maximumFractionDigits: 0 })})</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                     <div>
                       <label className="form-label">Horas semanales</label>
                       <select {...register('horasSemanales', { valueAsNumber: true })} className="form-input">
