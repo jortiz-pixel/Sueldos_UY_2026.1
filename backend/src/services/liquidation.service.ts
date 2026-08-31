@@ -922,9 +922,32 @@ async function generarLiquidacionTitularUnipersonal(
     : null;
   const unidades = cat ? UNIDADES_BFC[cat - 1] : null;
   // Sin categoría elegida, se usa el sueldo del contrato como ficto.
-  const ficto = unidades ? bfc * BigInt(unidades) : salarioNominalContrato;
+  const fictoBase = unidades ? bfc * BigInt(unidades) : salarioNominalContrato;
 
-  // Aporte Jubilatorio personal 15% + FRL 0,10% sobre el ficto (criterio GNS).
+  // El titular aporta sobre el MAYOR entre su ficto y el mayor sueldo nominal de
+  // los trabajadores DEPENDIENTES de la empresa: si algún empleado supera el
+  // ficto, el titular aporta por ese sueldo (regla del titular/socio). En el
+  // recibo sigue como remuneración 0; en la nómina se declara este importe.
+  const monthStart = new Date(asOfDate.getFullYear(), asOfDate.getMonth(), 1);
+  const monthEnd = new Date(asOfDate.getFullYear(), asOfDate.getMonth() + 1, 0, 23, 59, 59);
+  const dependientes = await prisma.contrato.findMany({
+    where: {
+      companyId,
+      vigenciaDesde: { lte: monthEnd },
+      NOT: { vinculoFuncional: 1 },
+      AND: [
+        { OR: [{ vigenciaHasta: null }, { vigenciaHasta: { gte: monthStart } }] },
+        { OR: [{ fechaFin: null }, { fechaFin: { gte: monthStart } }] },
+        { OR: [{ activo: true }, { fechaFin: { not: null } }] },
+      ],
+    },
+    select: { salarioNominal: true },
+  });
+  const mayorSueldo = dependientes.reduce((m, c) => (c.salarioNominal > m ? c.salarioNominal : m), 0n);
+  const aportaPorMayor = mayorSueldo > fictoBase;
+  const ficto = aportaPorMayor ? mayorSueldo : fictoBase;
+
+  // Aporte Jubilatorio personal 15% + FRL 0,10% sobre la base (ficto o mayor sueldo).
   const jubilatorio = applyRate(ficto, params.bpsJubilatorioRate);
   const frl = applyRate(ficto, params.frlObreroRate);
 
@@ -951,11 +974,13 @@ async function generarLiquidacionTitularUnipersonal(
       employeeId: input.employeeId,
       itemType: ItemType.HABER,
       concepto: 'SUELDO_FICTO',
-      descripcion: cat ? `Aporta (Para BPS) — Cat. ${cat}.ª (${unidades} BFC)` : 'Aporta (Para BPS)',
+      descripcion: aportaPorMayor
+        ? 'Aporta (Para BPS) — por mayor sueldo'
+        : (cat ? `Aporta (Para BPS) — Cat. ${cat}.ª (${unidades} BFC)` : 'Aporta (Para BPS)'),
       baseCalculo: bfc,
       rate: null,
       amount: ficto,
-      calculationDetail: { titular: true, informativo: true, categoria: cat, unidadesBfc: unidades, bfc: bfc.toString(), contratoId: contrato.id } as unknown as Prisma.JsonValue,
+      calculationDetail: { titular: true, informativo: true, categoria: cat, unidadesBfc: unidades, bfc: bfc.toString(), aportaPorMayor, fictoBase: fictoBase.toString(), mayorSueldo: mayorSueldo.toString(), contratoId: contrato.id } as unknown as Prisma.JsonValue,
     },
     {
       employeeId: input.employeeId,
