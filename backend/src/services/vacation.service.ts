@@ -347,26 +347,30 @@ export async function calcularLiquidacionFinal(
   const desdeLic = employee.fechaIngreso > inicioAnio ? employee.fechaIngreso : inicioAnio;
   const diasTrabajadosAnio = Math.max(0, Math.round((fechaEgreso.getTime() - desdeLic.getTime()) / 86400000));
   const salaryTypeEgreso = contrato?.salaryType ?? employee.salaryType;
-  let diasComputables: number;
-  if (salaryTypeEgreso === 'JORNALERO') {
-    // Jornalero: días computables = jornales trabajados en el año (los descansos
-    // y feriados que generan licencia ya vienen en los días de las mensuales).
-    const liqsAnio = await prisma.liquidation.findMany({
-      where: { employeeId, year, type: LiquidationType.MENSUAL, status: { in: [LiquidationStatus.BORRADOR, LiquidationStatus.CONFIRMADO] } },
-      select: { diasTrabajados: true },
-    });
-    diasComputables = liqsAnio.reduce((s, l) => s + (l.diasTrabajados || 0), 0);
-  } else {
-    diasComputables = diasComputablesFictoMensual(desdeLic, fechaEgreso);
-  }
+
+  // Días EFECTIVAMENTE TRABAJADOS en el año (de todas las mensuales), netos de
+  // faltas: es la base para generar la licencia. Se restan faltas/horas tarde
+  // (valor de una falta = jornal nominal = básico/30 · jornalero = jornal).
+  const liqsAnio = await prisma.liquidation.findMany({
+    where: { employeeId, year, type: LiquidationType.MENSUAL, status: { in: [LiquidationStatus.BORRADOR, LiquidationStatus.CONFIRMADO] } },
+    select: { diasTrabajados: true, items: { where: { concepto: { in: ['FALTAS', 'HORAS_TARDE'] } }, select: { amount: true } } },
+  });
+  const valorFalta = Number(jornalNominal);
+  let faltasDias = 0;
+  for (const l of liqsAnio) for (const it of l.items) faltasDias += valorFalta > 0 ? Math.abs(Number(it.amount)) / valorFalta : 0;
+  const diasComputablesBrutos = salaryTypeEgreso === 'JORNALERO'
+    ? liqsAnio.reduce((s, l) => s + (l.diasTrabajados || 0), 0)   // jornales del año
+    : diasComputablesFictoMensual(desdeLic, fechaEgreso);          // días del período (ficto 30/mes)
+  const diasComputables = Math.max(0, diasComputablesBrutos - faltasDias);
   const diasGenerados = diasLicenciaGenerados(salaryTypeEgreso, diasComputables, diasLicenciaAnuales);
   // Días ya tomados = salarios vacacionales CONFIRMADOS del año (no borradores).
   const diasTomados = await diasVacacionalesTomados(employeeId, year);
-  // No se redondea durante el cálculo; se redondea a 2 decimales sólo el resultado
-  // final (criterio GNS: los días redondeados se multiplican por el jornal).
+  // No se redondea durante el cálculo; el resultado final en días se TRUNCA a 2
+  // decimales (criterio GNS: 2,3888 → 2,38), y esos días se multiplican por el jornal.
+  const trunc2 = (n: number) => Math.floor(n * 100) / 100;
   const diasNoGozadas = diasLicenciaOverride != null
-    ? Math.max(0, Math.round(diasLicenciaOverride * 100) / 100)
-    : Math.max(0, Math.round((diasGenerados - diasTomados) * 100) / 100);
+    ? Math.max(0, trunc2(diasLicenciaOverride))
+    : Math.max(0, trunc2(diasGenerados - diasTomados));
   const diasNoGozadasTxt = diasNoGozadas.toFixed(2);
   const licenciaNoGozada = BigInt(Math.round(Number(jornalNominal) * diasNoGozadas));
   const salarioVacacionalEgreso = licenciaNoGozada; // por egreso: mismo importe, exento
