@@ -924,26 +924,31 @@ async function generarLiquidacionTitularUnipersonal(
   // Sin categoría elegida, se usa el sueldo del contrato como ficto.
   const fictoBase = unidades ? bfc * BigInt(unidades) : salarioNominalContrato;
 
-  // El titular aporta sobre el MAYOR entre su ficto y el mayor sueldo nominal de
-  // los trabajadores DEPENDIENTES de la empresa: si algún empleado supera el
-  // ficto, el titular aporta por ese sueldo (regla del titular/socio). En el
-  // recibo sigue como remuneración 0; en la nómina se declara este importe.
-  const monthStart = new Date(asOfDate.getFullYear(), asOfDate.getMonth(), 1);
-  const monthEnd = new Date(asOfDate.getFullYear(), asOfDate.getMonth() + 1, 0, 23, 59, 59);
-  const dependientes = await prisma.contrato.findMany({
-    where: {
-      companyId,
-      vigenciaDesde: { lte: monthEnd },
-      NOT: { vinculoFuncional: 1 },
-      AND: [
-        { OR: [{ vigenciaHasta: null }, { vigenciaHasta: { gte: monthStart } }] },
-        { OR: [{ fechaFin: null }, { fechaFin: { gte: monthStart } }] },
-        { OR: [{ activo: true }, { fechaFin: { not: null } }] },
-      ],
-    },
-    select: { salarioNominal: true },
+  // El titular aporta sobre el MAYOR entre su ficto y el mayor sueldo de los
+  // trabajadores DEPENDIENTES: si algún empleado lo supera, aporta por ese
+  // sueldo. Se toma la MATERIA GRAVADA DEL RECIBO MENSUAL de cada trabajador (no
+  // el sueldo del contrato). En el recibo el titular sigue en remuneración 0; en
+  // la nómina se declara este importe. Requiere que los trabajadores del mes ya
+  // estén liquidados (al regenerar el titular después toma el mayor actualizado).
+  const year = asOfDate.getFullYear();
+  const month = asOfDate.getMonth() + 1;
+  const contratosDep = await prisma.contrato.findMany({
+    where: { companyId, NOT: { vinculoFuncional: 1 } },
+    select: { employeeId: true },
   });
-  const mayorSueldo = dependientes.reduce((m, c) => (c.salarioNominal > m ? c.salarioNominal : m), 0n);
+  const depIds = [...new Set(contratosDep.map((c) => c.employeeId))];
+  let mayorSueldo = 0n;
+  const periodoMes = depIds.length ? await prisma.payrollPeriod.findFirst({ where: { companyId, year, month } }) : null;
+  if (periodoMes) {
+    const liqsTrab = await prisma.liquidation.findMany({
+      where: { periodId: periodoMes.id, type: LiquidationType.MENSUAL, employeeId: { in: depIds } },
+      include: { items: { where: { itemType: ItemType.DESCUENTO_OBRERO, concepto: 'FONASA' }, select: { baseCalculo: true } } },
+    });
+    for (const l of liqsTrab) {
+      const base = l.items[0]?.baseCalculo ?? 0n; // materia gravada del recibo (sin tope)
+      if (base > mayorSueldo) mayorSueldo = base;
+    }
+  }
   const aportaPorMayor = mayorSueldo > fictoBase;
   const ficto = aportaPorMayor ? mayorSueldo : fictoBase;
 
