@@ -10,6 +10,8 @@ import { calcularIrpfMensual } from './irpf.service';
 import { parametersService } from './parameters.service';
 import {
   diasLicenciaCorrespondientes,
+  diasLicenciaGenerados,
+  diasComputablesFictoMensual,
   calcularAntiguedad,
   calcularAntiguedadMeses,
 } from '../utils/date';
@@ -336,19 +338,35 @@ export async function calcularLiquidacionFinal(
   const mesesIndemnizacion = generaIndemnizacion ? Math.min(antiguedadAnios, 6) : 0;
   const indemnizacion = salarioBase * BigInt(mesesIndemnizacion);
 
-  // Días de licencia NO GOZADA: proporcional al tiempo trabajado en el año del
-  // egreso (días de licencia/año × días trabajados / 360), menos los ya tomados.
+  // Días de licencia NO GOZADA: días GENERADOS en el año del egreso menos los ya
+  // tomados. La generación sigue el criterio uruguayo según el tipo de trabajador:
+  //  - MENSUAL:   días computables (ficto 30/mes) × días de licencia/año / 360.
+  //  - JORNALERO: días computables (jornales del año) × 0,066.
   const diasLicenciaAnuales = diasLicenciaCorrespondientes(antiguedadAnios);
   const inicioAnio = new Date(year, 0, 1);
   const desdeLic = employee.fechaIngreso > inicioAnio ? employee.fechaIngreso : inicioAnio;
   const diasTrabajadosAnio = Math.max(0, Math.round((fechaEgreso.getTime() - desdeLic.getTime()) / 86400000));
+  const salaryTypeEgreso = contrato?.salaryType ?? employee.salaryType;
+  let diasComputables: number;
+  if (salaryTypeEgreso === 'JORNALERO') {
+    // Jornalero: días computables = jornales trabajados en el año (los descansos
+    // y feriados que generan licencia ya vienen en los días de las mensuales).
+    const liqsAnio = await prisma.liquidation.findMany({
+      where: { employeeId, year, type: LiquidationType.MENSUAL, status: { in: [LiquidationStatus.BORRADOR, LiquidationStatus.CONFIRMADO] } },
+      select: { diasTrabajados: true },
+    });
+    diasComputables = liqsAnio.reduce((s, l) => s + (l.diasTrabajados || 0), 0);
+  } else {
+    diasComputables = diasComputablesFictoMensual(desdeLic, fechaEgreso);
+  }
+  const diasGenerados = diasLicenciaGenerados(salaryTypeEgreso, diasComputables, diasLicenciaAnuales);
   // Días ya tomados = salarios vacacionales CONFIRMADOS del año (no borradores).
   const diasTomados = await diasVacacionalesTomados(employeeId, year);
-  // Se redondea a 2 decimales (criterio GNS: los días redondeados se multiplican
-  // por el jornal, ej. 4,72 × 1036,48).
+  // No se redondea durante el cálculo; se redondea a 2 decimales sólo el resultado
+  // final (criterio GNS: los días redondeados se multiplican por el jornal).
   const diasNoGozadas = diasLicenciaOverride != null
     ? Math.max(0, Math.round(diasLicenciaOverride * 100) / 100)
-    : Math.max(0, Math.round(((diasLicenciaAnuales * diasTrabajadosAnio) / 360 - diasTomados) * 100) / 100);
+    : Math.max(0, Math.round((diasGenerados - diasTomados) * 100) / 100);
   const diasNoGozadasTxt = diasNoGozadas.toFixed(2);
   const licenciaNoGozada = BigInt(Math.round(Number(jornalNominal) * diasNoGozadas));
   const salarioVacacionalEgreso = licenciaNoGozada; // por egreso: mismo importe, exento

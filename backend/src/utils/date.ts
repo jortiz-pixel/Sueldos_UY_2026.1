@@ -23,6 +23,51 @@ export function diasLicenciaCorrespondientes(antiguedadAnios: number): number {
   return 20;
 }
 
+// Tasa de generación de licencia del JORNALERO: 0,066 días por día computable
+// (calibrada para 20 días/año). Se escala si la antigüedad da más de 20.
+export const TASA_LICENCIA_JORNALERO = 0.066;
+
+/**
+ * Días de licencia GENERADOS según el criterio uruguayo (sin redondear; se
+ * redondea sólo el resultado final donde se use):
+ *  - MENSUAL:   días computables × díasBaseAño / 360   (= meses × 1,6667 con base 20)
+ *  - JORNALERO: días computables × 0,066               (× base/20 si antigüedad > 20)
+ * `diasBaseAnio` es la licencia anual (20/25/30 según antigüedad).
+ */
+export function diasLicenciaGenerados(
+  salaryType: 'MENSUAL' | 'JORNALERO' | string,
+  diasComputables: number,
+  diasBaseAnio = 20,
+): number {
+  if (salaryType === 'JORNALERO') {
+    return diasComputables * TASA_LICENCIA_JORNALERO * (diasBaseAnio / 20);
+  }
+  return (diasComputables * diasBaseAnio) / 360;
+}
+
+/**
+ * Días computables MENSUALES en base ficto (30 por mes) entre dos fechas,
+ * inclusive: un mes trabajado completo cuenta 30; uno parcial, los días
+ * efectivos (tope 30). Sirve para el proporcional de licencia del mensual.
+ */
+export function diasComputablesFictoMensual(desde: Date, hasta: Date): number {
+  if (hasta < desde) return 0;
+  let dias = 0;
+  let cur = new Date(desde.getFullYear(), desde.getMonth(), 1);
+  while (cur <= hasta) {
+    const inicioMes = new Date(cur.getFullYear(), cur.getMonth(), 1);
+    const finMes = new Date(cur.getFullYear(), cur.getMonth() + 1, 0);
+    const wFrom = desde > inicioMes ? desde : inicioMes;
+    const wTo = hasta < finMes ? hasta : finMes;
+    if (wTo >= wFrom) {
+      const completo = wFrom.getTime() === inicioMes.getTime() && wTo.getTime() === finMes.getTime();
+      dias += completo ? 30 : Math.min(30, wTo.getDate() - wFrom.getDate() + 1);
+    }
+    cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+  }
+  return dias;
+}
+
 /**
  * Meses de preaviso según antigüedad (Ley 10.449 y Ley 10.542):
  * - < 6 meses: 7 días (en días, no meses)
