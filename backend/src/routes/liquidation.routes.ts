@@ -439,8 +439,18 @@ liquidationRouter.get('/:id/preview', authenticate, async (req: Request, res: Re
     if (!liquidation) throw new NotFoundError('Liquidación');
     await assertLiquidationAccess(req, req.params.id);
 
+    // Datos laborales efectivos del contrato del mes (para el panel de edición:
+    // los JORNALEROS pueden ajustar la cantidad de jornales efectivos).
+    const contratoMes = await resolverContratoEnMes(
+      liquidation.employeeId, liquidation.year, liquidation.month, liquidation.period?.companyId,
+    );
+    const salaryType = contratoMes?.salaryType ?? null;
+    const jornalContrato = contratoMes?.jornal ?? null;
+
     res.json({
       ...liquidation,
+      salaryType,
+      jornalContrato: jornalContrato != null ? jornalContrato.toString() : null,
       totalHaberes: liquidation.totalHaberes.toString(),
       totalDescuentos: liquidation.totalDescuentos.toString(),
       totalPatronal: liquidation.totalPatronal.toString(),

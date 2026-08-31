@@ -387,6 +387,18 @@ export default function LiquidationDetailPage() {
   const [horasLluvia, setHorasLluvia] = useState('');
   const [ticketCant, setTicketCant] = useState('');
   const [mediasHoras, setMediasHoras] = useState('');
+  // JORNALERO (no construcción): cantidad de jornales efectivos del mes.
+  const liqExtra = liq as unknown as { salaryType?: string | null; jornalContrato?: string | null } | undefined;
+  const esJornalero = liqExtra?.salaryType === 'JORNALERO';
+  const [jornalesTrab, setJornalesTrab] = useState('');
+  const jornalesPrefillDone = useRef(false);
+  useEffect(() => {
+    if (jornalesPrefillDone.current || !liq) return;
+    if (esJornalero && liq.type === 'MENSUAL') {
+      setJornalesTrab(String(liq.diasTrabajados));
+      jornalesPrefillDone.current = true;
+    }
+  }, [liq?.diasTrabajados, liq?.type, esJornalero]);
   // Salario vacacional a gozar (liquidación LICENCIA / especial).
   const [vacDias, setVacDias] = useState('');
   const [vacAnticipar, setVacAnticipar] = useState(false);
@@ -425,6 +437,22 @@ export default function LiquidationDetailPage() {
         ...(ticketCant !== '' ? { TICKET_ALIMENTACION: Number(ticketCant) } : {}),
         ...(mediasHoras !== '' ? { MEDIAS_HORAS: Number(mediasHoras) } : {}),
       },
+    }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['liquidation', id] }),
+    onError: (e: unknown) => {
+      const err = e as { response?: { data?: { error?: string } } };
+      alert(err.response?.data?.error || 'No se pudo recalcular la liquidación.');
+    },
+  });
+
+  // Regenera la mensualidad del JORNALERO con la cantidad de jornales efectivos.
+  const jornalesMutation = useMutation({
+    mutationFn: (dias: number) => liquidationApi.generate({
+      employeeId: liq!.employeeId,
+      periodId: liq!.periodId,
+      year: liq!.year,
+      month: liq!.month,
+      diasTrabajados: dias,
     }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['liquidation', id] }),
     onError: (e: unknown) => {
@@ -694,6 +722,47 @@ export default function LiquidationDetailPage() {
             contrato si es mayor), presentismos, ropa, transporte, herramientas (según categoría), ticket de alimentación y media
             hora (1 por jornada de 8 hs), y Fondo Social/Vivienda. Solo la lluvia se indica a mano; tickets y medias horas se pueden
             corregir acá. Recalcular pisa los conceptos manuales agregados.
+          </p>
+        </div>
+      )}
+
+      {/* Jornalero (no construcción): cantidad de jornales efectivos del mes */}
+      {esJornalero && !esConstruccion && liq.type === 'MENSUAL' && puedeEditar && (
+        <div className="card p-4 border-t-4 border-t-emerald-400 space-y-3">
+          <p className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+            <RefreshCw size={16} className="text-emerald-500" /> Jornalero — jornales trabajados
+          </p>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <div>
+              <label className="form-label">Jornales efectivos del mes</label>
+              <input
+                type="number" min="0" max="31" step="1"
+                value={jornalesTrab}
+                onChange={(e) => setJornalesTrab(e.target.value)}
+                placeholder={`por defecto ${liq.diasTrabajados}`}
+                className="form-input"
+              />
+              <p className="text-[11px] text-gray-500 mt-1">Por defecto trae el total de jornales del mes; editalo con los que realmente trabajó.</p>
+            </div>
+            <div className="flex items-start">
+              <button
+                onClick={() => { const n = Number(jornalesTrab); if (n >= 0) jornalesMutation.mutate(n); }}
+                disabled={jornalesTrab === '' || jornalesMutation.isPending}
+                className="btn-primary btn-sm w-full"
+              >
+                {jornalesMutation.isPending ? 'Calculando…' : 'Aplicar y recalcular'}
+              </button>
+            </div>
+          </div>
+          {liqExtra?.jornalContrato && Number(jornalesTrab) > 0 && (
+            <div className="text-xs bg-emerald-50/60 rounded-lg px-3 py-2 text-gray-700">
+              <b>{Number(jornalesTrab)}</b> jornales × {formatPesos(liqExtra.jornalContrato)} (jornal) ={' '}
+              <b className="text-emerald-700">{formatPesos(String(Math.round(Number(liqExtra.jornalContrato) * Number(jornalesTrab))))}</b> nominal del mes
+            </div>
+          )}
+          <p className="text-[11px] text-gray-400">
+            Al aplicar se REGENERA la mensualidad con esos jornales; los aportes, FONASA e IRPF se recalculan solos.
+            Recalcular pisa los conceptos manuales agregados.
           </p>
         </div>
       )}
