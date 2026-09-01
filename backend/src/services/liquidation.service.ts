@@ -949,16 +949,20 @@ async function generarLiquidacionTitularUnipersonal(
   const year = asOfDate.getFullYear();
   const month = asOfDate.getMonth() + 1;
   // Dependientes = trabajadores con remuneración (excluye a los titulares/socios
-  // sin remuneración: vínculo 1 o con "Aporta Por").
+  // sin remuneración: vínculo 1 o con "Aporta Por"). El filtrado se hace en JS
+  // para NO caer en la lógica de tres valores de SQL: un `NOT (aportaPor IN ...)`
+  // o `vinculoFuncional <> 1` deja fuera las filas con NULL (los trabajadores
+  // normales tienen aportaPor NULL), lo que vaciaba la lista y daba mayor
+  // sueldo 0 → el titular aportaba por el ficto base en vez del mayor sueldo.
   const contratosDep = await prisma.contrato.findMany({
-    where: {
-      companyId,
-      vinculoFuncional: { not: 1 },
-      NOT: { aportaPor: { in: APORTA_POR_SIN_REMUNERACION } },
-    },
-    select: { employeeId: true },
+    where: { companyId },
+    select: { employeeId: true, vinculoFuncional: true, aportaPor: true },
   });
-  const depIds = [...new Set(contratosDep.map((c) => c.employeeId))];
+  const depIds = [...new Set(
+    contratosDep
+      .filter((c) => c.vinculoFuncional !== 1 && !APORTA_POR_SIN_REMUNERACION.includes(c.aportaPor ?? ''))
+      .map((c) => c.employeeId),
+  )];
   let mayorSueldo = 0n;
   const periodoMes = depIds.length ? await prisma.payrollPeriod.findFirst({ where: { companyId, year, month } }) : null;
   if (periodoMes) {
