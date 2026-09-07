@@ -626,6 +626,83 @@ async function recalcularTotales(liquidationId: string): Promise<void> {
 // Conceptos HABER que NO entran a la base de aportes (no gravados).
 const HABER_NO_GRAVADO = new Set(['SALARIO_VACACIONAL', 'AJUSTE_NO_GRAVADO', 'REINTEGRO_GASTOS', 'VIATICOS']);
 
+// Conceptos HABER EXENTOS de aportes SOLO en la liquidación FINAL: la
+// indemnización (IPD), la licencia no gozada y el salario vacacional por egreso
+// van sin descuentos. La ÚNICA partida gravada de la final es el aguinaldo por
+// egreso (más cualquier haber gravado que se agregue a mano).
+const FINAL_HABER_EXENTO = new Set(['INDEMNIZACION', 'LICENCIA_NO_GOZADA', 'LICENCIA_PENDIENTE', 'PREAVISO']);
+
+// Recalcula los DESCUENTOS de una LIQUIDACIÓN FINAL sobre su base gravada ACTUAL.
+// Así, al editar el importe del AGUINALDO por egreso, los aportes (jubilatorio con
+// tope/2, FONASA, adicional, FRL, IRPF) se recalculan tomando el nuevo valor como
+// base. La licencia no gozada, el salario vacacional y la indemnización siguen
+// EXENTOS. Los ítems de descuento se crean si faltan.
+async function recalcularFinalInterna(liquidationId: string): Promise<void> {
+  const liq = await prisma.liquidation.findUnique({
+    where: { id: liquidationId },
+    include: { items: true, period: { include: { company: true } } },
+  });
+  if (!liq) return;
+  const employee = await prisma.employee.findUnique({ where: { id: liq.employeeId } });
+  if (!employee) { await recalcularTotales(liquidationId); return; }
+
+  const asOf = new Date(liq.year, liq.month - 1, 1);
+  const params = await parametersService.getPayrollParameters(asOf);
+  const companyId = liq.period?.companyId;
+  const bseRate = liq.period?.company?.bseRate ?? 0;
+
+  // Base gravada = haberes gravados (aguinaldo + manuales gravados). Exentos:
+  // indemnización, licencia no gozada, salario vacacional (y no gravados comunes).
+  let base = 0n;
+  for (const it of liq.items) {
+    if (it.itemType !== ItemType.HABER) continue;
+    if (FINAL_HABER_EXENTO.has(it.concepto)) continue;
+    if (HABER_NO_GRAVADO.has(it.concepto)) continue;
+    base += it.amount;
+  }
+
+  // Adicional FONASA según el Seguro de Salud (Tabla 8) del contrato del mes.
+  const contratoMes = companyId ? await resolverContratoEnMes(liq.employeeId, liq.year, liq.month, companyId) : null;
+  const cargasFonasa = fonasaCargasDeSeguroSalud(contratoMes?.seguroSalud);
+  const fonasaHijos = cargasFonasa ? (cargasFonasa.hijos ? 1 : 0) : employee.hijosACargo;
+  const fonasaConyuge = cargasFonasa ? cargasFonasa.conyuge : employee.conyugeACargo;
+
+  const obreros = calcularAportesObreros({ salarioNominal: base, hijosACargo: fonasaHijos, conyugeACargo: fonasaConyuge, params, bseRateEmpresa: bseRate, topeJubilatorioMedio: true });
+  const patronales = calcularAportesPatronales({ salarioNominal: base, hijosACargo: fonasaHijos, conyugeACargo: fonasaConyuge, params, bseRateEmpresa: bseRate });
+  const irpf = calcularIrpfMensual({
+    salarioNominal: base,
+    fonasaMensual: obreros.fonasaTotal,
+    bpsMensual: obreros.jubilatorio,
+    hijosACargo: employee.hijosACargo,
+    hijosDiscapacitados: employee.hijosDiscapacitados,
+    conyugeACargo: employee.conyugeACargo,
+    params,
+  });
+
+  const descuentos: Array<{ concepto: string; descripcion: string; baseCalculo: bigint; rate: number | null; amount: bigint }> = [
+    { concepto: 'BPS_JUBILATORIO', descripcion: 'BPS Jubilatorio', baseCalculo: obreros.baseJubilatorio, rate: params.bpsJubilatorioRate, amount: obreros.jubilatorio },
+    { concepto: 'FONASA', descripcion: 'FONASA (Seguro por Enfermedad)', baseCalculo: base, rate: obreros.detail.fonasaSeguroRate, amount: obreros.fonasaBasico },
+    { concepto: 'FONASA_ADICIONAL', descripcion: 'Adicional FONASA', baseCalculo: base, rate: obreros.detail.fonasaAdicionalRate, amount: obreros.fonasaFamilia },
+    { concepto: 'FRL', descripcion: 'Fondo de Reconversión Laboral', baseCalculo: base, rate: params.frlObreroRate, amount: obreros.frl },
+    { concepto: 'IRPF', descripcion: 'IRPF', baseCalculo: base, rate: null, amount: irpf.retencionMensual },
+  ];
+  for (const d of descuentos) {
+    const item = liq.items.find((i) => i.concepto === d.concepto && i.itemType === ItemType.DESCUENTO_OBRERO);
+    if (item) {
+      await prisma.payrollItem.update({ where: { id: item.id }, data: { baseCalculo: d.baseCalculo, rate: d.rate, amount: d.amount, descripcion: d.descripcion } });
+    } else {
+      await prisma.payrollItem.create({
+        data: { liquidationId, employeeId: liq.employeeId, itemType: ItemType.DESCUENTO_OBRERO, concepto: d.concepto, descripcion: d.descripcion, baseCalculo: d.baseCalculo, rate: d.rate, amount: d.amount },
+      });
+    }
+  }
+
+  // recalcularTotales pone totalPatronal en 0 (la final no lleva ítems patronales);
+  // se fija el patronal recalculado después de re-sumar los totales.
+  await recalcularTotales(liquidationId);
+  await prisma.liquidation.update({ where: { id: liquidationId }, data: { totalPatronal: patronales.total } });
+}
+
 // Para liquidaciones MENSUALES, recomputa los aportes legales (BPS/FONASA/FRL/
 // IRPF + patronales) sobre la base gravada ACTUAL — así los conceptos manuales
 // gravados (p. ej. prima por antigüedad) entran al monto imponible. Luego
@@ -647,6 +724,9 @@ async function recalcularLiquidacionInterna(liquidationId: string): Promise<void
     include: { items: true, period: { include: { company: true } } },
   });
   if (!liq) return;
+  // Liquidación FINAL: recalcular los descuentos sobre la base gravada actual
+  // (aguinaldo por egreso editable). Los demás tipos solo re-suman totales.
+  if (liq.type === LiquidationType.LIQUIDACION_FINAL) { await recalcularFinalInterna(liquidationId); return; }
   if (liq.type !== LiquidationType.MENSUAL) { await recalcularTotales(liquidationId); return; }
 
   // Liquidación de TITULAR unipersonal (sueldo ficto): los aportes son los del
