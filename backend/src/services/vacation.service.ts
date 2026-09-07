@@ -395,7 +395,21 @@ export async function calcularLiquidacionFinal(
     },
     select: { totalHaberes: true },
   });
-  const haberesSemestre = liqsSemestre.reduce((s, l) => s + l.totalHaberes, 0n);
+  let haberesSemestre = liqsSemestre.reduce((s, l) => s + l.totalHaberes, 0n);
+  // Respaldo: si NO hay mensuales del semestre en el sistema (p. ej. la baja se
+  // procesa sin haber liquidado cada mes), se estima el aguinaldo por egreso con
+  // el SUELDO DEL CONTRATO proporcional a los meses del semestre en curso que la
+  // persona efectivamente trabajó (desde su ingreso). Así la partida GRAVADA —y
+  // por lo tanto los descuentos— igual se calcula. Con mensuales cargadas se usa
+  // el importe real (criterio validado), sin tocar ese caso.
+  if (haberesSemestre === 0n) {
+    const ingresoY = employee.fechaIngreso.getFullYear();
+    const ingresoM = employee.fechaIngreso.getMonth() + 1;
+    const mesesConSalario = mesesAg.filter(
+      (mm) => mm.year > ingresoY || (mm.year === ingresoY && mm.month >= ingresoM),
+    ).length;
+    haberesSemestre = salarioBase * BigInt(mesesConSalario);
+  }
   const aguinaldoEgreso = multiplyFraction(haberesSemestre, 1, 12);
 
   const totalBruto = indemnizacion + aguinaldoEgreso
