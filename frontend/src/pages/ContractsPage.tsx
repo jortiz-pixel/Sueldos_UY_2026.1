@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { Link, useNavigate } from 'react-router-dom';
 import { Eye, Plus, X, AlertCircle, Pencil, Printer, Trash2, Undo2 } from 'lucide-react';
-import { contractsApi, catalogsApi, companiesApi, construccionApi, obrasApi } from '../services/api';
+import { contractsApi, catalogsApi, companiesApi, construccionApi, obrasApi, employeesApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
 import { formatPesos, SalaryType, Contrato } from '../types';
@@ -43,6 +43,12 @@ interface ContractForm {
   categoriaCtCod?: string;
   cajaActividad?: string;
   asignacionFamiliar?: string; // '', 'S' o 'N' (vacío = automática según hijos)
+  // Cargas e IRPF de la persona (se editan acá, se guardan en la persona).
+  hijosACargo?: number;
+  hijosDiscapacitados?: number;
+  conyugeACargo?: boolean;
+  fonasaFamilia?: boolean;
+  irpfMetodo?: string;
   observacion?: string;
 }
 
@@ -109,6 +115,25 @@ export default function ContractsPage() {
   const tipoRemuneracion = Number(watch('tipoRemuneracion') ?? 1);
   const salaryType = salaryTypeDeTipoRem(tipoRemuneracion);
   const categoriaActual = watch('categoria') ?? '';
+
+  // Persona del contrato: sus cargas e IRPF se editan desde acá (se guardan en la
+  // persona, que es su fuente única). Se prellenan al abrir / cambiar de persona.
+  const empId = editing?.employeeId ?? watch('personId');
+  const { data: personaSel } = useQuery({
+    queryKey: ['employee', empId],
+    queryFn: () => employeesApi.get(empId as string),
+    enabled: !!empId && modalOpen,
+  });
+  const cargasPrefill = useRef<string | null>(null);
+  useEffect(() => {
+    if (!personaSel || !modalOpen || cargasPrefill.current === personaSel.id) return;
+    cargasPrefill.current = personaSel.id;
+    setValue('hijosACargo', personaSel.hijosACargo ?? 0);
+    setValue('hijosDiscapacitados', personaSel.hijosDiscapacitados ?? 0);
+    setValue('conyugeACargo', !!personaSel.conyugeACargo);
+    setValue('fonasaFamilia', !!personaSel.fonasaFamilia);
+    setValue('irpfMetodo', personaSel.irpfMetodo ?? 'PROYECCION');
+  }, [personaSel, modalOpen, setValue]);
   const recuadroEmpresa = empresaDetalle?.tipoAporte === 4 ? 'INCLUIDOS' : 'NO_INCLUIDOS';
 
   // Jornales del laudo: al ELEGIR una categoría se autocompleta el valor hora
@@ -138,6 +163,7 @@ export default function ContractsPage() {
     setEditing(null);
     setFormError('');
     setBajaCausal('');
+    cargasPrefill.current = null;
     const hoy = new Date().toISOString().slice(0, 10);
     reset({ personId: '', vigenciaDesde: hoy, fechaIngreso: hoy, fechaFin: '', salaryType: 'MENSUAL', tipoRemuneracion: 1, salarioNominalPesos: 0, cargo: '', sector: '', categoria: '', nivel: '', tipoContrato: '', sucursal: '', cuentaSueldos: '', observacion: '', vinculoFuncional: '12', fictoCategoria: '', seguroSalud: '', aportaPor: '', computosEspeciales: '99', exoneracionAporte: '9', horasSemanales: 44, focerTipo: '2', focerTipoContrato: '1', obraId: '', categoriaCtCod: '', cajaActividad: '', asignacionFamiliar: '' });
     setModalOpen(true);
@@ -146,6 +172,7 @@ export default function ContractsPage() {
   const openEdit = (c: ContratoRow) => {
     setEditing({ employeeId: c.employee.id, contractId: c.id, persona: `${c.employee.apellido}, ${c.employee.nombre}`, yaBaja: !!c.fechaFin });
     setFormError('');
+    cargasPrefill.current = null;
     const causalActual = (c as { causalEgresoCod?: number | null }).causalEgresoCod;
     setBajaCausal(causalActual != null ? String(causalActual) : '');
     reset({
@@ -178,7 +205,19 @@ export default function ContractsPage() {
   };
 
   const saveMutation = useMutation({
-    mutationFn: (data: ContractForm) => {
+    mutationFn: async (data: ContractForm) => {
+      const employeeId = editing?.employeeId ?? data.personId;
+      // Cargas e IRPF son de la PERSONA (fuente única de los cálculos); se editan
+      // desde acá y se guardan en la persona.
+      if (employeeId) {
+        await employeesApi.update(employeeId, {
+          hijosACargo: Number(data.hijosACargo ?? 0),
+          hijosDiscapacitados: Number(data.hijosDiscapacitados ?? 0),
+          conyugeACargo: !!data.conyugeACargo,
+          fonasaFamilia: !!data.fonasaFamilia,
+          irpfMetodo: data.irpfMetodo || 'PROYECCION',
+        });
+      }
       const payload = {
         companyId,
         vigenciaDesde: data.vigenciaDesde,
@@ -217,6 +256,7 @@ export default function ContractsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['contracts-company', companyId] });
       queryClient.invalidateQueries({ queryKey: ['nomina-checklist'] });
+      if (empId) queryClient.invalidateQueries({ queryKey: ['employee', empId] });
       setModalOpen(false);
     },
     onError: (err: unknown) => {
@@ -587,6 +627,35 @@ export default function ContractsPage() {
                   <label className="form-label">Cuenta de sueldos (centro de costos)</label>
                   <input {...register('cuentaSueldos')} className="form-input" placeholder="Producción, Administración, Sucursal Centro…" />
                   <p className="text-xs text-gray-400 mt-1">Separa el gasto en el asiento contable por unidad de negocio.</p>
+                </div>
+                <div className="col-span-2 pt-2 mt-1 border-t border-hairline">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-ink-subtle mb-3">Cargas e IRPF</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="form-label">Hijos a cargo</label>
+                      <input {...register('hijosACargo', { valueAsNumber: true })} type="number" min="0" className="form-input" />
+                    </div>
+                    <div>
+                      <label className="form-label">Hijos con discapacidad</label>
+                      <input {...register('hijosDiscapacitados', { valueAsNumber: true })} type="number" min="0" className="form-input" />
+                    </div>
+                    <div>
+                      <label className="form-label">Método IRPF</label>
+                      <select {...register('irpfMetodo')} className="form-input">
+                        <option value="PROYECCION">Proyección anual</option>
+                        <option value="SIMPLIFICADO">Simplificado</option>
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-2 pt-6">
+                      <label className="flex items-center gap-2 text-sm text-gray-700">
+                        <input {...register('conyugeACargo')} type="checkbox" className="rounded" /> Cónyuge a cargo (FONASA +2%)
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-gray-700">
+                        <input {...register('fonasaFamilia')} type="checkbox" className="rounded" /> Hijos en FONASA (+1,5%)
+                      </label>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-1">Son datos de la persona (valen para todos sus contratos); se editan acá.</p>
                 </div>
                 <div className="col-span-2 pt-2 mt-1 border-t border-hairline">
                   <p className="text-xs font-semibold uppercase tracking-wider text-ink-subtle mb-3">Historia Laboral — BPS</p>

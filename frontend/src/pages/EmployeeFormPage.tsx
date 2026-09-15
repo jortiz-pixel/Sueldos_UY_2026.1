@@ -323,36 +323,8 @@ export default function EmployeeFormPage() {
           </div>
         </section>
 
-        <section className="space-y-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400">Cargas e IRPF</h3>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="form-label">Hijos a cargo</label>
-              <input {...register('hijosACargo', { valueAsNumber: true })} type="number" min="0" className="form-input" />
-            </div>
-            <div>
-              <label className="form-label">Hijos con discapacidad</label>
-              <input {...register('hijosDiscapacitados', { valueAsNumber: true })} type="number" min="0" className="form-input" />
-            </div>
-            <div>
-              <label className="form-label">Método IRPF</label>
-              <select {...register('irpfMetodo')} className="form-input">
-                <option value="PROYECCION">Proyección anual</option>
-                <option value="SIMPLIFICADO">Simplificado</option>
-              </select>
-            </div>
-            <div className="flex flex-col gap-2 pt-6">
-              <label className="flex items-center gap-2 text-sm text-gray-700">
-                <input {...register('conyugeACargo')} type="checkbox" className="rounded" />
-                Cónyuge a cargo (FONASA +2%)
-              </label>
-              <label className="flex items-center gap-2 text-sm text-gray-700">
-                <input {...register('fonasaFamilia')} type="checkbox" className="rounded" />
-                Hijos en FONASA (+1.5%)
-              </label>
-            </div>
-          </div>
-        </section>
+        {/* Las cargas e IRPF se cargan en el CONTRATO (son datos de la persona,
+            pero se administran junto con el vínculo laboral). */}
 
         <section className="space-y-2">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400">Pago de sueldo (planilla al banco)</h3>

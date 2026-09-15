@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Calendar, User, DollarSign, FileText, Briefcase, Plus, X, AlertCircle, UserMinus, Pencil, FileDown, Printer, KeyRound, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Calendar, User, FileText, Briefcase, Plus, X, AlertCircle, UserMinus, Pencil, FileDown, Printer, KeyRound, ShieldCheck } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { employeesApi, contractsApi, companiesApi, catalogsApi, construccionApi, portalAdminApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
@@ -49,6 +49,12 @@ interface ContractForm {
   focerTipo?: string;
   focerTipoContrato?: string;
   observacion?: string;
+  // Cargas e IRPF de la persona (se editan desde el contrato).
+  hijosACargo?: number;
+  hijosDiscapacitados?: number;
+  conyugeACargo?: boolean;
+  fonasaFamilia?: boolean;
+  irpfMetodo?: string;
 }
 
 // Acceso de la persona al PORTAL DE EMPLEADOS (login con CI + PIN).
@@ -224,7 +230,16 @@ export default function EmployeeDetailPage() {
   }, [categoriaActual, esConstruccion, recuadroEmpresa, jornalesLaudo, setValue]);
 
   const createMutation = useMutation({
-    mutationFn: (data: ContractForm) => {
+    mutationFn: async (data: ContractForm) => {
+      // Cargas e IRPF son de la persona; se editan desde el contrato y se guardan
+      // en la persona (fuente única de los cálculos).
+      await employeesApi.update(id!, {
+        hijosACargo: Number(data.hijosACargo ?? 0),
+        hijosDiscapacitados: Number(data.hijosDiscapacitados ?? 0),
+        conyugeACargo: !!data.conyugeACargo,
+        fonasaFamilia: !!data.fonasaFamilia,
+        irpfMetodo: data.irpfMetodo || 'PROYECCION',
+      });
       const payload = {
         companyId: data.companyId,
         vigenciaDesde: data.vigenciaDesde,
@@ -354,6 +369,11 @@ export default function EmployeeDetailPage() {
       focerTipo: (c as unknown as { focerTipo?: number | null }).focerTipo != null ? String((c as unknown as { focerTipo?: number | null }).focerTipo) : '2',
       focerTipoContrato: (c as unknown as { focerTipoContrato?: number | null }).focerTipoContrato != null ? String((c as unknown as { focerTipoContrato?: number | null }).focerTipoContrato) : '1',
       observacion: c.observacion ?? '',
+      hijosACargo: employee?.hijosACargo ?? 0,
+      hijosDiscapacitados: employee?.hijosDiscapacitados ?? 0,
+      conyugeACargo: !!employee?.conyugeACargo,
+      fonasaFamilia: !!employee?.fonasaFamilia,
+      irpfMetodo: employee?.irpfMetodo ?? 'PROYECCION',
     });
     setModalOpen(true);
   };
@@ -419,6 +439,11 @@ export default function EmployeeDetailPage() {
       horasSemanales: 44,
       focerTipo: '2',
       focerTipoContrato: '1',
+      hijosACargo: employee?.hijosACargo ?? 0,
+      hijosDiscapacitados: employee?.hijosDiscapacitados ?? 0,
+      conyugeACargo: !!employee?.conyugeACargo,
+      fonasaFamilia: !!employee?.fonasaFamilia,
+      irpfMetodo: employee?.irpfMetodo ?? 'PROYECCION',
     });
     setModalOpen(true);
   };
@@ -467,20 +492,8 @@ export default function EmployeeDetailPage() {
             <Field label="Antigüedad" value={`${antiguedad} año(s)`} />
           </div>
 
-          <div className="border-t border-gray-100 pt-4">
-            <div className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-3">
-              <DollarSign size={16} />
-              Situación Salarial (contrato vigente)
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <Field label="Tipo de salario" value={employee.salaryType === 'MENSUAL' ? 'Mensual' : 'Jornalero'} />
-              <Field label="Salario nominal" value={formatPesos(employee.salarioNominal)} />
-              {employee.jornal && <Field label="Jornal diario" value={formatPesos(employee.jornal)} />}
-              <Field label="Método IRPF" value={employee.irpfMetodo} />
-              <Field label="Cónyuge a cargo" value={employee.conyugeACargo ? 'Sí' : 'No'} />
-              <Field label="Hijos a cargo" value={employee.hijosACargo} />
-            </div>
-          </div>
+          {/* El sueldo, las cargas y el IRPF se ven y editan en el CONTRATO
+              (pestaña Contratos / bloque de contratos de la ficha). */}
         </div>
 
         <div className="space-y-4">
@@ -773,6 +786,35 @@ export default function EmployeeDetailPage() {
                 <div>
                   <label className="form-label">Cuenta de sueldos (centro de costos)</label>
                   <input {...register('cuentaSueldos')} className="form-input" placeholder="Producción, Administración…" />
+                </div>
+                <div className="col-span-2 pt-2 mt-1 border-t border-hairline">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-ink-subtle mb-3">Cargas e IRPF</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="form-label">Hijos a cargo</label>
+                      <input {...register('hijosACargo', { valueAsNumber: true })} type="number" min="0" className="form-input" />
+                    </div>
+                    <div>
+                      <label className="form-label">Hijos con discapacidad</label>
+                      <input {...register('hijosDiscapacitados', { valueAsNumber: true })} type="number" min="0" className="form-input" />
+                    </div>
+                    <div>
+                      <label className="form-label">Método IRPF</label>
+                      <select {...register('irpfMetodo')} className="form-input">
+                        <option value="PROYECCION">Proyección anual</option>
+                        <option value="SIMPLIFICADO">Simplificado</option>
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-2 pt-6">
+                      <label className="flex items-center gap-2 text-sm text-gray-700">
+                        <input {...register('conyugeACargo')} type="checkbox" className="rounded" /> Cónyuge a cargo (FONASA +2%)
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-gray-700">
+                        <input {...register('fonasaFamilia')} type="checkbox" className="rounded" /> Hijos en FONASA (+1,5%)
+                      </label>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-1">Son datos de la persona (valen para todos sus contratos).</p>
                 </div>
                 <div className="col-span-2 pt-2 mt-1 border-t border-hairline">
                   <p className="text-xs font-semibold uppercase tracking-wider text-ink-subtle mb-3">Historia Laboral — BPS</p>
