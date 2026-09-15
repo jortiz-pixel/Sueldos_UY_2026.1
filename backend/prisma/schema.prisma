@@ -860,13 +860,19 @@ model Obra {
   companyId     String
   // Número de obra en BPS (registro de obra / aporte unificado).
   numeroObra    String
-  nombre        String
-  direccion     String?
-  departamento  String?
+  numeroIdentificador String?   // N° Identificador
+  nombre        String          // Nombre de Obra
+  direccion     String?         // Dirección Obra
+  departamento  String?         // Depto.
   localidad     String?
   padron        String?
-  fechaInicio   DateTime?
-  fechaFin      DateTime?
+  fRealizacion  String?         // F. de Realización
+  estado        String?         // Estado de la obra
+  aportePatronal String?        // Ap. Pat.
+  cajaActividad String?         // Caja Act.
+  nroAutorizacion String?       // N° Aut.
+  fechaInicio   DateTime?       // Inicio Act.
+  fechaFin      DateTime?       // Fin
   observaciones String?
   activa        Boolean   @default(true)
   createdAt     DateTime  @default(now())

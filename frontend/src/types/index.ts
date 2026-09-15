@@ -300,11 +300,17 @@ export interface Obra {
   id: string;
   companyId: string;
   numeroObra: string;
+  numeroIdentificador?: string | null;
   nombre: string;
   direccion?: string | null;
   departamento?: string | null;
   localidad?: string | null;
   padron?: string | null;
+  fRealizacion?: string | null;
+  estado?: string | null;
+  aportePatronal?: string | null;
+  cajaActividad?: string | null;
+  nroAutorizacion?: string | null;
   fechaInicio?: string | null;
   fechaFin?: string | null;
   observaciones?: string | null;
