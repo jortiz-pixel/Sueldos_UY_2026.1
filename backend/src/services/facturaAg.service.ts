@@ -88,6 +88,12 @@ export async function generarFacturaAg(companyId: string, year: number, month: n
   };
 
   for (const liq of liqs) {
+    // El TITULAR / socio sin remuneración NO va en la factura: aporta por su
+    // ficto (FONASA sobre 6,5 BPC) en su propio régimen, no sobre materia gravada
+    // de la construcción. Sin jornales de los trabajadores, la factura queda en 0.
+    const snap = liq.parametersSnapshot as { titularUnipersonal?: boolean } | null;
+    if (snap?.titularUnipersonal) continue;
+
     const items = liq.items;
     const get = (concepto: string) => items.find((i) => i.concepto === concepto);
     // Base gravada BPS (para cesantía/FGCL): base del FONASA obrero (materia gravada).
