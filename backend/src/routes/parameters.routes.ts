@@ -7,8 +7,25 @@ import { assertCompanyAccess } from '../middleware/tenancy';
 import { NotFoundError } from '../middleware/errorHandler';
 import { parametersService } from '../services/parameters.service';
 import { recordAudit } from '../services/audit.service';
+import { actualizarValoresBps, ETIQUETAS_VALORES } from '../services/bpsValores.service';
 
 export const parametersRouter = Router();
+
+// POST /api/parameters/actualizar-bps — trae los valores comunes (BPC, BFC, UR,
+// UI, salario mínimo, cuota mutual, CPE) desde la página oficial de BPS y crea
+// una versión nueva de cada parámetro que haya cambiado.
+parametersRouter.post('/actualizar-bps', authenticate, requireRole(UserRole.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const r = await actualizarValoresBps(req.user!.userId);
+    if (r.actualizados.length) {
+      await recordAudit({ action: 'PARAMETER_CHANGE', entity: 'parameter', newData: { fuente: 'BPS', actualizados: r.actualizados }, req });
+    }
+    res.json({ ...r, etiquetas: ETIQUETAS_VALORES });
+  } catch (err) {
+    // Falla de red / formato: se informa sin romper (queda la carga manual).
+    res.status(502).json({ error: (err as Error).message || 'No se pudo conectar con la página de BPS.' });
+  }
+});
 
 // GET /api/parameters — Lista todos los parámetros vigentes
 parametersRouter.get('/', authenticate, async (req: Request, res: Response, next: NextFunction) => {

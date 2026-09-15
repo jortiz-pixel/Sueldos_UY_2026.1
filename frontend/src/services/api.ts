@@ -681,6 +681,9 @@ export const parametersApi = {
   getTaxBrackets: (date?: string) =>
     api.get('/parameters/tax-brackets', { params: { date } }).then((r) => r.data),
   updateTaxBrackets: (data: object) => api.post('/parameters/tax-brackets', data).then((r) => r.data),
+  actualizarBps: () => api.post('/parameters/actualizar-bps', {}).then((r) => r.data as {
+    actualizados: Array<{ key: string; value: number }>; sinCambios: string[]; fuente: string; fecha: string;
+  }),
   getLaudos: (companyId?: string) =>
     api.get('/parameters/laudos', { params: { companyId } }).then((r) => r.data),
   createLaudo: (data: object) => api.post('/parameters/laudos', data).then((r) => r.data),

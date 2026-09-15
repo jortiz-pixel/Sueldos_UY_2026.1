@@ -239,9 +239,13 @@ export default function ParametersPage() {
 // (misma tabla de parámetros); se muestra el valor vigente a hoy.
 const INDICES: Array<{ key: string; label: string }> = [
   { key: 'BPC', label: 'BPC — Base de Prestaciones y Contribuciones' },
+  { key: 'BFC_UNIPERSONAL', label: 'BFC — Base Ficta de Contribución' },
   { key: 'UI', label: 'UI — Unidad Indexada' },
   { key: 'UR', label: 'UR — Unidad Reajustable' },
-  { key: 'BFC_UNIPERSONAL', label: 'BFC — Base Ficta de Contribución' },
+  { key: 'SALARIO_MINIMO', label: 'Salario mínimo nacional' },
+  { key: 'CPE', label: 'CPE — Costo Promedio Equivalente' },
+  { key: 'CUOTA_MUTUAL', label: 'Cuota mutual' },
+  { key: 'CUOTA_MUTUAL_CONSTRUCCION', label: 'Cuota mutual — construcción' },
 ];
 
 function ValoresComunes() {
@@ -267,6 +271,19 @@ function ValoresComunes() {
     },
   });
 
+  const [bpsMsg, setBpsMsg] = useState('');
+  const actualizarBps = useMutation({
+    mutationFn: () => parametersApi.actualizarBps(),
+    onSuccess: (r) => {
+      queryClient.invalidateQueries({ queryKey: ['all-parameters'] });
+      queryClient.invalidateQueries({ queryKey: ['parameters'] });
+      setBpsMsg(r.actualizados.length
+        ? `Actualizados desde BPS: ${r.actualizados.map((a) => a.key).join(', ')}.`
+        : 'Todo al día — ningún valor cambió respecto a BPS.');
+    },
+    onError: (e: unknown) => setBpsMsg((e as { response?: { data?: { error?: string } } })?.response?.data?.error || 'No se pudo conectar con la página de BPS.'),
+  });
+
   const hoy = new Date();
   const vigente = (key: string): { value: number; date: string } | null => {
     const rows = (all ?? [])
@@ -280,10 +297,20 @@ function ValoresComunes() {
 
   return (
     <div className="card p-5">
-      <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-        <Coins size={18} className="text-brand-600" /> Valores comunes (índices)
-      </h2>
-      <p className="text-xs text-gray-500 mt-0.5 mb-3">Valor vigente a hoy. Se guardan versionados por fecha de vigencia.</p>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+            <Coins size={18} className="text-brand-600" /> Valores comunes (índices)
+          </h2>
+          <p className="text-xs text-gray-500 mt-0.5 mb-3">Valor vigente a hoy. Se actualizan solos desde la página de BPS (a diario); también podés forzarlo.</p>
+        </div>
+        {isAdmin && (
+          <button onClick={() => { setBpsMsg(''); actualizarBps.mutate(); }} disabled={actualizarBps.isPending} className="btn-secondary btn-sm shrink-0">
+            <RefreshCw size={14} className={actualizarBps.isPending ? 'animate-spin' : ''} /> {actualizarBps.isPending ? 'Consultando BPS…' : 'Actualizar desde BPS'}
+          </button>
+        )}
+      </div>
+      {bpsMsg && <p className="text-xs mb-2 rounded-lg px-3 py-2 bg-brand-50 text-brand-700">{bpsMsg}</p>}
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>

@@ -135,6 +135,27 @@ app.use(errorHandler);
 app.listen(PORT, () => {
   logger.info(`Sueldos UY server corriendo en puerto ${PORT}`);
   logger.info(`Ambiente: ${process.env.NODE_ENV || 'development'}`);
+  programarActualizacionValoresBps();
 });
+
+// Actualización automática de los valores comunes (BPC, BFC, UR, UI, salario
+// mínimo…) desde la página de BPS: una corrida ~2 min después de arrancar y
+// luego cada 24 h. Best-effort: cualquier error se registra y no rompe nada
+// (queda la carga manual y el botón "Actualizar desde BPS"). Se puede apagar
+// con BPS_AUTO_UPDATE=0.
+function programarActualizacionValoresBps(): void {
+  if (process.env.BPS_AUTO_UPDATE === '0') return;
+  const correr = async () => {
+    try {
+      const { actualizarValoresBps } = await import('./services/bpsValores.service');
+      const r = await actualizarValoresBps();
+      if (r.actualizados.length) logger.info(`Valores BPS actualizados: ${r.actualizados.map((a) => a.key).join(', ')}`);
+    } catch (err) {
+      logger.warn(`No se pudieron actualizar los valores de BPS: ${(err as Error).message}`);
+    }
+  };
+  setTimeout(correr, 2 * 60 * 1000);
+  setInterval(correr, 24 * 60 * 60 * 1000);
+}
 
 export { app };
