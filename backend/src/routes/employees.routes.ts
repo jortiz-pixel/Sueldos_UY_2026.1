@@ -85,6 +85,10 @@ const contratoFields = {
   focerTipoContrato: z.number().int().min(1).max(4).optional().nullable(),
   // Obra asignada (construcción CT): agrupa al trabajador bajo su obra en la nómina.
   obraId: z.string().optional().nullable(),
+  // Construcción CT (registro 6 de la nómina y FOCER).
+  categoriaCtCod: z.number().int().optional().nullable(),
+  cajaActividad: z.number().int().optional().nullable(),
+  asignacionFamiliar: z.boolean().optional().nullable(),
   observacion: z.string().optional(),
 };
 
@@ -349,6 +353,9 @@ employeesRouter.post('/', authenticate, requireRole(UserRole.ADMIN, UserRole.OPE
         focerTipo: c.focerTipo ?? undefined,
         focerTipoContrato: c.focerTipoContrato ?? undefined,
         obraId: c.obraId ?? undefined,
+        categoriaCtCod: c.categoriaCtCod ?? undefined,
+        cajaActividad: c.cajaActividad ?? undefined,
+        asignacionFamiliar: c.asignacionFamiliar ?? undefined,
         observacion: c.observacion,
       },
     });
@@ -508,6 +515,9 @@ employeesRouter.post('/:id/contracts', authenticate, requireRole(UserRole.ADMIN,
         focerTipo: data.focerTipo ?? undefined,
         focerTipoContrato: data.focerTipoContrato ?? undefined,
         obraId: data.obraId ?? undefined,
+        categoriaCtCod: data.categoriaCtCod ?? undefined,
+        cajaActividad: data.cajaActividad ?? undefined,
+        asignacionFamiliar: data.asignacionFamiliar ?? undefined,
         observacion: data.observacion,
       },
     });

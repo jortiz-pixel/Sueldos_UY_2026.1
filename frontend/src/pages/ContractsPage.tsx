@@ -40,6 +40,9 @@ interface ContractForm {
   focerTipo?: string;
   focerTipoContrato?: string;
   obraId?: string;
+  categoriaCtCod?: string;
+  cajaActividad?: string;
+  asignacionFamiliar?: string; // '', 'S' o 'N' (vacío = automática según hijos)
   observacion?: string;
 }
 
@@ -136,7 +139,7 @@ export default function ContractsPage() {
     setFormError('');
     setBajaCausal('');
     const hoy = new Date().toISOString().slice(0, 10);
-    reset({ personId: '', vigenciaDesde: hoy, fechaIngreso: hoy, fechaFin: '', salaryType: 'MENSUAL', tipoRemuneracion: 1, salarioNominalPesos: 0, cargo: '', sector: '', categoria: '', nivel: '', tipoContrato: '', sucursal: '', cuentaSueldos: '', observacion: '', vinculoFuncional: '12', fictoCategoria: '', seguroSalud: '', aportaPor: '', computosEspeciales: '99', exoneracionAporte: '9', horasSemanales: 44, focerTipo: '2', focerTipoContrato: '1', obraId: '' });
+    reset({ personId: '', vigenciaDesde: hoy, fechaIngreso: hoy, fechaFin: '', salaryType: 'MENSUAL', tipoRemuneracion: 1, salarioNominalPesos: 0, cargo: '', sector: '', categoria: '', nivel: '', tipoContrato: '', sucursal: '', cuentaSueldos: '', observacion: '', vinculoFuncional: '12', fictoCategoria: '', seguroSalud: '', aportaPor: '', computosEspeciales: '99', exoneracionAporte: '9', horasSemanales: 44, focerTipo: '2', focerTipoContrato: '1', obraId: '', categoriaCtCod: '', cajaActividad: '', asignacionFamiliar: '' });
     setModalOpen(true);
   };
 
@@ -167,6 +170,9 @@ export default function ContractsPage() {
       focerTipo: (c as unknown as { focerTipo?: number | null }).focerTipo != null ? String((c as unknown as { focerTipo?: number | null }).focerTipo) : '2',
       focerTipoContrato: (c as unknown as { focerTipoContrato?: number | null }).focerTipoContrato != null ? String((c as unknown as { focerTipoContrato?: number | null }).focerTipoContrato) : '1',
       obraId: (c as unknown as { obraId?: string | null }).obraId ?? '',
+      categoriaCtCod: (c as unknown as { categoriaCtCod?: number | null }).categoriaCtCod != null ? String((c as unknown as { categoriaCtCod?: number | null }).categoriaCtCod) : '',
+      cajaActividad: (c as unknown as { cajaActividad?: number | null }).cajaActividad != null ? String((c as unknown as { cajaActividad?: number | null }).cajaActividad) : '',
+      asignacionFamiliar: (() => { const v = (c as unknown as { asignacionFamiliar?: boolean | null }).asignacionFamiliar; return v == null ? '' : (v ? 'S' : 'N'); })(),
     });
     setModalOpen(true);
   };
@@ -199,6 +205,9 @@ export default function ContractsPage() {
         focerTipo: data.focerTipo ? Number(data.focerTipo) : undefined,
         focerTipoContrato: data.focerTipoContrato ? Number(data.focerTipoContrato) : undefined,
         obraId: data.obraId ? data.obraId : null,
+        categoriaCtCod: data.categoriaCtCod ? Number(data.categoriaCtCod) : null,
+        cajaActividad: data.cajaActividad ? Number(data.cajaActividad) : null,
+        asignacionFamiliar: data.asignacionFamiliar === 'S' ? true : data.asignacionFamiliar === 'N' ? false : null,
         observacion: data.observacion || undefined,
       };
       return editing
@@ -502,6 +511,27 @@ export default function ContractsPage() {
                     </select>
                     <p className="text-xs text-gray-400 mt-1">Agrupa al trabajador bajo su obra en la nómina (aportación construcción). Cargá las obras en la sección Obras.</p>
                   </div>
+                )}
+                {esConstruccion && (
+                  <>
+                    <div>
+                      <label className="form-label">Categoría CT (código)</label>
+                      <input type="number" {...register('categoriaCtCod')} className="form-input" placeholder="Ej. 8" />
+                      <p className="text-xs text-gray-400 mt-1">Código de categoría de construcción (nómina reg. 6 y FOCER).</p>
+                    </div>
+                    <div>
+                      <label className="form-label">Caja de actividad</label>
+                      <input type="number" {...register('cajaActividad')} className="form-input" placeholder="Ej. 17" />
+                    </div>
+                    <div>
+                      <label className="form-label">Asignación familiar</label>
+                      <select {...register('asignacionFamiliar')} className="form-input">
+                        <option value="">Automática (según hijos a cargo)</option>
+                        <option value="S">Sí</option>
+                        <option value="N">No</option>
+                      </select>
+                    </div>
+                  </>
                 )}
                 {esFocer && (
                   <>

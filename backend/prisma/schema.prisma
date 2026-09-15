@@ -544,6 +544,14 @@ model Contrato {
   focerTipo          Int?
   // focerTipoContrato: 1 indefinido · 2 a prueba · 3 a término · 4 suplencia.
   focerTipoContrato  Int?
+  // CONSTRUCCIÓN por aportación CT (registro 6 de la nómina y FOCER):
+  //  categoriaCtCod    = código de categoría de construcción (Tabla BPS).
+  //  cajaActividad     = caja de actividad (CT).
+  //  asignacionFamiliar= corresponde asignación familiar (S/N); null = se deriva
+  //                      de si el trabajador tiene hijos a cargo.
+  categoriaCtCod     Int?
+  cajaActividad      Int?
+  asignacionFamiliar Boolean?
   observacion      String?
   activo           Boolean    @default(true)
   // Obra a la que está asignado el trabajador (empresas de CONSTRUCCIÓN por
