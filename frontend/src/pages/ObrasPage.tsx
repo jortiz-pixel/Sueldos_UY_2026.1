@@ -16,6 +16,7 @@ const DEPARTAMENTOS = [
 const ESTADOS_OBRA = ['Activa', 'Suspendida', 'Finalizada'];
 
 interface ObraForm {
+  // Datos de obra
   numeroObra: string;
   numeroIdentificador?: string;
   nombre: string;
@@ -30,55 +31,53 @@ interface ObraForm {
   fechaFin?: string;
   observaciones?: string;
   activa: boolean;
+  // Datos del titular (se guardan en la EMPRESA)
+  empNumeroBps?: string;
+  empRut?: string;
+  empRepresentanteLegal?: string;
+  empRazonSocial?: string;
+  empEmail?: string;
+  empTelefono?: string;
+  empDomicilio?: string;
+  empTipoAporte?: string;
+  empActividadPrincipal?: string;
+  empTipoContribuyente?: string;
+  // Exoneración de aportes patronales (%) — en la EMPRESA
+  exoApoJub?: string;
+  exoFonasa?: string;
+  exoFrl?: string;
+  exoCcm?: string;
 }
 
-const vacio: ObraForm = {
+const OBRA_VACIA = {
   numeroObra: '', numeroIdentificador: '', nombre: '', direccion: '', departamento: '',
   fRealizacion: '', estado: 'Activa', aportePatronal: '', cajaActividad: '', nroAutorizacion: '',
   fechaInicio: '', fechaFin: '', observaciones: '', activa: true,
 };
 
-// Campo de solo lectura (bloques "Datos del Titular" / "Exoneración").
-function RO({ label, value }: { label: string; value: string | number | null | undefined }) {
-  return (
-    <div>
-      <p className="text-[11px] text-ink-subtle">{label}</p>
-      <p className="text-sm text-ink truncate">{value !== null && value !== undefined && value !== '' ? String(value) : '—'}</p>
-    </div>
-  );
+// Valores del titular (de la empresa) para prellenar el bloque editable.
+function seedTitular(empresa?: Company): Partial<ObraForm> {
+  return {
+    empNumeroBps: empresa?.numeroBps ?? '',
+    empRut: empresa?.rut ?? '',
+    empRepresentanteLegal: empresa?.representanteLegal ?? '',
+    empRazonSocial: empresa?.razonSocial ?? '',
+    empEmail: empresa?.email ?? '',
+    empTelefono: empresa?.telefono ?? '',
+    empDomicilio: empresa?.domicilio ?? '',
+    empTipoAporte: empresa?.tipoAporte != null ? String(empresa.tipoAporte) : '',
+    empActividadPrincipal: empresa?.actividadPrincipal ?? '',
+    empTipoContribuyente: empresa?.tipoContribuyente != null ? String(empresa.tipoContribuyente) : '',
+    exoApoJub: String(empresa?.exoApoJub ?? 0),
+    exoFonasa: String(empresa?.exoFonasa ?? 0),
+    exoFrl: String(empresa?.exoFrl ?? 0),
+    exoCcm: String(empresa?.exoCcm ?? 0),
+  };
 }
 
-function TitularBlock({ empresa }: { empresa?: Company }) {
-  if (!empresa) return null;
-  return (
-    <div className="space-y-3">
-      <div className="border-t border-hairline pt-3">
-        <p className="text-xs font-semibold uppercase tracking-wider text-ink-subtle mb-2">Datos del titular (de la empresa)</p>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-          <RO label="N° Empresa" value={empresa.numeroBps} />
-          <RO label="RUT" value={empresa.rut} />
-          <RO label="Contacto" value={empresa.representanteLegal} />
-          <RO label="Razón Social" value={empresa.razonSocial} />
-          <RO label="E-Mail" value={empresa.email} />
-          <RO label="Teléfono" value={empresa.telefono} />
-          <RO label="Dirección" value={empresa.domicilio} />
-          <RO label="Tipo Ap." value={empresa.tipoAporte} />
-          <RO label="Act. Pri." value={empresa.actividadPrincipal} />
-          <RO label="Tipo Cont." value={empresa.tipoContribuyente} />
-        </div>
-      </div>
-      <div className="border-t border-hairline pt-3">
-        <p className="text-xs font-semibold uppercase tracking-wider text-ink-subtle mb-2">Exoneración de aportes patronales</p>
-        <div className="grid grid-cols-4 gap-3">
-          <RO label="Apo. Jub. %" value={empresa.exoApoJub ?? 0} />
-          <RO label="S.E. %" value={empresa.exoFonasa ?? 0} />
-          <RO label="F.R.L %" value={empresa.exoFrl ?? 0} />
-          <RO label="C.C.M %" value={empresa.exoCcm ?? 0} />
-        </div>
-      </div>
-    </div>
-  );
-}
+// tipoAporte/tipoContribuyente y las exoneraciones son enteros en el backend.
+const intOrNull = (s?: string) => (s && s.trim() !== '' ? Math.round(Number(s)) : null);
+const intOr0 = (s?: string) => (s && s.trim() !== '' ? Math.round(Number(s)) : 0);
 
 export default function ObrasPage() {
   const { activeCompanyId } = useCompany();
@@ -87,7 +86,7 @@ export default function ObrasPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Obra | null>(null);
   const [formError, setFormError] = useState('');
-  const { register, handleSubmit, reset } = useForm<ObraForm>({ defaultValues: vacio });
+  const { register, handleSubmit, reset } = useForm<ObraForm>({ defaultValues: OBRA_VACIA });
 
   const { data: empresa } = useQuery({
     queryKey: ['company', activeCompanyId],
@@ -103,8 +102,9 @@ export default function ObrasPage() {
   });
 
   const guardar = useMutation({
-    mutationFn: (data: ObraForm) => {
-      const payload = {
+    mutationFn: async (data: ObraForm) => {
+      // 1) Obra (sus datos propios).
+      const obraPayload = {
         companyId: activeCompanyId,
         numeroObra: data.numeroObra,
         numeroIdentificador: data.numeroIdentificador || null,
@@ -121,14 +121,33 @@ export default function ObrasPage() {
         observaciones: data.observaciones || null,
         activa: data.activa,
       };
-      return editing ? obrasApi.update(editing.id, payload) : obrasApi.create(payload);
+      await (editing ? obrasApi.update(editing.id, obraPayload) : obrasApi.create(obraPayload));
+      // 2) Datos del titular + exoneraciones → se guardan en la EMPRESA.
+      await companiesApi.update(activeCompanyId, {
+        numeroBps: data.empNumeroBps || undefined,
+        rut: data.empRut || undefined,
+        representanteLegal: data.empRepresentanteLegal || undefined,
+        razonSocial: data.empRazonSocial || undefined,
+        email: data.empEmail || undefined,
+        telefono: data.empTelefono || undefined,
+        domicilio: data.empDomicilio || undefined,
+        tipoAporte: intOrNull(data.empTipoAporte),
+        actividadPrincipal: data.empActividadPrincipal || undefined,
+        tipoContribuyente: intOrNull(data.empTipoContribuyente),
+        exoApoJub: intOr0(data.exoApoJub),
+        exoFonasa: intOr0(data.exoFonasa),
+        exoFrl: intOr0(data.exoFrl),
+        exoCcm: intOr0(data.exoCcm),
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['obras', activeCompanyId] });
+      queryClient.invalidateQueries({ queryKey: ['company', activeCompanyId] });
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
       setModalOpen(false);
     },
     onError: (err: unknown) => {
-      setFormError((err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'No se pudo guardar la obra.');
+      setFormError((err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'No se pudo guardar.');
     },
   });
 
@@ -140,7 +159,7 @@ export default function ObrasPage() {
   const abrirNueva = () => {
     setEditing(null);
     setFormError('');
-    reset(vacio);
+    reset({ ...OBRA_VACIA, ...seedTitular(empresa) });
     setModalOpen(true);
   };
   const abrirEdicion = (o: Obra) => {
@@ -153,6 +172,7 @@ export default function ObrasPage() {
       cajaActividad: o.cajaActividad ?? '', nroAutorizacion: o.nroAutorizacion ?? '',
       fechaInicio: o.fechaInicio ?? '', fechaFin: o.fechaFin ?? '',
       observaciones: o.observaciones ?? '', activa: o.activa,
+      ...seedTitular(empresa),
     });
     setModalOpen(true);
   };
@@ -297,8 +317,78 @@ export default function ObrasPage() {
                 </label>
               </div>
 
-              {/* Datos del titular y exoneraciones: de la empresa (solo lectura). */}
-              <TitularBlock empresa={empresa} />
+              {/* Datos del titular: editables. Se guardan en la EMPRESA (valen para
+                  todas sus obras). */}
+              <div className="border-t border-hairline pt-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-ink-subtle mb-2">
+                  Datos del titular <span className="normal-case font-normal text-ink-subtle">— se guardan en la empresa</span>
+                </p>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="form-label">N° Empresa</label>
+                    <input {...register('empNumeroBps')} className="form-input" />
+                  </div>
+                  <div>
+                    <label className="form-label">RUT</label>
+                    <input {...register('empRut')} className="form-input" />
+                  </div>
+                  <div>
+                    <label className="form-label">Contacto</label>
+                    <input {...register('empRepresentanteLegal')} className="form-input" />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="form-label">Razón Social</label>
+                    <input {...register('empRazonSocial')} className="form-input" />
+                  </div>
+                  <div>
+                    <label className="form-label">E-Mail</label>
+                    <input {...register('empEmail')} className="form-input" />
+                  </div>
+                  <div>
+                    <label className="form-label">Teléfono</label>
+                    <input {...register('empTelefono')} className="form-input" />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="form-label">Dirección</label>
+                    <input {...register('empDomicilio')} className="form-input" />
+                  </div>
+                  <div>
+                    <label className="form-label">Tipo Ap.</label>
+                    <input type="number" {...register('empTipoAporte')} className="form-input" />
+                  </div>
+                  <div>
+                    <label className="form-label">Tipo Cont.</label>
+                    <input type="number" {...register('empTipoContribuyente')} className="form-input" />
+                  </div>
+                  <div className="md:col-span-1">
+                    <label className="form-label">Act. Pri.</label>
+                    <input {...register('empActividadPrincipal')} className="form-input" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Exoneración de aportes patronales (%): editable, en la EMPRESA. */}
+              <div className="border-t border-hairline pt-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-ink-subtle mb-2">Exoneración de aportes patronales <span className="normal-case font-normal">(basis points · 10000 = 100%)</span></p>
+                <div className="grid grid-cols-4 gap-4">
+                  <div>
+                    <label className="form-label">Apo. Jub.</label>
+                    <input type="number" step="1" min="0" max="10000" {...register('exoApoJub')} className="form-input" />
+                  </div>
+                  <div>
+                    <label className="form-label">S.E.</label>
+                    <input type="number" step="1" min="0" max="10000" {...register('exoFonasa')} className="form-input" />
+                  </div>
+                  <div>
+                    <label className="form-label">F.R.L</label>
+                    <input type="number" step="1" min="0" max="10000" {...register('exoFrl')} className="form-input" />
+                  </div>
+                  <div>
+                    <label className="form-label">C.C.M</label>
+                    <input type="number" step="1" min="0" max="10000" {...register('exoCcm')} className="form-input" />
+                  </div>
+                </div>
+              </div>
 
               <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
                 <button type="button" onClick={() => setModalOpen(false)} className="btn-secondary">Cancelar</button>
