@@ -219,6 +219,7 @@ model Company {
   entitlements     Entitlement[]
   attachments      Attachment[]
   tareas           Tarea[]
+  obras            Obra[]
 
   @@map("companies")
 }
@@ -846,6 +847,35 @@ model CompanyPortalCredential {
   updatedAt      DateTime  @updatedAt
 
   @@map("company_portal_credentials")
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// OBRAS — solo empresas de CONSTRUCCIÓN (Grupo 9)
+// ═══════════════════════════════════════════════════════════════════
+// Datos de las obras de una empresa de construcción, usados en las nóminas
+// (cada trabajador se declara en la obra donde trabajó). Se administran desde
+// la sección "Obras" del menú, que aparece solo para empresas de construcción.
+model Obra {
+  id            String    @id @default(cuid())
+  companyId     String
+  // Número de obra en BPS (registro de obra / aporte unificado).
+  numeroObra    String
+  nombre        String
+  direccion     String?
+  departamento  String?
+  localidad     String?
+  padron        String?
+  fechaInicio   DateTime?
+  fechaFin      DateTime?
+  observaciones String?
+  activa        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  company       Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@map("obras")
 }
 
 // ═══════════════════════════════════════════════════════════════════

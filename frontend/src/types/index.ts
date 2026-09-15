@@ -296,6 +296,21 @@ export function validarCedula(ci: string): boolean {
   return calc === check;
 }
 
+export interface Obra {
+  id: string;
+  companyId: string;
+  numeroObra: string;
+  nombre: string;
+  direccion?: string | null;
+  departamento?: string | null;
+  localidad?: string | null;
+  padron?: string | null;
+  fechaInicio?: string | null;
+  fechaFin?: string | null;
+  observaciones?: string | null;
+  activa: boolean;
+}
+
 export const MESES = [
   '', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',

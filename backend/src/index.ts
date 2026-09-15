@@ -23,6 +23,7 @@ import { auditRouter } from './routes/audit.routes';
 import { demoRouter } from './routes/demo.routes';
 import { construccionRouter } from './routes/construccion.routes';
 import { tareasRouter } from './routes/tareas.routes';
+import { obrasRouter } from './routes/obras.routes';
 import { portalRouter } from './routes/portal.routes';
 import { errorHandler } from './middleware/errorHandler';
 import { logger } from './utils/logger';
@@ -111,6 +112,7 @@ app.use('/api/portal', portalRouter);
 app.use('/api/demo', demoRouter);
 app.use('/api/construccion', construccionRouter);
 app.use('/api/tareas', tareasRouter);
+app.use('/api/obras', obrasRouter);
 
 const APP_VERSION = process.env.APP_VERSION || 'dev';
 const APP_BUILT_AT = process.env.APP_BUILT_AT || null;

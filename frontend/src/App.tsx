@@ -15,6 +15,7 @@ import LiquidationPage from './pages/LiquidationPage';
 import LiquidationDetailPage from './pages/LiquidationDetailPage';
 import ReportsPage from './pages/ReportsPage';
 import NominaPage from './pages/NominaPage';
+import ObrasPage from './pages/ObrasPage';
 import CalendarioPage from './pages/CalendarioPage';
 import TareasPage from './pages/TareasPage';
 import CentroMesPage from './pages/CentroMesPage';
@@ -84,6 +85,7 @@ function AppRoutes() {
         <Route path="liquidation" element={<LiquidationPage />} />
         <Route path="liquidation/:id" element={<LiquidationDetailPage />} />
         <Route path="nomina" element={<NominaPage />} />
+        <Route path="obras" element={<ObrasPage />} />
         <Route path="calendario" element={<CalendarioPage />} />
         <Route path="tareas" element={<TareasPage />} />
         <Route path="mes" element={<CentroMesPage />} />

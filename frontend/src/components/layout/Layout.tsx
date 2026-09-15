@@ -3,11 +3,12 @@ import { useQuery } from '@tanstack/react-query';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, FileText, BarChart2,
-  Settings, LogOut, Building2, Calculator, Briefcase, UserCog, Upload, Menu, X, Landmark, CalendarDays, ListChecks, ShieldCheck, ClipboardList,
+  Settings, LogOut, Building2, Calculator, Briefcase, UserCog, Upload, Menu, X, Landmark, CalendarDays, ListChecks, ShieldCheck, ClipboardList, HardHat,
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useCompany } from '../../hooks/useCompany';
-import { versionApi } from '../../services/api';
+import { versionApi, companiesApi } from '../../services/api';
+import { esEmpresaConstruccion } from '../../constants/conceptos';
 import AsysTaxLogo from '../AsysTaxLogo';
 import { useViewMode } from '../../hooks/useViewMode';
 
@@ -18,6 +19,7 @@ const navItems = [
   { to: '/employees', label: 'Personas', icon: Users },
   { to: '/import', label: 'Importar', icon: Upload },
   { to: '/contracts', label: 'Contratos', icon: Briefcase },
+  { to: '/obras', label: 'Obras', icon: HardHat, construccionOnly: true },
   { to: '/concepts', label: 'Conceptos', icon: Calculator },
   { to: '/liquidation', label: 'Liquidaciones', icon: FileText },
   { to: '/nomina', label: 'Nómina BPS', icon: Landmark },
@@ -38,6 +40,13 @@ export default function Layout() {
   const cambiarModo = (m: 'sueldos' | 'tareas') => { setMode(m); setOpen(false); navigate('/'); };
   const [open, setOpen] = useState(false);
   const { data: appVersion } = useQuery({ queryKey: ['app-version'], queryFn: () => versionApi.get(), staleTime: 5 * 60 * 1000 });
+  // Empresa activa: para mostrar "Obras" solo cuando es de construcción.
+  const { data: empresaActiva } = useQuery({
+    queryKey: ['company', activeCompanyId],
+    queryFn: () => companiesApi.get(activeCompanyId),
+    enabled: !!activeCompanyId,
+  });
+  const esConstruccion = esEmpresaConstruccion(empresaActiva);
 
   const handleLogout = async () => {
     await logout();
@@ -77,7 +86,9 @@ export default function Layout() {
         <nav className="flex-1 px-3 py-2 space-y-0.5 overflow-y-auto">
           {navItems.filter((it) => mode === 'tareas'
             ? it.to === '/tareas'
-            : it.to !== '/tareas' && (!it.adminOnly || user?.role === 'ADMIN')
+            : it.to !== '/tareas'
+              && (!it.adminOnly || user?.role === 'ADMIN')
+              && (!it.construccionOnly || esConstruccion)
           ).map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}

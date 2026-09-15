@@ -1,5 +1,5 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
-import { AuthResponse, User, Company, Employee, PayrollPeriod, Liquidation, NominaItem, PayrollParameters, TipoAporte, TipoContribuyente, GrupoActividad, Contrato, Concepto } from '../types';
+import { AuthResponse, User, Company, Employee, PayrollPeriod, Liquidation, NominaItem, PayrollParameters, TipoAporte, TipoContribuyente, GrupoActividad, Contrato, Concepto, Obra } from '../types';
 
 const BASE_URL = import.meta.env.VITE_API_URL || '';
 
@@ -176,6 +176,13 @@ export const authApi = {
   me: () => api.get<User>('/auth/me').then((r) => r.data),
   changePassword: (currentPassword: string, newPassword: string) =>
     api.put('/auth/change-password', { currentPassword, newPassword }).then((r) => r.data),
+};
+
+export const obrasApi = {
+  list: (companyId: string) => api.get<Obra[]>('/obras', { params: { companyId } }).then((r) => r.data),
+  create: (data: Partial<Obra> & { companyId: string }) => api.post<Obra>('/obras', data).then((r) => r.data),
+  update: (id: string, data: Partial<Obra>) => api.put<Obra>(`/obras/${id}`, data).then((r) => r.data),
+  remove: (id: string) => api.delete(`/obras/${id}`).then((r) => r.data),
 };
 
 export const companiesApi = {
