@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { Settings, RefreshCw, Plus, HardHat } from 'lucide-react';
+import { Settings, RefreshCw, Plus, HardHat, Coins } from 'lucide-react';
 import { parametersApi, construccionApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { IrpfBracket } from '../types';
@@ -227,7 +227,107 @@ export default function ParametersPage() {
           </div>
         </div>
       )}
+      <ValoresComunes />
       <JornalesConstruccion />
+    </div>
+  );
+}
+
+// ── Valores comunes (índices) ─────────────────────────────────────────────
+// Tabla de referencia con los índices que usa el estudio: BPC (base de todos
+// los cálculos), UI, UR y BFC. Se guardan versionados por fecha de vigencia
+// (misma tabla de parámetros); se muestra el valor vigente a hoy.
+const INDICES: Array<{ key: string; label: string }> = [
+  { key: 'BPC', label: 'BPC — Base de Prestaciones y Contribuciones' },
+  { key: 'UI', label: 'UI — Unidad Indexada' },
+  { key: 'UR', label: 'UR — Unidad Reajustable' },
+  { key: 'BFC_UNIPERSONAL', label: 'BFC — Base Ficta de Contribución' },
+];
+
+function ValoresComunes() {
+  const { isAdmin } = useAuth();
+  const queryClient = useQueryClient();
+  const [editKey, setEditKey] = useState<string | null>(null);
+  const [valor, setValor] = useState('');
+  const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
+
+  const { data: all } = useQuery({
+    queryKey: ['all-parameters'],
+    queryFn: () => parametersApi.list() as Promise<Array<{ key: string; value: string; effectiveDate: string }>>,
+    enabled: isAdmin,
+  });
+
+  const guardar = useMutation({
+    mutationFn: (d: { key: string; value: number; effectiveDate: string }) =>
+      parametersApi.create({ key: d.key, value: d.value, effectiveDate: new Date(d.effectiveDate).toISOString() }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['all-parameters'] });
+      queryClient.invalidateQueries({ queryKey: ['parameters'] });
+      setEditKey(null); setValor('');
+    },
+  });
+
+  const hoy = new Date();
+  const vigente = (key: string): { value: number; date: string } | null => {
+    const rows = (all ?? [])
+      .filter((p) => p.key === key && new Date(p.effectiveDate) <= hoy)
+      .sort((a, b) => new Date(b.effectiveDate).getTime() - new Date(a.effectiveDate).getTime());
+    if (!rows.length) return null;
+    let v: number;
+    try { v = Number(JSON.parse(rows[0].value)); } catch { v = Number(rows[0].value); }
+    return { value: v, date: rows[0].effectiveDate };
+  };
+
+  return (
+    <div className="card p-5">
+      <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+        <Coins size={18} className="text-brand-600" /> Valores comunes (índices)
+      </h2>
+      <p className="text-xs text-gray-500 mt-0.5 mb-3">Valor vigente a hoy. Se guardan versionados por fecha de vigencia.</p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs text-gray-400 border-b border-hairline">
+              <th className="py-2">Índice</th>
+              <th className="py-2">Valor vigente</th>
+              <th className="py-2">Vigencia desde</th>
+              {isAdmin && <th className="py-2"></th>}
+            </tr>
+          </thead>
+          <tbody>
+            {INDICES.map((ix) => {
+              const v = vigente(ix.key);
+              const editando = editKey === ix.key;
+              return (
+                <tr key={ix.key} className="border-b border-gray-50">
+                  <td className="py-2 pr-3">{ix.label}</td>
+                  <td className="py-2 pr-3 figure font-semibold">{v ? `$ ${v.value.toLocaleString('es-UY', { maximumFractionDigits: 4 })}` : '—'}</td>
+                  <td className="py-2 pr-3 text-gray-500">{v ? new Date(v.date).toLocaleDateString('es-UY') : '—'}</td>
+                  {isAdmin && (
+                    <td className="py-2 text-right">
+                      {editando ? (
+                        <div className="flex items-center gap-2 justify-end">
+                          <input type="number" step="0.0001" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="valor" className="form-input w-28 py-1" />
+                          <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className="form-input w-36 py-1" />
+                          <button
+                            onClick={() => { if (valor !== '') guardar.mutate({ key: ix.key, value: Number(valor), effectiveDate: fecha }); }}
+                            disabled={guardar.isPending}
+                            className="btn-primary btn-sm"
+                          >Guardar</button>
+                          <button onClick={() => { setEditKey(null); setValor(''); }} className="btn-secondary btn-sm">Cancelar</button>
+                        </div>
+                      ) : (
+                        <button onClick={() => { setEditKey(ix.key); setValor(v ? String(v.value) : ''); setFecha(new Date().toISOString().slice(0, 10)); }} className="text-xs text-blue-600 hover:underline">Actualizar</button>
+                      )}
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-[11px] text-gray-400 mt-2">El <b>BPC</b> se usa en todos los cálculos (aportes, IRPF, topes). UI, UR y BFC quedan como referencia del estudio.</p>
     </div>
   );
 }
