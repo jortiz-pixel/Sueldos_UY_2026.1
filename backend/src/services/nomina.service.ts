@@ -15,7 +15,7 @@
 
 import { prisma } from '../utils/prisma';
 import { LiquidationStatus, LiquidationType, PeriodStatus, ItemType } from '@prisma/client';
-import { esEmpresaConstruccion } from './construccion.service';
+import { esEmpresaConstruccion, TIPO_APORTE_CONSTRUCCION } from './construccion.service';
 import { fonasaCargasDeSeguroSalud } from './bps.service';
 import { salarioProporcional } from '../utils/money';
 import { generarLiquidacionMensual } from './liquidation.service';
@@ -284,7 +284,19 @@ export async function generarNominaBps(companyId: string, year: number, month: n
   const codBpsPorCodigo = new Map(conceptosConfig.map((c) => [c.codigo, { codBps: c.codBps, gravado: c.gravado }]));
 
   // ── Armar registros por persona ────────────────────────────────
+  // CONSTRUCCIÓN por aportación CT (tipoAporte 4): la nómina lleva registro 3
+  // (obra), el registro 4 con forma de realización + actividad principal de la
+  // obra, el registro 6 con categoría/caja de actividad/asignación familiar, y
+  // el registro 7 concepto 1 desglosado en materia gravada · jornal · resto.
+  // Los trabajadores se agrupan por su obra (contrato.obraId).
+  const esCT = company.tipoAporte === TIPO_APORTE_CONSTRUCCION;
+  const obras = esCT ? await prisma.obra.findMany({ where: { companyId } }) : [];
+  const obraById = new Map(obras.map((o) => [o.id, o]));
+
   const lineas5a7: string[] = [];
+  // Para CT: bloques 5/6/7 por persona junto con su obra, para agrupar por obra.
+  const bloquesPorObra = new Map<string, string[]>();
+  const ordenObras: string[] = [];
   const personasOut: NominaGenerada['personas'] = [];
   let totalNomina = 0n;
 
@@ -407,8 +419,11 @@ export async function generarNominaBps(companyId: string, year: number, month: n
       egreso = { causal, fecha: ddmmaaaa(fin) };
     }
 
+    // Bloque 5/6/7 de la persona (en CT se agrupa por obra más abajo).
+    const bloque: string[] = [];
+
     // Registro 5 — persona
-    lineas5a7.push([
+    bloque.push([
       '5', String(paisDoc), tipoDoc, doc,
       nombreBps(e.apellido), nombreBps(e.apellido2),
       nombreBps(e.nombre), nombreBps(e.nombre2),
@@ -417,7 +432,18 @@ export async function generarNominaBps(companyId: string, year: number, month: n
 
     // Registro 6 — actividad (mes cargo NULO en nóminas)
     const al = contrato.acumulacionLaboral ?? 1;
-    lineas5a7.push([
+    // Campos de construcción CT (posiciones 13/14/15): categoría, caja de
+    // actividad y asignación familiar (S/N). En otras aportaciones van vacíos.
+    // La asignación familiar, si no se cargó, se deriva de si hay hijos a cargo.
+    const asigFam = contrato.asignacionFamiliar != null
+      ? (contrato.asignacionFamiliar ? 'S' : 'N')
+      : (e.hijosACargo > 0 ? 'S' : 'N');
+    const ctCategoria = esCT && contrato.categoriaCtCod != null ? String(contrato.categoriaCtCod) : '';
+    const ctCaja = esCT && contrato.cajaActividad != null ? String(contrato.cajaActividad) : '';
+    const ctAsig = esCT ? asigFam : '';
+    if (esCT && contrato.categoriaCtCod == null) errores.push(`${quien}: falta la categoría CT (código) en el contrato.`);
+    if (esCT && contrato.cajaActividad == null) errores.push(`${quien}: falta la caja de actividad en el contrato.`);
+    bloque.push([
       '6', '', String(paisDoc), tipoDoc, doc,
       String(al),
       ddmmaaaa(contrato.fechaIngreso),
@@ -428,20 +454,48 @@ export async function generarNominaBps(companyId: string, year: number, month: n
       contrato.vinculoFuncional != null ? String(contrato.vinculoFuncional) : '',
       String(contrato.exoneracionAporte ?? 9),
       String(contrato.computosEspeciales ?? 99),
-      '', '', '', // categoría, caja de actividad, asignación familiar (CT/RU)
+      ctCategoria, ctCaja, ctAsig, // categoría, caja de actividad, asignación familiar (CT/RU)
       String(diasTrabajados),
-      '0', // horas trabajadas (IC: 0)
+      '0', // horas trabajadas (IC/CT: 0)
       contrato.seguroSalud != null ? String(contrato.seguroSalud) : '',
       egreso ? String(egreso.causal) : '',
       egreso ? egreso.fecha : '',
     ].join('|'));
 
-    // Registros 7 — remuneraciones por concepto (jornal y otros haberes: solo CT)
+    // Materia gravada de "jornales al laudo" (base HORAS_LAUDO del presentismo),
+    // para el desglose del concepto 1 en CT: materia gravada · jornal · resto.
+    let jornalGravadoCt = 0n;
+    if (esCT) {
+      for (const liq of liqsPersona) for (const it of liq.items) {
+        if (it.concepto === 'PRESENTISMO_OBRA' && it.baseCalculo != null) jornalGravadoCt = it.baseCalculo;
+      }
+    }
+
+    // Registros 7 — remuneraciones por concepto. En CT el concepto 1 lleva tres
+    // importes (materia gravada · jornal al laudo · resto); el resto, uno solo.
     const conceptosOrdenados = [...porConcepto.entries()].sort((a, b) => a[0] - b[0]);
     for (const [code, amount] of conceptosOrdenados) {
       if (!siempreDeclarados.has(code) && amount === 0n) continue;
-      lineas5a7.push(['7', '', String(paisDoc), tipoDoc, doc, String(al), String(code), monto7(amount), '', ''].join('|'));
+      if (esCT && code === 1) {
+        let jornal = jornalGravadoCt > amount ? amount : jornalGravadoCt;
+        if (jornal < 0n) jornal = 0n;
+        const resto = amount - jornal;
+        bloque.push(['7', '', String(paisDoc), tipoDoc, doc, String(al), '1', monto7(amount), monto7(jornal), monto7(resto)].join('|'));
+      } else {
+        bloque.push(['7', '', String(paisDoc), tipoDoc, doc, String(al), String(code), monto7(amount), '', ''].join('|'));
+      }
       totalNomina += amount;
+    }
+
+    // Ubicación del bloque: CT agrupa por obra (registro 3 por obra); el resto va
+    // en orden por documento.
+    if (esCT) {
+      const obraKey = contrato.obraId && obraById.has(contrato.obraId) ? contrato.obraId : '';
+      if (!obraKey) errores.push(`${quien}: falta asignar la obra del trabajador (Contratos → Obra asignada).`);
+      if (!bloquesPorObra.has(obraKey)) { bloquesPorObra.set(obraKey, []); ordenObras.push(obraKey); }
+      bloquesPorObra.get(obraKey)!.push(...bloque);
+    } else {
+      lineas5a7.push(...bloque);
     }
 
     personasOut.push({
@@ -472,7 +526,14 @@ export async function generarNominaBps(companyId: string, year: number, month: n
   // El monto total del cabezal va REDONDEADO al peso (criterio GNS, validado
   // contra los archivos reales: 37160.42 → 37160.00 · 32240.61 → 32241.00).
   const totalRedondeado = BigInt(Math.round(Number(totalNomina) / 100)) * 100n;
-  const linea4 = ['4', mesCargo, String(company.tipoContribuyente ?? ''), monto(totalRedondeado), '', ''].join('|');
+  // CT: obras con trabajadores (en orden de aparición); la primera define la
+  // forma de realización y la actividad principal del cabezal (registro 4).
+  const obrasConTrabajo = ordenObras.filter((k) => k !== '' && obraById.has(k));
+  const primeraObra = obrasConTrabajo.length ? obraById.get(obrasConTrabajo[0])! : null;
+  const linea4 = esCT
+    ? ['4', mesCargo, String(company.tipoContribuyente ?? ''), monto(totalRedondeado),
+       primeraObra?.fRealizacion ?? '', primeraObra?.actividadPrincipal ?? ''].join('|')
+    : ['4', mesCargo, String(company.tipoContribuyente ?? ''), monto(totalRedondeado), '', ''].join('|');
 
   const linea12 = [
     '12',
@@ -484,7 +545,25 @@ export async function generarNominaBps(companyId: string, year: number, month: n
     (gestoria?.email ?? company.email ?? '').slice(0, 50),
   ].join('|');
 
-  const contenido = [linea1, linea4, ...lineas5a7, linea12].join('\n') + '\n';
+  let contenido: string;
+  if (esCT) {
+    // Registro 3 por obra (header, antes del cabezal) + cuerpo agrupado por obra.
+    if (obrasConTrabajo.length > 1) {
+      advertencias.push(`La nómina tiene trabajadores en ${obrasConTrabajo.length} obras; BPS suele requerir una declaración por obra — revisá el archivo generado.`);
+    }
+    if (primeraObra && !primeraObra.fRealizacion) advertencias.push(`La obra "${primeraObra.nombre}" no tiene forma de realización cargada (registro 4).`);
+    if (primeraObra && !primeraObra.actividadPrincipal) advertencias.push(`La obra "${primeraObra.nombre}" no tiene actividad principal cargada (registro 4).`);
+    const reg3Lines: string[] = [];
+    const cuerpo: string[] = [];
+    for (const key of ordenObras) {
+      const o = obraById.get(key);
+      if (o) reg3Lines.push(['3', soloDigitos(o.numeroObra ?? '').slice(0, 13), (o.direccion ?? '').slice(0, 40)].join('|'));
+      cuerpo.push(...(bloquesPorObra.get(key) ?? []));
+    }
+    contenido = [linea1, ...reg3Lines, linea4, ...cuerpo, linea12].join('\n') + '\n';
+  } else {
+    contenido = [linea1, linea4, ...lineas5a7, linea12].join('\n') + '\n';
+  }
 
   // Nombre estilo GNS: N_MMAA_XXXX_NROEMPRESA.txt
   const sigla = (company.nombreFantasia || company.razonSocial || 'EMP')
