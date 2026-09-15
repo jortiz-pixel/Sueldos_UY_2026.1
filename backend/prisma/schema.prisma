@@ -879,7 +879,8 @@ model Obra {
   departamento  String?         // Depto.
   localidad     String?
   padron        String?
-  fRealizacion  String?         // F. de Realización
+  fRealizacion  String?         // F. de Realización (1 admin. total · 2 por contrato · 3 menor cuantía)
+  actividadPrincipal String?    // Actividad principal (código, reg. 4 de la nómina CT)
   estado        String?         // Estado de la obra
   aportePatronal String?        // Ap. Pat.
   cajaActividad String?         // Caja Act.

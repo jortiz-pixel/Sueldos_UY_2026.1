@@ -307,6 +307,7 @@ export interface Obra {
   localidad?: string | null;
   padron?: string | null;
   fRealizacion?: string | null;
+  actividadPrincipal?: string | null;
   estado?: string | null;
   aportePatronal?: string | null;
   cajaActividad?: string | null;

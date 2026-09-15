@@ -14,6 +14,11 @@ const DEPARTAMENTOS = [
   'Salto', 'San José', 'Soriano', 'Tacuarembó', 'Treinta y Tres',
 ];
 const ESTADOS_OBRA = ['Activa', 'Suspendida', 'Finalizada'];
+const FORMAS_REALIZACION = [
+  { v: '1', label: '1 — Obra por administración total' },
+  { v: '2', label: '2 — Obra por contrato' },
+  { v: '3', label: '3 — Obra por menor cuantía' },
+];
 
 interface ObraForm {
   // Datos de obra
@@ -23,6 +28,7 @@ interface ObraForm {
   direccion?: string;
   departamento?: string;
   fRealizacion?: string;
+  actividadPrincipal?: string;
   estado?: string;
   aportePatronal?: string;
   cajaActividad?: string;
@@ -51,7 +57,7 @@ interface ObraForm {
 
 const OBRA_VACIA = {
   numeroObra: '', numeroIdentificador: '', nombre: '', direccion: '', departamento: '',
-  fRealizacion: '', estado: 'Activa', aportePatronal: '', cajaActividad: '', nroAutorizacion: '',
+  fRealizacion: '', actividadPrincipal: '', estado: 'Activa', aportePatronal: '', cajaActividad: '', nroAutorizacion: '',
   fechaInicio: '', fechaFin: '', observaciones: '', activa: true,
 };
 
@@ -112,6 +118,7 @@ export default function ObrasPage() {
         direccion: data.direccion || null,
         departamento: data.departamento || null,
         fRealizacion: data.fRealizacion || null,
+        actividadPrincipal: data.actividadPrincipal || null,
         estado: data.estado || null,
         aportePatronal: data.aportePatronal || null,
         cajaActividad: data.cajaActividad || null,
@@ -168,7 +175,7 @@ export default function ObrasPage() {
     reset({
       numeroObra: o.numeroObra, numeroIdentificador: o.numeroIdentificador ?? '', nombre: o.nombre,
       direccion: o.direccion ?? '', departamento: o.departamento ?? '',
-      fRealizacion: o.fRealizacion ?? '', estado: o.estado ?? '', aportePatronal: o.aportePatronal ?? '',
+      fRealizacion: o.fRealizacion ?? '', actividadPrincipal: o.actividadPrincipal ?? '', estado: o.estado ?? '', aportePatronal: o.aportePatronal ?? '',
       cajaActividad: o.cajaActividad ?? '', nroAutorizacion: o.nroAutorizacion ?? '',
       fechaInicio: o.fechaInicio ?? '', fechaFin: o.fechaFin ?? '',
       observaciones: o.observaciones ?? '', activa: o.activa,
@@ -279,7 +286,14 @@ export default function ObrasPage() {
                 </div>
                 <div>
                   <label className="form-label">F. de Realización</label>
-                  <input {...register('fRealizacion')} className="form-input" placeholder="(lista a definir)" />
+                  <select {...register('fRealizacion')} className="form-input">
+                    <option value="">—</option>
+                    {FORMAS_REALIZACION.map((f) => <option key={f.v} value={f.v}>{f.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="form-label">Actividad principal (código)</label>
+                  <input type="number" {...register('actividadPrincipal')} className="form-input" placeholder="Ej. 4110" />
                 </div>
                 <div>
                   <label className="form-label">Estado</label>

@@ -21,6 +21,7 @@ const obraSchema = z.object({
   localidad: z.string().optional().nullable(),
   padron: z.string().optional().nullable(),
   fRealizacion: z.string().optional().nullable(),
+  actividadPrincipal: z.string().optional().nullable(),
   estado: z.string().optional().nullable(),
   aportePatronal: z.string().optional().nullable(),
   cajaActividad: z.string().optional().nullable(),
