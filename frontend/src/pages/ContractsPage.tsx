@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { Link, useNavigate } from 'react-router-dom';
 import { Eye, Plus, X, AlertCircle, Pencil, Printer, Trash2, Undo2 } from 'lucide-react';
-import { contractsApi, catalogsApi, companiesApi, construccionApi } from '../services/api';
+import { contractsApi, catalogsApi, companiesApi, construccionApi, obrasApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
 import { formatPesos, SalaryType, Contrato } from '../types';
@@ -39,6 +39,7 @@ interface ContractForm {
   // FOCER (construcción Grupo 9.1)
   focerTipo?: string;
   focerTipoContrato?: string;
+  obraId?: string;
   observacion?: string;
 }
 
@@ -83,6 +84,11 @@ export default function ContractsPage() {
     enabled: !!companyId,
   });
   const esConstruccion = esEmpresaConstruccion(empresaDetalle);
+  const { data: obras } = useQuery({
+    queryKey: ['obras', companyId],
+    queryFn: () => obrasApi.list(companyId),
+    enabled: !!companyId && esConstruccion,
+  });
   // FOCER solo aplica al Grupo 9 · Subgrupo 1 (industria de la construcción).
   const esFocer = esConstruccion && empresaDetalle?.grupoActividadNum === 9
     && /^0*1(\D|$)/.test((empresaDetalle?.subgrupo || '1').trim());
@@ -130,7 +136,7 @@ export default function ContractsPage() {
     setFormError('');
     setBajaCausal('');
     const hoy = new Date().toISOString().slice(0, 10);
-    reset({ personId: '', vigenciaDesde: hoy, fechaIngreso: hoy, fechaFin: '', salaryType: 'MENSUAL', tipoRemuneracion: 1, salarioNominalPesos: 0, cargo: '', sector: '', categoria: '', nivel: '', tipoContrato: '', sucursal: '', cuentaSueldos: '', observacion: '', vinculoFuncional: '12', fictoCategoria: '', seguroSalud: '', aportaPor: '', computosEspeciales: '99', exoneracionAporte: '9', horasSemanales: 44, focerTipo: '2', focerTipoContrato: '1' });
+    reset({ personId: '', vigenciaDesde: hoy, fechaIngreso: hoy, fechaFin: '', salaryType: 'MENSUAL', tipoRemuneracion: 1, salarioNominalPesos: 0, cargo: '', sector: '', categoria: '', nivel: '', tipoContrato: '', sucursal: '', cuentaSueldos: '', observacion: '', vinculoFuncional: '12', fictoCategoria: '', seguroSalud: '', aportaPor: '', computosEspeciales: '99', exoneracionAporte: '9', horasSemanales: 44, focerTipo: '2', focerTipoContrato: '1', obraId: '' });
     setModalOpen(true);
   };
 
@@ -160,6 +166,7 @@ export default function ContractsPage() {
       horasSemanales: c.horasSemanales ?? 44,
       focerTipo: (c as unknown as { focerTipo?: number | null }).focerTipo != null ? String((c as unknown as { focerTipo?: number | null }).focerTipo) : '2',
       focerTipoContrato: (c as unknown as { focerTipoContrato?: number | null }).focerTipoContrato != null ? String((c as unknown as { focerTipoContrato?: number | null }).focerTipoContrato) : '1',
+      obraId: (c as unknown as { obraId?: string | null }).obraId ?? '',
     });
     setModalOpen(true);
   };
@@ -191,6 +198,7 @@ export default function ContractsPage() {
         horasSemanales: data.horasSemanales ? Number(data.horasSemanales) : undefined,
         focerTipo: data.focerTipo ? Number(data.focerTipo) : undefined,
         focerTipoContrato: data.focerTipoContrato ? Number(data.focerTipoContrato) : undefined,
+        obraId: data.obraId ? data.obraId : null,
         observacion: data.observacion || undefined,
       };
       return editing
@@ -483,6 +491,16 @@ export default function ContractsPage() {
                       )}
                       {CATEGORIAS_CONSTRUCCION.map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
+                  </div>
+                )}
+                {esConstruccion && (
+                  <div>
+                    <label className="form-label">Obra asignada</label>
+                    <select {...register('obraId')} className="form-input">
+                      <option value="">— Sin asignar —</option>
+                      {obras?.map((o) => <option key={o.id} value={o.id}>{o.nombre} (Nº {o.numeroObra})</option>)}
+                    </select>
+                    <p className="text-xs text-gray-400 mt-1">Agrupa al trabajador bajo su obra en la nómina (aportación construcción). Cargá las obras en la sección Obras.</p>
                   </div>
                 )}
                 {esFocer && (

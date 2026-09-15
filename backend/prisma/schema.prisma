@@ -546,14 +546,19 @@ model Contrato {
   focerTipoContrato  Int?
   observacion      String?
   activo           Boolean    @default(true)
+  // Obra a la que está asignado el trabajador (empresas de CONSTRUCCIÓN por
+  // aportación CT): agrupa a la persona bajo su obra en la nómina.
+  obraId           String?
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
 
   employee         Employee   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   company          Company?   @relation(fields: [companyId], references: [id])
+  obra             Obra?      @relation(fields: [obraId], references: [id])
 
   @@index([employeeId, vigenciaDesde])
   @@index([companyId])
+  @@index([obraId])
   @@map("contracts")
 }
 
@@ -878,7 +883,8 @@ model Obra {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  company       Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company       Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contratos     Contrato[]
 
   @@index([companyId])
   @@map("obras")

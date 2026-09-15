@@ -83,6 +83,8 @@ const contratoFields = {
   // FOCER (construcción Grupo 9.1)
   focerTipo: z.number().int().min(1).max(2).optional().nullable(),
   focerTipoContrato: z.number().int().min(1).max(4).optional().nullable(),
+  // Obra asignada (construcción CT): agrupa al trabajador bajo su obra en la nómina.
+  obraId: z.string().optional().nullable(),
   observacion: z.string().optional(),
 };
 
@@ -346,6 +348,7 @@ employeesRouter.post('/', authenticate, requireRole(UserRole.ADMIN, UserRole.OPE
         horasSemanales: c.horasSemanales ?? undefined,
         focerTipo: c.focerTipo ?? undefined,
         focerTipoContrato: c.focerTipoContrato ?? undefined,
+        obraId: c.obraId ?? undefined,
         observacion: c.observacion,
       },
     });
@@ -504,6 +507,7 @@ employeesRouter.post('/:id/contracts', authenticate, requireRole(UserRole.ADMIN,
         horasSemanales: data.horasSemanales ?? undefined,
         focerTipo: data.focerTipo ?? undefined,
         focerTipoContrato: data.focerTipoContrato ?? undefined,
+        obraId: data.obraId ?? undefined,
         observacion: data.observacion,
       },
     });
