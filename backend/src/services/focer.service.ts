@@ -32,6 +32,15 @@ function focerRateBp(focerTipo: number | null | undefined): number {
   return focerTipo === 1 ? 50 : 500;
 }
 
+// El TITULAR / socio SIN REMUNERACIÓN (vínculo funcional 1 o "Aporta por" ficto/
+// mayor sueldo) NO se declara en FOCER: el fondo es de cesantía y retiro de los
+// DEPENDIENTES. Validado contra el archivo real de Lambrechts (solo sus 3
+// trabajadores figuran; el titular no).
+const APORTA_POR_SIN_REMUNERACION = ['MAXIMO_SUELDO', 'FICTO'];
+function esContratoSinRemuneracion(c: { vinculoFuncional: number | null; aportaPor: string | null }): boolean {
+  return c.vinculoFuncional === 1 || (c.aportaPor != null && APORTA_POR_SIN_REMUNERACION.includes(c.aportaPor));
+}
+
 // ── Helpers de formato de ancho fijo ───────────────────────────────
 function padR(s: string, n: number): string {
   return (s || '').slice(0, n).padEnd(n, ' ');
@@ -236,8 +245,11 @@ export async function generarFocer(companyId: string, year: number, month: numbe
   const conceptosConfig = await prisma.concepto.findMany({ where: { OR: [{ companyId }, { companyId: null }] } });
   const cfgPorCodigo = new Map(conceptosConfig.map((c) => [c.codigo, { codBps: c.codBps, gravado: c.gravado }]));
 
-  const personas = [...porPersona.values()].sort((a, b) =>
-    soloDigitos(a.employee.ci).localeCompare(soloDigitos(b.employee.ci), 'es', { numeric: true }));
+  // Se excluye al titular/socio sin remuneración: FOCER solo declara a los
+  // trabajadores dependientes (aunque tengan 0 jornales en el mes).
+  const personas = [...porPersona.values()]
+    .filter((c) => !esContratoSinRemuneracion(c))
+    .sort((a, b) => soloDigitos(a.employee.ci).localeCompare(soloDigitos(b.employee.ci), 'es', { numeric: true }));
 
   const reg4: string[] = [];
   const reg6: string[] = [];
