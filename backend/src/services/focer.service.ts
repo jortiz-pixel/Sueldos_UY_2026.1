@@ -24,7 +24,7 @@
 import { LiquidationStatus, ItemType } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { divRoundHalfUp, salarioProporcional } from '../utils/money';
-import { esEmpresaConstruccion, grupoConsejoDeEmpresa } from './construccion.service';
+import { esEmpresaConstruccion, grupoConsejoDeEmpresa, TIPO_APORTE_CONSTRUCCION } from './construccion.service';
 
 // Tasa FOCER según el "tipo de FOCER" del contrato (registro 4, posición 206):
 //   1 → 0,5% (50 bp) · 2 → 5% (500 bp, default). Validado: 8525.57 × 5% = 426.28.
@@ -88,6 +88,10 @@ export interface FocerEmpleadoLinea {
   gravadoJornales: bigint; restoGravado: bigint; materiaGravada: bigint; focer: bigint;
   focerTipo: number; focerTipoContrato: number;
   direccion: string; departamento: string; telefono: string; fechaIngreso: Date | null;
+  // Aportación CONSTRUCCIÓN (CT): el bloque del registro 4 cambia respecto a IC.
+  // [155] = 4 (CT) en vez de 1 · [157] = forma de realización de la obra ·
+  // [158-159] = categoría CT del trabajador (right-just). En IC queda `1 1 198 2`.
+  esCT?: boolean; categoriaCt?: number | null; formaRealizacion?: string | null;
 }
 
 // Registro 1 — empresa (219). [0]tipo·[1)bps14·[15)rut14·[29)razón40·[69)dom80·[149)depto20·[169)tel15·[184)gestoría35
@@ -120,10 +124,18 @@ export function buildFocerReg4(p: FocerEmpleadoLinea): string {
   place(b, 112, padR(nombreBps(p.nombre2), 30));
   place(b, 142, ddmmaaaa(p.fechaNacimiento));
   b[151] = p.sexoF ? '2' : '1';
-  // Bloque de códigos FIJO en toda declaración FOCER: `1 1 198 2`.
+  // Bloque de códigos. IC: `1 1 198 2` (validado). CT (construcción): `1 4 <F> <cat> 2`
+  // → [155] = 4 (aportación CT) · [157] = forma de realización de la obra ·
+  // [158-159] = categoría CT del trabajador (right-just). Validado contra Demaria.
   b[153] = '1';
-  b[155] = '1';
-  place(b, 157, '198');
+  if (p.esCT) {
+    b[155] = '4';
+    b[157] = (p.formaRealizacion && p.formaRealizacion[0]) || '1';
+    if (p.categoriaCt != null) placeR(b, 160, String(p.categoriaCt));
+  } else {
+    b[155] = '1';
+    place(b, 157, '198');
+  }
   b[161] = '2';
   if (p.jornales) placeR(b, 165, String(p.jornales));
   placeR(b, 175, money(p.gravadoJornales));
@@ -241,6 +253,12 @@ export async function generarFocer(companyId: string, year: number, month: numbe
   }
   const confirmadas = liquidations.filter((l) => l.status === LiquidationStatus.CONFIRMADO);
 
+  // Aportación CONSTRUCCIÓN (CT): el registro 4 lleva la forma de realización de
+  // la obra y la categoría CT del trabajador (bloque distinto al de IC).
+  const esCT = company.tipoAporte === TIPO_APORTE_CONSTRUCCION;
+  const obras = esCT ? await prisma.obra.findMany({ where: { companyId } }) : [];
+  const obraById = new Map(obras.map((o) => [o.id, o]));
+
   // Mapa codBps/gravado de los conceptos (para separar materia gravada de exentos).
   const conceptosConfig = await prisma.concepto.findMany({ where: { OR: [{ companyId }, { companyId: null }] } });
   const cfgPorCodigo = new Map(conceptosConfig.map((c) => [c.codigo, { codBps: c.codBps, gravado: c.gravado }]));
@@ -325,6 +343,8 @@ export async function generarFocer(companyId: string, year: number, month: numbe
       advertencias.push(`${quien}: falta ${faltan} en la ficha de la persona (FOCER los declara por trabajador).`);
     }
 
+    const obraTrab = contrato.obraId ? obraById.get(contrato.obraId) : null;
+    if (esCT && contrato.categoriaCtCod == null) advertencias.push(`${quien}: falta la categoría CT (código) en el contrato (FOCER reg. 4).`);
     const lineaEmp: FocerEmpleadoLinea = {
       tipoDoc, doc,
       apellido: e.apellido, apellido2: e.apellido2, nombre: e.nombre, nombre2: e.nombre2,
@@ -332,6 +352,7 @@ export async function generarFocer(companyId: string, year: number, month: numbe
       gravadoJornales, restoGravado, materiaGravada, focer,
       focerTipo, focerTipoContrato: contrato.focerTipoContrato ?? 1,
       direccion, departamento, telefono, fechaIngreso: e.fechaIngreso,
+      esCT, categoriaCt: contrato.categoriaCtCod, formaRealizacion: obraTrab?.fRealizacion ?? null,
     };
     reg4.push(buildFocerReg4(lineaEmp));
     reg6.push(buildFocerReg6(lineaEmp));
