@@ -5,11 +5,11 @@
 // que BPS factura, armado con los montos de las liquidaciones CONFIRMADAS del
 // mes. Réplica de la pantalla de GNS (columnas Cantidad · Gravado · Total).
 //
-// ⚠️ TASAS PROVISIONALES: varias líneas (Fondo Social y Fondo Vivienda del
-// empleador) usan tasas retro-calculadas de la muestra de GNS (05/2026,
-// Lambrechts) y deben validarse contra la factura real / el laudo. Las líneas
-// que salen de ítems ya calculados por el sistema (FRL, S.N.I.S./FONASA, IRPF,
-// cesantía FOCER) son exactas. Cada línea informa su `nota`.
+// Fondo Social y Fondo Vivienda del empleador: tasa sobre la MATERIA GRAVADA,
+// calibrada contra la factura AutoGestionada real de GNS (09/2026, Lambrechts).
+// Las demás líneas salen de ítems ya calculados por el sistema (FRL, S.N.I.S./
+// FONASA, IRPF) o de tasas validadas (cesantía FOCER 5%, FGCL 0,025%). Cada
+// línea informa su `nota`.
 import { LiquidationStatus, ItemType } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { divRoundHalfUp } from '../utils/money';
@@ -21,10 +21,13 @@ function money(cents: bigint): string {
 }
 
 // Tasas de los fondos patronales de la construcción (base 1: fracción).
-// Cesantía y FGCL son limpias en la muestra; Fondo Social/Vivienda son
-// provisionales (retro-cálculo de la muestra) hasta validar con el laudo.
-const RATE_FONDO_SOCIAL = 0.060451;   // ⚠️ provisional (muestra: 506.92 / 8385.70)
-const RATE_FONDO_VIVIENDA = 0.0013249; // ⚠️ provisional (muestra: 11.11 / 8385.70)
+// TODAS van sobre la MATERIA GRAVADA (la misma base que la cesantía y el FGCL),
+// no sobre la base reducida "ApliAFondos" del descuento OBRERO: el aporte
+// PATRONAL a los fondos se calcula sobre la materia gravada completa.
+// Fondo Social/Vivienda calibrados contra la factura AutoGestionada de GNS
+// (09/2026, José Lambrechts): sobre materia gravada 9.414,80 dan 582,31 y 13,17.
+const RATE_FONDO_SOCIAL = 0.061851;    // 6,1851% (GNS: 582.31 / 9414.80)
+const RATE_FONDO_VIVIENDA = 0.001399;  // 0,1399% (GNS: 13.17 / 9414.80)
 const RATE_CESANTIA_PATRONAL = 0.05;   // 5% (validado: 448.32 / 8966.36)
 const RATE_CESANTIA_PERSONAL = 0.005;  // 0,5%
 const RATE_FGCL = 0.00025;             // 0,025% (validado: 2.24 / 8966.36)
@@ -96,22 +99,16 @@ export async function generarFacturaAg(companyId: string, year: number, month: n
 
     const items = liq.items;
     const get = (concepto: string) => items.find((i) => i.concepto === concepto);
-    // Base gravada BPS (para cesantía/FGCL): base del FONASA obrero (materia gravada).
+    // Base gravada BPS: base del FONASA obrero (materia gravada). Es la base de
+    // TODOS los aportes patronales de la factura: fondos, cesantía y FGCL.
     const fonasaItem = items.find((i) => i.itemType === ItemType.DESCUENTO_OBRERO && i.concepto === 'FONASA');
     const baseGravada = fonasaItem?.baseCalculo ?? 0n;
-    // Base ApliAFondos (para Fondo Social/Vivienda): la del ítem Fondo Social.
-    const baseFondo = get('FONDO_SOCIAL')?.baseCalculo ?? 0n;
 
-    // Fondo Social / Vivienda del empleador (tasa provisional sobre ApliAFondos).
-    if (baseFondo > 0n) {
-      acc.fondoSocial.cant++; acc.fondoSocial.base += baseFondo; acc.fondoSocial.total += aplicar(baseFondo, RATE_FONDO_SOCIAL);
-      acc.fondoVivienda.cant++; acc.fondoVivienda.base += baseFondo; acc.fondoVivienda.total += aplicar(baseFondo, RATE_FONDO_VIVIENDA);
-    }
-
-    // F. Cesantía (FOCER): patronal 5% siempre; personal 0,5% según tipo de FOCER.
-    // (focerTipo se toma del contrato del trabajador; acá aproximamos con la
-    // materia gravada del recibo, misma base que usa la muestra.)
     if (baseGravada > 0n) {
+      // Fondo Social / Vivienda del empleador (sobre la materia gravada).
+      acc.fondoSocial.cant++; acc.fondoSocial.base += baseGravada; acc.fondoSocial.total += aplicar(baseGravada, RATE_FONDO_SOCIAL);
+      acc.fondoVivienda.cant++; acc.fondoVivienda.base += baseGravada; acc.fondoVivienda.total += aplicar(baseGravada, RATE_FONDO_VIVIENDA);
+      // F. Cesantía (FOCER) patronal 5% + FGCL 0,025%, misma base.
       acc.cesantiaPatronal.cant++; acc.cesantiaPatronal.base += baseGravada; acc.cesantiaPatronal.total += aplicar(baseGravada, RATE_CESANTIA_PATRONAL);
       acc.fgcl.cant++; acc.fgcl.base += baseGravada; acc.fgcl.total += aplicar(baseGravada, RATE_FGCL);
     }
@@ -136,8 +133,8 @@ export async function generarFacturaAg(companyId: string, year: number, month: n
   });
 
   const lineas: FacturaAgLinea[] = [
-    L('fondoSocial', 'Fondo Social', '⚠️ tasa provisional (validar con laudo)'),
-    L('fondoVivienda', 'Fondo Vivienda', '⚠️ tasa provisional (validar con laudo)'),
+    L('fondoSocial', 'Fondo Social', '6,1851% de la materia gravada'),
+    L('fondoVivienda', 'Fondo Vivienda', '0,1399% de la materia gravada'),
     L('cesantiaPatronal', 'F. Cesantía Patronal', '5% de la materia gravada'),
     L('cesantiaPersonal', 'F. Cesantía Personal', '0,5% (trabajadores a prueba)'),
     L('frl', 'F.R.L.', 'Suma de FRL obrero + patronal'),
