@@ -152,10 +152,19 @@ export const demoApi = {
 };
 
 export interface JornalConstruccionRow { categoria: string; recuadro: 'INCLUIDOS' | 'NO_INCLUIDOS'; valorHora: string; effectiveDate: string }
+export interface LaudoDoc { id: string; effectiveDate: string; nombre: string; filename: string; mime: string; size: number; createdAt: string }
 export const construccionApi = {
-  jornales: () => api.get<{ categorias: string[]; jornales: JornalConstruccionRow[]; convenioVigenteHasta: string; vencido: boolean; mtssUrl: string }>('/construccion/jornales').then((r) => r.data),
+  jornales: (fecha?: string) => api.get<{ categorias: string[]; jornales: JornalConstruccionRow[]; convenioVigenteHasta: string; vencido: boolean; mtssUrl: string }>('/construccion/jornales', { params: fecha ? { fecha } : {} }).then((r) => r.data),
   saveJornales: (effectiveDate: string, valores: Array<{ categoria: string; recuadro: 'INCLUIDOS' | 'NO_INCLUIDOS'; valorHoraPesos: number }>) =>
     api.put<{ guardados: number; partidasActualizadas: number }>('/construccion/jornales', { effectiveDate, valores }).then((r) => r.data),
+  laudos: () => api.get<LaudoDoc[]>('/construccion/laudos').then((r) => r.data),
+  subirLaudo: (file: File, effectiveDate: string, nombre: string) => {
+    const fd = new FormData();
+    fd.append('file', file); fd.append('effectiveDate', effectiveDate); fd.append('nombre', nombre);
+    return api.post('/construccion/laudos', fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data);
+  },
+  eliminarLaudo: (id: string) => api.delete(`/construccion/laudos/${id}`).then((r) => r.data),
+  descargarLaudo: (id: string) => api.get(`/construccion/laudos/${id}/download`, { responseType: 'blob' }).then((r) => r.data as Blob),
 };
 
 export const auditApi = {

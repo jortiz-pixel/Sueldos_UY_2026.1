@@ -648,6 +648,24 @@ model JornalConstruccion {
   @@map("jornales_construccion")
 }
 
+// Convenio / acta del laudo de la construcción (MTSS, Grupo 9): PDF de respaldo
+// asociado a una fecha de vigencia. Los valores se cargan a mano (el acta es un
+// PDF escaneado); el archivo queda adjunto como referencia de esa vigencia.
+model LaudoDocumento {
+  id            String   @id @default(cuid())
+  effectiveDate DateTime // fecha de vigencia del convenio
+  nombre        String   // ej. "Undécima Ronda"
+  filename      String
+  mime          String
+  size          Int
+  storageKey    String
+  createdBy     String?
+  createdAt     DateTime @default(now())
+
+  @@index([effectiveDate])
+  @@map("laudo_documentos")
+}
+
 enum PeriodStatus {
   BORRADOR
   CONFIRMADO
