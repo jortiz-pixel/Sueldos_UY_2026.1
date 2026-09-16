@@ -373,6 +373,8 @@ function JornalesConstruccion() {
   const [vals, setVals] = useState<Record<string, string>>({});
   const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
   const [msg, setMsg] = useState('');
+  const [pct, setPct] = useState('');
+  const [fechaAjuste, setFechaAjuste] = useState(new Date().toISOString().slice(0, 10));
 
   const { data } = useQuery({ queryKey: ['jornales-construccion'], queryFn: () => construccionApi.jornales() });
 
@@ -400,6 +402,18 @@ function JornalesConstruccion() {
     },
     onError: () => setMsg('No se pudieron guardar los jornales.'),
   });
+
+  const ajuste = useMutation({
+    mutationFn: () => construccionApi.aplicarAjuste(Number(pct.replace(',', '.')), fechaAjuste),
+    onSuccess: (r) => {
+      setMsg(`Aumento ${r.porcentaje}% aplicado: ${r.guardados} categorías con vigencia nueva · ${r.partidasActualizadas} partidas derivadas actualizadas.`);
+      setPct('');
+      queryClient.invalidateQueries({ queryKey: ['jornales-construccion'] });
+    },
+    onError: (e: unknown) => setMsg((e as { response?: { data?: { error?: string } } })?.response?.data?.error || 'No se pudo aplicar el ajuste.'),
+  });
+  const pctNum = Number(pct.replace(',', '.'));
+  const ajusteValido = !!pct && !isNaN(pctNum) && pctNum > -100 && pctNum !== 0;
 
   return (
     <div className="card p-5 space-y-3 border-t-4 border-t-amber-400">
@@ -435,6 +449,37 @@ function JornalesConstruccion() {
           Los nuevos montos se publican en la <a href={data.mtssUrl} target="_blank" rel="noreferrer" className="underline">web del MTSS</a>.
         </p>
       )}
+      {/* Aplicar aumento por acta: multiplica TODAS las categorías (ambos
+          recuadros) por (1 + %) y crea una vigencia nueva. Rige para todas las
+          empresas; las vigencias anteriores no se tocan. */}
+      <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg space-y-2">
+        <p className="text-sm font-semibold text-amber-900">Aplicar ajuste % (aumento del acta)</p>
+        <p className="text-xs text-amber-700">
+          Aumenta TODAS las categorías (ambos recuadros) por el % indicado y crea una vigencia nueva desde la fecha.
+          Rige para todas las empresas; las vigencias anteriores no se modifican.
+        </p>
+        <div className="flex items-end gap-2 flex-wrap">
+          <div>
+            <label className="block text-xs text-gray-500 mb-0.5">Aumento %</label>
+            <input
+              type="number" step="0.01" value={pct}
+              onChange={(e) => setPct(e.target.value)}
+              className="form-input w-28" placeholder="5,95"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-0.5">Vigencia desde</label>
+            <input type="date" value={fechaAjuste} onChange={(e) => setFechaAjuste(e.target.value)} className="form-input" />
+          </div>
+          <button
+            onClick={() => ajuste.mutate()}
+            disabled={ajuste.isPending || !ajusteValido}
+            className="btn-secondary btn-sm"
+          >
+            {ajuste.isPending ? 'Aplicando…' : 'Aplicar aumento'}
+          </button>
+        </div>
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>

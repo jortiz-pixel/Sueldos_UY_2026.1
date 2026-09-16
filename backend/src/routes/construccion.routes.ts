@@ -73,6 +73,49 @@ construccionRouter.put('/jornales', authenticate, requireRole(UserRole.ADMIN, Us
   } catch (err) { next(err); }
 });
 
+// POST /api/construccion/jornales/ajuste — aplica un aumento % a TODAS las
+// categorías del laudo (ambos recuadros) y crea una vigencia NUEVA con los
+// valores multiplicados por (1 + %/100). Las vigencias anteriores no se tocan.
+// El % rige para todas las empresas (la tabla de jornales es global); lo que
+// depende de cada empresa es qué categoría/recuadro usa cada contrato.
+// body: { porcentaje, effectiveDate }
+construccionRouter.post('/jornales/ajuste', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const schema = z.object({
+      porcentaje: z.number().gt(-100),
+      effectiveDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    });
+    const { porcentaje, effectiveDate } = schema.parse(req.body);
+    const fecha = new Date(`${effectiveDate}T00:00:00Z`);
+
+    // Tomar la última vigencia ANTERIOR a la fecha nueva (día previo), así el
+    // ajuste parte de los valores hoy vigentes sin verse a sí mismo.
+    const base = new Date(fecha.getTime() - 24 * 60 * 60 * 1000);
+    const vigentes = await jornalesVigentes(base);
+    if (vigentes.length === 0) throw new AppError(400, 'No hay jornales cargados para aplicar el ajuste. Cargá primero una vigencia.');
+
+    const factor = 1 + porcentaje / 100;
+    let guardados = 0;
+    for (const v of vigentes) {
+      // Redondeo a centésimos del nuevo valor hora.
+      const nuevoValor = BigInt(Math.round(Number(v.valorHora) * factor));
+      if (nuevoValor <= 0n) continue;
+      await prisma.jornalConstruccion.upsert({
+        where: { categoria_recuadro_effectiveDate: { categoria: v.categoria, recuadro: v.recuadro, effectiveDate: fecha } },
+        create: { categoria: v.categoria, recuadro: v.recuadro as 'INCLUIDOS' | 'NO_INCLUIDOS', effectiveDate: fecha, valorHora: nuevoValor },
+        update: { valorHora: nuevoValor },
+      });
+      guardados++;
+    }
+
+    // Derivar ropa/transporte/herramientas del nuevo ½ Oficial Albañil.
+    const partidasActualizadas = await refrescarPartidasDesdeJornal(fecha);
+
+    await recordAudit({ action: 'PARAMETER_CHANGE', entity: 'parameter', newData: { tipo: 'jornales_construccion_ajuste', porcentaje, effectiveDate, guardados, partidasActualizadas }, req });
+    res.json({ guardados, partidasActualizadas, porcentaje });
+  } catch (err) { next(err); }
+});
+
 // ── Convenios del laudo (PDF de respaldo por vigencia) ─────────────────────
 // GET /api/construccion/laudos — lista los convenios adjuntos (metadatos).
 construccionRouter.get('/laudos', authenticate, async (_req: Request, res: Response, next: NextFunction) => {

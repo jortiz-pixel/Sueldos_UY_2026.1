@@ -157,6 +157,8 @@ export const construccionApi = {
   jornales: (fecha?: string) => api.get<{ categorias: string[]; jornales: JornalConstruccionRow[]; convenioVigenteHasta: string; vencido: boolean; mtssUrl: string }>('/construccion/jornales', { params: fecha ? { fecha } : {} }).then((r) => r.data),
   saveJornales: (effectiveDate: string, valores: Array<{ categoria: string; recuadro: 'INCLUIDOS' | 'NO_INCLUIDOS'; valorHoraPesos: number }>) =>
     api.put<{ guardados: number; partidasActualizadas: number }>('/construccion/jornales', { effectiveDate, valores }).then((r) => r.data),
+  aplicarAjuste: (porcentaje: number, effectiveDate: string) =>
+    api.post<{ guardados: number; partidasActualizadas: number; porcentaje: number }>('/construccion/jornales/ajuste', { porcentaje, effectiveDate }).then((r) => r.data),
   laudos: () => api.get<LaudoDoc[]>('/construccion/laudos').then((r) => r.data),
   subirLaudo: (file: File, effectiveDate: string, nombre: string) => {
     const fd = new FormData();
