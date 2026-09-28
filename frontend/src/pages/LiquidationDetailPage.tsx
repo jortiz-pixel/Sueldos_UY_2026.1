@@ -242,7 +242,7 @@ function Section({ title, items, total, colorClass, opciones, editable, onAdd, o
   opciones?: OpcionConcepto[];
   editable?: boolean;
   onAdd?: (descripcion: string, monto: number, cantidad?: number, porcentaje?: number) => void;
-  onEdit?: (itemId: string, data: { descripcion: string; monto?: number; base?: number; porcentaje?: number }) => void;
+  onEdit?: (itemId: string, data: { descripcion?: string; monto?: number; cantidad?: number; base?: number; porcentaje?: number }) => void;
   onDelete?: (id: string) => void;
 }) {
   const [sel, setSel] = useState('');
