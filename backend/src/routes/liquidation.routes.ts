@@ -1142,6 +1142,10 @@ liquidationRouter.patch('/:id/item/:itemId', authenticate, requireRole(UserRole.
     const schema = z.object({
       descripcion: z.string().min(1).optional(),
       monto: z.number().nonnegative().optional(),
+      // Para FALTAS / HORAS_TARDE / DESCANSO_TRABAJADO: al editar se puede cambiar
+      // la CANTIDAD y el monto se recalcula solo (jornal × cantidad), igual que al
+      // agregarla. También se puede fijar el monto a mano (override) con `monto`.
+      cantidad: z.number().nonnegative().optional(),
       // Solo para la PRIMA POR ANTIGÜEDAD: el usuario fija el monto BASE y el
       // PORCENTAJE, y la prima se calcula sola (base × %).
       base: z.number().nonnegative().optional(),
@@ -1203,6 +1207,30 @@ liquidationRouter.patch('/:id/item/:itemId', authenticate, requireRole(UserRole.
           amount: applyRate(baseCent, rateBp),
           calculationDetail: { primaManual: true, rateBp } as unknown as Prisma.InputJsonValue,
         },
+      });
+      await recalcularLiquidacion(liquidation.id);
+      res.json({ message: 'Concepto actualizado' });
+      return;
+    }
+
+    // FALTAS / HORAS TARDES / DESCANSOS TRABAJADOS: al editar se puede cambiar la
+    // CANTIDAD y el monto se recalcula solo (jornal × cantidad), igual que al
+    // agregarlos. El jornal sale del servidor (básico ÷ 30 · jornalero: el
+    // jornal), así queda una única fuente de verdad.
+    if (['FALTAS', 'HORAS_TARDE', 'DESCANSO_TRABAJADO'].includes(item.concepto) && data.cantidad !== undefined) {
+      const jornalCent = await valorJornalFalta(liquidation.id);
+      const esHora = item.concepto === 'HORAS_TARDE';
+      const unitCent = esHora ? divRoundHalfUp(jornalCent, 8n) : jornalCent;
+      const monto = BigInt(Math.round(Number(unitCent) * data.cantidad));
+      const unitTxt = (Number(unitCent) / 100).toFixed(2);
+      const descBase = item.concepto === 'FALTAS' ? `Faltas ${data.cantidad} x ${unitTxt}`
+        : esHora ? `Horas Tardes ${data.cantidad} x ${unitTxt}`
+        : `Descansos Trabajados ${data.cantidad} x ${unitTxt}`;
+      // FALTAS y HORAS_TARDE restan (haber negativo); DESCANSO suma.
+      const amount = (item.concepto === 'DESCANSO_TRABAJADO') ? monto : -monto;
+      await prisma.payrollItem.update({
+        where: { id: item.id },
+        data: { descripcion: data.descripcion ?? descBase, amount },
       });
       await recalcularLiquidacion(liquidation.id);
       res.json({ message: 'Concepto actualizado' });

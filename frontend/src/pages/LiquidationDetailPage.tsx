@@ -24,11 +24,19 @@ function formatTasa(item: PayrollItem): string {
 function ItemRow({ item, editable, onEdit, onDelete }: {
   item: PayrollItem;
   editable?: boolean;
-  onEdit?: (itemId: string, data: { descripcion: string; monto?: number; base?: number; porcentaje?: number }) => void;
+  onEdit?: (itemId: string, data: { descripcion?: string; monto?: number; cantidad?: number; base?: number; porcentaje?: number }) => void;
   onDelete?: (id: string) => void;
 }) {
   // Conceptos agregados a mano (ajustes y faltas): se pueden editar y eliminar.
   const manual = item.concepto.startsWith('AJUSTE') || ['FALTAS', 'HORAS_TARDE', 'DESCANSO_TRABAJADO', 'REINTEGRO_GASTOS', 'PRIMA_ANTIGUEDAD', 'RETENCION_JUDICIAL', 'VIATICOS', 'VIATICOS_GRAVADOS'].includes(item.concepto);
+  // FALTAS / HORAS TARDES / DESCANSOS: se editan por CANTIDAD y el monto se
+  // recalcula solo (unidad × cantidad). La unidad (jornal, u hora = jornal/8)
+  // se lee de la descripción "N x unidad" que guardó el servidor.
+  const esPorCantidad = ['FALTAS', 'HORAS_TARDE', 'DESCANSO_TRABAJADO'].includes(item.concepto);
+  const mCant = item.descripcion.match(/(\d+(?:[.,]\d+)?)\s*x\s*([\d.,]+)/i);
+  const cantInicial = mCant ? mCant[1].replace(',', '.') : '';
+  // La unidad la escribe el servidor con toFixed(2) → punto decimal, sin miles.
+  const unidadCant = mCant ? Number(mCant[2]) : 0;
   // La prima por antigüedad se edita distinto: el usuario carga el monto BASE y
   // el PORCENTAJE, y la prima sale sola (base × %).
   const esPrima = item.concepto === 'PRIMA_ANTIGUEDAD';
@@ -44,6 +52,7 @@ function ItemRow({ item, editable, onEdit, onDelete }: {
   const pctInicial = item.rate ? String(item.rate / 100) : '';
   const [baseStr, setBaseStr] = useState(baseInicial);
   const [pctStr, setPctStr] = useState(pctInicial);
+  const [cantStr, setCantStr] = useState(cantInicial);
   // Clic derecho sobre el Salario Vacacional: muestra la forma de cálculo del
   // jornal líquido usado (base promedio, aportes, líquido, días).
   const detVac = item.calculationDetail as {
@@ -102,6 +111,33 @@ function ItemRow({ item, editable, onEdit, onDelete }: {
             <span className="text-sm font-mono text-gray-600 align-middle" title="Retención = total de haberes × %">{formatPesos(String(retCentesimos))}</span>
             <button onClick={() => { onEdit?.(item.id, { descripcion: d, porcentaje: pctNum }); setEditing(false); }} className="ml-2 text-green-600 hover:text-green-700 align-middle" title="Guardar"><Check size={15} /></button>
             <button onClick={() => { setD(item.descripcion); setPctStr(pctInicial); setEditing(false); }} className="ml-1 text-gray-400 hover:text-gray-600 align-middle" title="Cancelar"><X size={15} /></button>
+          </td>
+        </tr>
+      );
+    }
+    // FALTAS / HORAS TARDES / DESCANSOS: se edita la CANTIDAD y el monto se
+    // recalcula solo (unidad × cantidad). El servidor recalcula con el jornal
+    // real; acá mostramos una vista previa con la unidad de la descripción.
+    if (esPorCantidad) {
+      const cantNum = parseFloat(cantStr.replace(',', '.')) || 0;
+      const signo = item.concepto === 'DESCANSO_TRABAJADO' ? 1 : -1;
+      const previewCent = Math.round(unidadCant * 100 * cantNum) * signo;
+      const unidadLabel = item.concepto === 'HORAS_TARDE' ? 'hora' : 'jornal';
+      return (
+        <tr className="bg-amber-50/50">
+          <td className="px-4 py-2">
+            <input value={d} onChange={(e) => setD(e.target.value)} className="border border-gray-300 rounded px-2 py-1 text-sm w-full" />
+          </td>
+          <td className="px-4 py-2 text-right" colSpan={2}>
+            <div className="inline-flex items-center gap-1">
+              <input type="text" inputMode="decimal" value={cantStr} onChange={(e) => setCantStr(e.target.value)} className="border border-gray-300 rounded px-2 py-1 text-sm w-20 text-right" title="Cantidad" placeholder="N°" />
+              <span className="text-xs text-gray-500">× {unidadCant ? unidadCant.toFixed(2) : unidadLabel}</span>
+            </div>
+          </td>
+          <td className="px-4 py-2 text-right whitespace-nowrap">
+            <span className="text-sm font-mono text-gray-600 align-middle" title="Se recalcula con el jornal real al guardar">{formatPesos(String(previewCent))}</span>
+            <button onClick={() => { onEdit?.(item.id, { ...(d !== item.descripcion ? { descripcion: d } : {}), cantidad: cantNum }); setEditing(false); }} className="ml-2 text-green-600 hover:text-green-700 align-middle" title="Guardar"><Check size={15} /></button>
+            <button onClick={() => { setD(item.descripcion); setCantStr(cantInicial); setEditing(false); }} className="ml-1 text-gray-400 hover:text-gray-600 align-middle" title="Cancelar"><X size={15} /></button>
           </td>
         </tr>
       );
@@ -524,8 +560,8 @@ export default function LiquidationDetailPage() {
   });
 
   const updateItemMutation = useMutation({
-    mutationFn: (vars: { itemId: string; descripcion: string; monto?: number; base?: number; porcentaje?: number }) =>
-      liquidationApi.updateItem(id!, vars.itemId, { descripcion: vars.descripcion, monto: vars.monto, base: vars.base, porcentaje: vars.porcentaje }),
+    mutationFn: (vars: { itemId: string; descripcion?: string; monto?: number; cantidad?: number; base?: number; porcentaje?: number }) =>
+      liquidationApi.updateItem(id!, vars.itemId, { descripcion: vars.descripcion, monto: vars.monto, cantidad: vars.cantidad, base: vars.base, porcentaje: vars.porcentaje }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['liquidation', id] }),
     onError: (e: unknown) => {
       const err = e as { response?: { data?: { error?: string } } };
