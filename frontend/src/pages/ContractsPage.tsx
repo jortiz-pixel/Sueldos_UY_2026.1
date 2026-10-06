@@ -218,7 +218,6 @@ export default function ContractsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['contracts-company', companyId] });
       queryClient.invalidateQueries({ queryKey: ['nomina-checklist'] });
-      if (empId) queryClient.invalidateQueries({ queryKey: ['employee', empId] });
       setModalOpen(false);
     },
     onError: (err: unknown) => {
