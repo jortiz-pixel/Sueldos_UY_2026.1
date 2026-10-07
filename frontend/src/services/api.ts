@@ -197,8 +197,11 @@ export const obrasApi = {
 };
 
 export const companiesApi = {
-  list: () => api.get<Company[]>('/companies').then((r) => r.data),
+  list: (incluirInactivas?: boolean) =>
+    api.get<Company[]>('/companies', { params: incluirInactivas ? { incluirInactivas: 1 } : {} }).then((r) => r.data),
   get: (id: string) => api.get<Company>(`/companies/${id}`).then((r) => r.data),
+  setActive: (id: string, active: boolean) =>
+    api.patch(`/companies/${id}/active`, { active }).then((r) => r.data),
   create: (data: Partial<Company>) => api.post<Company>('/companies', data).then((r) => r.data),
   update: (id: string, data: Partial<Company>) => api.put<Company>(`/companies/${id}`, data).then((r) => r.data),
   delete: (id: string) => api.delete(`/companies/${id}`).then((r) => r.data),

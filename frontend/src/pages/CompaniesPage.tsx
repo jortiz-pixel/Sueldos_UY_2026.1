@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
-import { Plus, Building2, Pencil, X, Users, AlertCircle, Share2, Eye, EyeOff, Trash2, UserPlus, KeyRound, ShieldCheck } from 'lucide-react';
+import { Plus, Building2, Pencil, X, Users, AlertCircle, Share2, Eye, EyeOff, Trash2, UserPlus, KeyRound, ShieldCheck, Power } from 'lucide-react';
 import { companiesApi, catalogsApi, membershipApi, CompanyMembership, portalEmpresaAdminApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { Company } from '../types';
@@ -65,10 +65,11 @@ export default function CompaniesPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Company | null>(null);
   const [formError, setFormError] = useState('');
+  const [showInactive, setShowInactive] = useState(false);
 
   const { data: companies, isLoading } = useQuery({
-    queryKey: ['companies'],
-    queryFn: () => companiesApi.list(),
+    queryKey: ['companies', showInactive],
+    queryFn: () => companiesApi.list(showInactive),
   });
   const { data: tiposAporte } = useQuery({ queryKey: ['tiposAporte'], queryFn: () => catalogsApi.tiposAporte() });
   const { data: tiposContribuyente } = useQuery({ queryKey: ['tiposContribuyente'], queryFn: () => catalogsApi.tiposContribuyente() });
@@ -175,6 +176,28 @@ export default function CompaniesPage() {
     },
   });
 
+  // ---- Inactivar / Reactivar (baja lógica que mantiene el historial) ----
+  const activeMutation = useMutation({
+    mutationFn: ({ id, active }: { id: string; active: boolean }) => companiesApi.setActive(id, active),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      queryClient.invalidateQueries({ queryKey: ['my-companies'] });
+    },
+    onError: (err: unknown) => {
+      const message = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      alert(message || 'No se pudo cambiar el estado de la empresa.');
+    },
+  });
+
+  const handleToggleActive = (c: Company) => {
+    if (c.active) {
+      if (!confirm(`¿Inactivar la empresa "${c.razonSocial}"?\n\nSe conserva TODO el historial (personas, contratos, liquidaciones, nóminas). Deja de aparecer en Sueldos y también en Tareas. Podés reactivarla cuando quieras.`)) return;
+      activeMutation.mutate({ id: c.id, active: false });
+    } else {
+      activeMutation.mutate({ id: c.id, active: true });
+    }
+  };
+
   // ---- Eliminar ----
   const deleteMutation = useMutation({
     mutationFn: (id: string) => companiesApi.delete(id),
@@ -216,6 +239,13 @@ export default function CompaniesPage() {
         )}
       </div>
 
+      {isAdmin && (
+        <label className="flex items-center gap-2 text-sm text-ink-subtle cursor-pointer select-none">
+          <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} className="rounded" />
+          Mostrar empresas inactivas
+        </label>
+      )}
+
       {/* List */}
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
@@ -236,7 +266,7 @@ export default function CompaniesPage() {
               ) : !companies?.length ? (
                 <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">Sin empresas registradas</td></tr>
               ) : companies.map((c) => (
-                <tr key={c.id} className={`hover:bg-canvas/60 transition-colors ${c.hidden ? 'opacity-55' : ''}`}>
+                <tr key={c.id} className={`hover:bg-canvas/60 transition-colors ${c.hidden || !c.active ? 'opacity-55' : ''}`}>
                   <td className="table-cell">
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 bg-brand-50 rounded-full flex items-center justify-center flex-shrink-0">
@@ -245,6 +275,7 @@ export default function CompaniesPage() {
                       <div>
                         <p className="font-medium text-ink text-sm flex items-center gap-2">
                           {c.razonSocial}
+                          {!c.active && <span className="badge-gray text-[10px] bg-warn-bg text-warn">Inactiva</span>}
                           {c.hidden && <span className="badge-gray text-[10px]">Oculta</span>}
                         </p>
                         {c.nombreFantasia && <p className="text-xs text-ink-subtle">{c.nombreFantasia}</p>}
@@ -290,6 +321,14 @@ export default function CompaniesPage() {
                           title={c.hidden ? 'Mostrar (volver a incluir en el selector)' : 'Ocultar del selector de trabajo'}
                         >
                           {c.hidden ? <EyeOff size={15} /> : <Eye size={15} />}
+                        </button>
+                        <button
+                          onClick={() => handleToggleActive(c)}
+                          disabled={activeMutation.isPending}
+                          className={`p-1.5 rounded-lg transition-colors ${c.active ? 'text-ink-subtle hover:text-warn hover:bg-warn-bg' : 'text-ok hover:bg-ok-bg'}`}
+                          title={c.active ? 'Inactivar (baja lógica: conserva el historial y la saca de Sueldos y Tareas)' : 'Reactivar empresa'}
+                        >
+                          <Power size={15} />
                         </button>
                         <button
                           onClick={() => handleDelete(c)}

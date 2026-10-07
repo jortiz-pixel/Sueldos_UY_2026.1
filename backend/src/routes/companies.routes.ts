@@ -68,9 +68,12 @@ companiesRouter.get('/', authenticate, async (req: Request, res: Response, next:
   try {
     const ids = await accessibleCompanyIds(req);
     const where = ids === 'ALL' ? {} : { id: { in: ids } };
+    // Por defecto solo las activas; con ?incluirInactivas=1 también las inactivas
+    // (para consultar historial o reactivarlas).
+    const incluirInactivas = req.query.incluirInactivas === '1' || req.query.incluirInactivas === 'true';
 
     const companies = await prisma.company.findMany({
-      where: { ...where, active: true, soloTareas: false },
+      where: { ...where, ...(incluirInactivas ? {} : { active: true }), soloTareas: false },
       orderBy: { razonSocial: 'asc' },
       include: { _count: { select: { employees: { where: { active: true } } } } },
     });
@@ -137,6 +140,27 @@ companiesRouter.patch('/:id/visibility', authenticate, requireRole(UserRole.ADMI
     const updated = await prisma.company.update({ where: { id: req.params.id }, data: { hidden } });
     await recordAudit({ action: 'COMPANY_VISIBILITY', entity: 'company', entityId: updated.id, companyId: updated.id, newData: { hidden }, req });
     res.json({ id: updated.id, hidden: updated.hidden });
+  } catch (err) { next(err); }
+});
+
+// PATCH /api/companies/:id/active  → inactivar / reactivar (baja lógica)
+// Mantiene TODO el historial: solo cambia el flag `active`. Ese flag es
+// COMPARTIDO con Tareas (la Agenda también filtra `active: true`), así que al
+// inactivar una empresa acá también desaparece de Tareas automáticamente.
+// No exige cero empleados activos: la empresa deja de operar pero su historia
+// (personas, contratos, liquidaciones, nóminas) queda intacta.
+companiesRouter.patch('/:id/active', authenticate, requireRole(UserRole.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { active } = z.object({ active: z.boolean() }).parse(req.body);
+    const company = await prisma.company.findUnique({ where: { id: req.params.id } });
+    if (!company) throw new NotFoundError('Empresa');
+    const updated = await prisma.company.update({ where: { id: req.params.id }, data: { active } });
+    await recordAudit({
+      action: active ? 'COMPANY_REACTIVATE' : 'COMPANY_DEACTIVATE',
+      entity: 'company', entityId: updated.id, companyId: updated.id,
+      oldData: { active: company.active }, newData: { active }, req,
+    });
+    res.json({ id: updated.id, active: updated.active });
   } catch (err) { next(err); }
 });
 
