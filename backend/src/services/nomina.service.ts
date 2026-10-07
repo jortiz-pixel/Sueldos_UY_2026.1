@@ -310,6 +310,16 @@ export async function generarNominaBps(companyId: string, year: number, month: n
     const tipoDoc = e.tipoDocumento || 'DO';
     const paisDoc = 1; // Uruguay (para PA extranjero se requiere país específico)
 
+    // Si NO tiene liquidación CONFIRMADA en el mes, NO se incluye en la nómina
+    // (p. ej. la liquidación se eliminó o se anuló). Para declarar a alguien en
+    // $0 (subsidio, licencia sin goce) hay que generarle una liquidación
+    // confirmada en $0.
+    const liqsPersona = confirmadas.filter((l) => l.employeeId === e.id);
+    if (period && liqsPersona.length === 0) {
+      advertencias.push(`${quien}: sin liquidación confirmada en el mes — no se incluye en la nómina.`);
+      continue;
+    }
+
     // Validaciones de persona (registro 5)
     if (!doc) errores.push(`${quien}: sin número de documento.`);
     if (!e.fechaNacimiento) errores.push(`${quien}: falta la fecha de nacimiento.`);
@@ -318,11 +328,6 @@ export async function generarNominaBps(companyId: string, year: number, month: n
     if (contrato.vinculoFuncional == null) errores.push(`${quien}: falta el vínculo funcional (Tabla 3).`);
     if (contrato.seguroSalud == null) errores.push(`${quien}: falta el seguro de salud (Tabla 8).`);
     if (contrato.horasSemanales == null) errores.push(`${quien}: faltan las horas semanales.`);
-
-    const liqsPersona = confirmadas.filter((l) => l.employeeId === e.id);
-    if (period && liqsPersona.length === 0) {
-      advertencias.push(`${quien}: sin liquidación confirmada en el mes — se declara con 0 días y $0 (subsidio, licencia sin goce, etc.).`);
-    }
 
     // Días EFECTIVOS trabajados a declarar en BPS (registro 6). Parten de los
     // días de la liquidación mensual/final (ya proporcionales en altas/bajas) y
