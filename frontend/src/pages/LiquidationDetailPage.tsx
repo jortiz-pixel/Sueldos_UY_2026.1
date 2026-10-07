@@ -53,6 +53,10 @@ function ItemRow({ item, editable, onEdit, onDelete }: {
   const [baseStr, setBaseStr] = useState(baseInicial);
   const [pctStr, setPctStr] = useState(pctInicial);
   const [cantStr, setCantStr] = useState(cantInicial);
+  // Monto editable a mano para faltas/horas/descansos (override del cálculo por
+  // cantidad). Se muestra en positivo; el signo lo pone el servidor.
+  const [montoStr, setMontoStr] = useState((Math.abs(Number(item.amount)) / 100).toFixed(2));
+  const [montoManual, setMontoManual] = useState(false);
   // Clic derecho sobre el Salario Vacacional: muestra la forma de cálculo del
   // jornal líquido usado (base promedio, aportes, líquido, días).
   const detVac = item.calculationDetail as {
@@ -115,14 +119,22 @@ function ItemRow({ item, editable, onEdit, onDelete }: {
         </tr>
       );
     }
-    // FALTAS / HORAS TARDES / DESCANSOS: se edita la CANTIDAD y el monto se
-    // recalcula solo (unidad × cantidad). El servidor recalcula con el jornal
-    // real; acá mostramos una vista previa con la unidad de la descripción.
+    // FALTAS / HORAS TARDES / DESCANSOS: se edita por CANTIDAD (el monto se
+    // recalcula solo = unidad × cantidad) O escribiendo el MONTO a mano. Si se
+    // toca el monto, se manda ese valor tal cual (override); si no, se manda la
+    // cantidad y el servidor recalcula con el jornal real.
     if (esPorCantidad) {
       const cantNum = parseFloat(cantStr.replace(',', '.')) || 0;
+      const montoNum = parseFloat(montoStr.replace(',', '.')) || 0;
       const signo = item.concepto === 'DESCANSO_TRABAJADO' ? 1 : -1;
-      const previewCent = Math.round(unidadCant * 100 * cantNum) * signo;
       const unidadLabel = item.concepto === 'HORAS_TARDE' ? 'hora' : 'jornal';
+      // Al cambiar la cantidad, se refleja en el monto (salvo override manual).
+      const onCant = (v: string) => {
+        setCantStr(v);
+        setMontoManual(false);
+        const n = parseFloat(v.replace(',', '.')) || 0;
+        setMontoStr((unidadCant * n).toFixed(2));
+      };
       return (
         <tr className="bg-amber-50/50">
           <td className="px-4 py-2">
@@ -130,14 +142,15 @@ function ItemRow({ item, editable, onEdit, onDelete }: {
           </td>
           <td className="px-4 py-2 text-right" colSpan={2}>
             <div className="inline-flex items-center gap-1">
-              <input type="text" inputMode="decimal" value={cantStr} onChange={(e) => setCantStr(e.target.value)} className="border border-gray-300 rounded px-2 py-1 text-sm w-20 text-right" title="Cantidad" placeholder="N°" />
+              <input type="text" inputMode="decimal" value={cantStr} onChange={(e) => onCant(e.target.value)} className="border border-gray-300 rounded px-2 py-1 text-sm w-20 text-right" title="Cantidad" placeholder="N°" />
               <span className="text-xs text-gray-500">× {unidadCant ? unidadCant.toFixed(2) : unidadLabel}</span>
             </div>
           </td>
           <td className="px-4 py-2 text-right whitespace-nowrap">
-            <span className="text-sm font-mono text-gray-600 align-middle" title="Se recalcula con el jornal real al guardar">{formatPesos(String(previewCent))}</span>
-            <button onClick={() => { onEdit?.(item.id, { ...(d !== item.descripcion ? { descripcion: d } : {}), cantidad: cantNum }); setEditing(false); }} className="ml-2 text-green-600 hover:text-green-700 align-middle" title="Guardar"><Check size={15} /></button>
-            <button onClick={() => { setD(item.descripcion); setCantStr(cantInicial); setEditing(false); }} className="ml-1 text-gray-400 hover:text-gray-600 align-middle" title="Cancelar"><X size={15} /></button>
+            <input type="text" inputMode="decimal" value={montoStr} onChange={(e) => { setMontoStr(e.target.value); setMontoManual(true); }} className="border border-gray-300 rounded px-2 py-1 text-sm w-24 text-right align-middle" title="Monto (se puede escribir a mano)" />
+            <span className="ml-1 text-xs text-gray-400">{signo < 0 ? '(resta)' : ''}</span>
+            <button onClick={() => { onEdit?.(item.id, { ...(d !== item.descripcion ? { descripcion: d } : {}), ...(montoManual ? { monto: montoNum } : { cantidad: cantNum }) }); setEditing(false); }} className="ml-2 text-green-600 hover:text-green-700 align-middle" title="Guardar"><Check size={15} /></button>
+            <button onClick={() => { setD(item.descripcion); setCantStr(cantInicial); setMontoStr((Math.abs(Number(item.amount)) / 100).toFixed(2)); setMontoManual(false); setEditing(false); }} className="ml-1 text-gray-400 hover:text-gray-600 align-middle" title="Cancelar"><X size={15} /></button>
           </td>
         </tr>
       );
