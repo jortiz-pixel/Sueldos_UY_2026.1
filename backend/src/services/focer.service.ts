@@ -280,10 +280,18 @@ export async function generarFocer(companyId: string, year: number, month: numbe
     const quien = `${e.apellido} ${e.nombre} (CI ${e.ci})`;
     const doc = soloDigitos(e.ci);
     const tipoDoc = e.tipoDocumento || 'DO';
+
+    // Si NO tiene liquidación CONFIRMADA en el mes, NO se incluye en el FOCER
+    // (p. ej. la liquidación se eliminó o se anuló) — mismo criterio que la
+    // nómina BPS.
+    const liqsPersona = confirmadas.filter((l) => l.employeeId === e.id);
+    if (period && liqsPersona.length === 0) {
+      advertencias.push(`${quien}: sin liquidación confirmada en el mes — no se incluye en el FOCER.`);
+      continue;
+    }
+
     if (!doc) errores.push(`${quien}: sin número de documento.`);
     if (!e.fechaNacimiento) errores.push(`${quien}: falta la fecha de nacimiento.`);
-
-    const liqsPersona = confirmadas.filter((l) => l.employeeId === e.id);
 
     // Materia gravada BPS (m3) = suma de haberes que van a concepto 1/2 (imponible
     // + aguinaldo), NETA de faltas. Los exentos del laudo (codBps 5) y los no
@@ -385,7 +393,7 @@ export async function generarFocer(companyId: string, year: number, month: numbe
     gestoria: gestoria?.nombre || gestoria?.contacto || '',
     email: gestoria?.email || company.email || '',
     focerCodigo, month, year,
-    cantidad: personas.length, totGravado, totFocer,
+    cantidad: empleadosOut.length, totGravado, totFocer,
   };
   const reg1 = buildFocerReg1(lineaEmpresa);
   const reg2 = buildFocerReg2(lineaEmpresa);
