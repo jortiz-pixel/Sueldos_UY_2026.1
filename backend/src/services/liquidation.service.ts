@@ -247,11 +247,13 @@ export async function generarLiquidacionMensual(
   // Lo indicado por el usuario pisa cualquier default.
   const cantidades: Record<string, number> = {
     ...(esConstruccion && horasConstruccion ? {
-      DESGASTE_ROPA: horasConstruccion,
+      // Ropa, transporte, herramientas, ticket y media hora son POR JORNAL (día):
+      // su cantidad son las JORNADAS trabajadas (horas ÷ 8). La lluvia es por hora.
+      DESGASTE_ROPA: jornadasConstruccion ?? 0,
       TICKET_ALIMENTACION: jornadasConstruccion ?? 0,
       MEDIAS_HORAS: jornadasConstruccion ?? 0,
-      ...(labor.salaryType === 'JORNALERO' ? { GASTOS_TRANSPORTE: horasConstruccion } : {}),
-      ...(correspondeHerramientas(contrato?.categoria) ? { DESGASTE_HERRAMIENTAS: horasConstruccion } : {}),
+      ...(labor.salaryType === 'JORNALERO' ? { GASTOS_TRANSPORTE: jornadasConstruccion ?? 0 } : {}),
+      ...(correspondeHerramientas(contrato?.categoria) ? { DESGASTE_HERRAMIENTAS: jornadasConstruccion ?? 0 } : {}),
     } : {}),
     ...(input.cantidadesConcepto ?? {}),
   };
@@ -529,17 +531,12 @@ export async function generarLiquidacionMensual(
     if (amount <= 0n && !mostrarEnCero(c.codigo)) continue;
     if (amount < 0n) continue;
     // Detalle estilo GNS: "N x valor" para cantidad×valor; base para porcentajes.
+    // Ropa, transporte, herramientas, ticket y media hora ya van por JORNAL
+    // (cantidad = jornadas, valorFijo = valor por jornal del acta), así que el
+    // detalle "N × valor" sale naturalmente por jornal. La lluvia va por hora.
     const esCantidadValor = c.tipoCalculo === 'CANTIDAD_VALOR';
-    let cantidad = esCantidadValor ? (cantidades[c.codigo] ?? 0) : undefined;
-    let valorUnit = esCantidadValor ? valorUnitarioConcepto(c, ctxConcepto) : undefined;
-    // En modalidad POR JORNAL, las partidas por hora de la jornada (ropa,
-    // transporte, herramientas) se MUESTRAN por jornal: cantidad en días y valor
-    // unitario × 8 (el importe no cambia). Ticket y media hora ya van por jornada.
-    if (jornalDiaMode && esCantidadValor && valorUnit != null
-        && ['DESGASTE_ROPA', 'GASTOS_TRANSPORTE', 'DESGASTE_HERRAMIENTAS'].includes(c.codigo)) {
-      cantidad = jornadasConstruccion ?? 0;
-      valorUnit = valorUnit * 8n;
-    }
+    const cantidad = esCantidadValor ? (cantidades[c.codigo] ?? 0) : undefined;
+    const valorUnit = esCantidadValor ? valorUnitarioConcepto(c, ctxConcepto) : undefined;
     const basePorcentaje = c.baseCalculo === 'HORAS_LAUDO'
       ? divRoundHalfUp((horaLaudo ?? c.valorFijo ?? 0n) * BigInt(Math.round((horasConstruccion ?? 0) * 100)), 100n)
       : null;

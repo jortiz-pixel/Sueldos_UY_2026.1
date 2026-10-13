@@ -445,7 +445,7 @@ function JornalesConstruccion() {
       )}
       {!data?.vencido && data?.convenioVigenteHasta && (
         <p className="text-xs text-gray-400">
-          Convenio vigente hasta el {new Date(data.convenioVigenteHasta + 'T00:00:00').toLocaleDateString('es-UY')} (acta 22/4/2025, ajuste 5,95%).
+          Convenio vigente hasta el {new Date(data.convenioVigenteHasta + 'T00:00:00').toLocaleDateString('es-UY')} (acta 14/8/2026, 11ª ronda, vigencia 1/4/2026).
           Los nuevos montos se publican en la <a href={data.mtssUrl} target="_blank" rel="noreferrer" className="underline">web del MTSS</a>.
         </p>
       )}

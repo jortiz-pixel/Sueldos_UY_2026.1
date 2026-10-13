@@ -91,24 +91,27 @@ interface ConceptoConstruccion {
 // Valores vigentes 01/2026 (recibo GNS Oficial Albañil — jornal hora 444,85).
 const CONCEPTOS: ConceptoConstruccion[] = [
   { codigo: 'HORAS_LLUVIA', nombre: 'Horas de espera por Lluvia', orden: 60, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', baseCalculo: 'HORA_PAGADA', valorFijo: 44485n, gravado: true },
-  // Presentismos: se calculan sobre horas × HORA LAUDO (421,39 — guardada en
-  // valorFijo, editable), NO sobre la hora pagada (recibo GNS: 10,42% de 3.371,12).
-  { codigo: 'PRESENTISMO_OBRA', nombre: 'Incentivo Presentismo', orden: 61, tipoOperacion: 'HABER', tipoCalculo: 'PORCENTAJE', baseCalculo: 'HORAS_LAUDO', valorRate: 1042, valorFijo: 42139n, gravado: true },
-  { codigo: 'PRES_MES_COMPLETO', nombre: 'Presentismo por Trabajo Completo en el Mes', orden: 62, tipoOperacion: 'HABER', tipoCalculo: 'PORCENTAJE', baseCalculo: 'HORAS_LAUDO', valorRate: 500, valorFijo: 42139n, gravado: true },
-  { codigo: 'TICKET_ALIMENTACION', nombre: 'Ticket Alimentación Gravado', orden: 63, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 18416n, gravado: true },
+  // Presentismos: se calculan sobre horas × HORA LAUDO (Oficial Albañil VIII
+  // recuadro NO INCLUIDOS = 443,17 desde el acta 01-04-2026, guardada en
+  // valorFijo como fallback; la hora laudo real sale de la tabla de jornales),
+  // NO sobre la hora pagada.
+  { codigo: 'PRESENTISMO_OBRA', nombre: 'Incentivo Presentismo', orden: 61, tipoOperacion: 'HABER', tipoCalculo: 'PORCENTAJE', baseCalculo: 'HORAS_LAUDO', valorRate: 1042, valorFijo: 44317n, gravado: true },
+  { codigo: 'PRES_MES_COMPLETO', nombre: 'Presentismo por Trabajo Completo en el Mes', orden: 62, tipoOperacion: 'HABER', tipoCalculo: 'PORCENTAJE', baseCalculo: 'HORAS_LAUDO', valorRate: 500, valorFijo: 44317n, gravado: true },
+  // Ticket: partida de alimentación por JORNADA (día). Acta 01-04-2026 = 193,68.
+  { codigo: 'TICKET_ALIMENTACION', nombre: 'Ticket Alimentación Gravado', orden: 63, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 19368n, gravado: true },
   // Las partidas EXENTAS de aportes se declaran en la nómina BPS bajo el
   // concepto 5 "Monto Imponible Adicional IRPF" (codBps 5, criterio GNS:
   // 222,40 + 103,44 + 90,48 + 41,36 = 457,68 en el archivo real de enero).
   { codigo: 'MEDIAS_HORAS', nombre: 'Medias Horas', orden: 68, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', baseCalculo: 'MEDIA_HORA', valorFijo: 22242n, gravado: false, codBps: 5 },
-  // Partidas extraordinarias EXENTAS: los valores del laudo son POR JORNADA DE
-  // 8 HORAS EFECTIVAS; acá se cargan por HORA (valor/8) y el importe se calcula
-  // horas × valor, igual que en el recibo GNS ("8 x 12.93").
-  //  - Ropa: 103,44 c/8 hs (= 5% del jornal del medio oficial albañil) → 12,93/h. Todas las categorías obreras.
-  //  - Herramientas: 41,36 c/8 hs → 5,17/h. SOLO desde Medio Oficial en adelante.
-  //  - Transporte: jornaleros 90,50 c/8 hs → 11,31/h (los mensuales tienen otro régimen).
-  { codigo: 'DESGASTE_ROPA', nombre: 'Desgaste De Ropa', orden: 65, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 1293n, gravado: false, codBps: 5 },
-  { codigo: 'GASTOS_TRANSPORTE', nombre: 'Gastos De Transporte', orden: 66, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 1131n, gravado: false, codBps: 5 },
-  { codigo: 'DESGASTE_HERRAMIENTAS', nombre: 'Desgaste De Herramientas', orden: 67, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 517n, gravado: false, codBps: 5 },
+  // Partidas extraordinarias EXENTAS: valores FIJOS POR JORNAL (día) del acta,
+  // editables en Conceptos (cambian por ronda). El importe = cantidad de
+  // JORNALES × valor. Acta Grupo 9 Sub 01, 01-04-2026 (compensaciones):
+  //  - Ropa: 108,79/jornal. Todas las categorías obreras.
+  //  - Transporte (jornaleros): 95,18/jornal (los mensuales tienen otro régimen).
+  //  - Herramientas: 43,50/jornal. SOLO desde Medio Oficial en adelante.
+  { codigo: 'DESGASTE_ROPA', nombre: 'Desgaste De Ropa', orden: 65, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 10879n, gravado: false, codBps: 5 },
+  { codigo: 'GASTOS_TRANSPORTE', nombre: 'Gastos De Transporte', orden: 66, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 9518n, gravado: false, codBps: 5 },
+  { codigo: 'DESGASTE_HERRAMIENTAS', nombre: 'Desgaste De Herramientas', orden: 67, tipoOperacion: 'HABER', tipoCalculo: 'CANTIDAD_VALOR', valorFijo: 4350n, gravado: false, codBps: 5 },
   // REINTEGRO DE GASTOS (pedido del estudio): haber NO GRAVADO que suma al
   // total a percibir pero queda FUERA de la base de todos los descuentos
   // (aportes, IRPF y también de la base ApliAFondos de los fondos). No se
@@ -183,9 +186,10 @@ export async function jornalesVigentes(fecha: Date = new Date()): Promise<Array<
   return vigentes;
 }
 
-// Vencimiento del convenio vigente (acta 22/4/2025): los nuevos montos se
-// publican en la web del MTSS (Consejos de Salarios, Grupo 9).
-export const CONVENIO_VIGENTE_HASTA = '2026-07-31';
+// Vencimiento del convenio vigente (acta Grupo 9 Sub 01, 11ª ronda, firmada el
+// 14/08/2026): rige del 1/4/2026 al 31/3/2031 con ajustes anuales cada 1/4. Los
+// nuevos montos se publican en la web del MTSS (Consejos de Salarios, Grupo 9).
+export const CONVENIO_VIGENTE_HASTA = '2031-03-31';
 export const MTSS_URL = 'https://www.gub.uy/ministerio-trabajo-seguridad-social/politicas-y-gestion/consejos-salarios';
 
 /** Valor hora vigente de una categoría en un recuadro (null si no hay dato). */
@@ -202,29 +206,27 @@ export async function jornalHoraVigente(
   return row?.valorHora ?? null;
 }
 
-// Partidas extraordinarias derivadas del JORNAL DÍA (hora × 8) del
-// ½ OFICIAL ALBAÑIL del recuadro INCLUIDOS EN LA LEY:
-//   ropa 5% · transporte 4,375% · herramientas 2% (por jornada de 8 hs).
-// El valor POR HORA del concepto es el mismo % aplicado al valor hora.
-const CATEGORIA_MEDIO_OFICIAL = 'V — ½ Oficial Albañil';
-const PARTIDAS_DERIVADAS: Array<{ codigo: string; pctCienmil: number }> = [
-  { codigo: 'DESGASTE_ROPA', pctCienmil: 50000 },          // 5%
-  { codigo: 'GASTOS_TRANSPORTE', pctCienmil: 43750 },      // 4,375%
-  { codigo: 'DESGASTE_HERRAMIENTAS', pctCienmil: 20000 },  // 2%
-];
+// Ropa / transporte / herramientas: desde el acta 01-04-2026 son VALORES FIJOS
+// POR JORNAL publicados en la tabla de compensaciones del laudo (ya no un % del
+// ½ Oficial Albañil). Se cargan como valorFijo del concepto (editables en
+// Conceptos) y el importe = cantidad de JORNALES × valor. Por eso ya NO se
+// derivan del jornal: refrescarPartidasDesdeJornal queda como no-op (los
+// jornales siguen definiendo el sueldo básico y la hora laudo del presentismo).
+const PARTIDAS_DERIVADAS: Array<{ codigo: string; pctCienmil: number }> = [];
 
 /**
- * Recalcula el valor por hora de ropa/transporte/herramientas a partir del
- * jornal vigente del ½ Oficial Albañil (INCLUIDOS) y lo aplica a los conceptos
- * de TODAS las empresas de construcción. Se llama al guardar los jornales.
+ * (Histórico) Derivaba ropa/transporte/herramientas del ½ Oficial Albañil. Desde
+ * el acta 01-04-2026 esas partidas son valores fijos por jornal cargados en el
+ * concepto, así que esta función ya no ajusta nada. Se mantiene por compatibilidad
+ * con el guardado de jornales.
  */
 export async function refrescarPartidasDesdeJornal(fecha: Date = new Date()): Promise<number> {
   const vigentes = await jornalesVigentes(fecha);
-  const medio = vigentes.find((v) => v.categoria === CATEGORIA_MEDIO_OFICIAL && v.recuadro === 'INCLUIDOS');
-  if (!medio || medio.valorHora <= 0n) return 0;
   let actualizados = 0;
   for (const p of PARTIDAS_DERIVADAS) {
-    const valorHora = medio.valorHora * BigInt(p.pctCienmil) / 1000000n; // pct × hora
+    const medio = vigentes.find((v) => v.recuadro === 'INCLUIDOS');
+    if (!medio) continue;
+    const valorHora = medio.valorHora * BigInt(p.pctCienmil) / 1000000n;
     const r = await prisma.concepto.updateMany({
       where: { codigo: p.codigo, companyId: { not: null } },
       data: { valorFijo: valorHora },
