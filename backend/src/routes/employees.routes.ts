@@ -8,6 +8,8 @@ import { assertCompanyAccess, accessibleCompanyIds } from '../middleware/tenancy
 import { AppError, NotFoundError } from '../middleware/errorHandler';
 import { calcularAntiguedad, diasLicenciaCorrespondientes } from '../utils/date';
 import { calcularLiquidacionFinal, vacacionalesDisponibles, diasVacacionalesTomados } from '../services/vacation.service';
+import { generarLiquidacionMensual } from '../services/liquidation.service';
+import { esEmpresaConstruccion } from '../services/construccion.service';
 import { habilitarAccesoPortal, revocarAccesoPortal, estadoAccesoPortal } from '../services/portal.service';
 import { recordAudit } from '../services/audit.service';
 
@@ -692,15 +694,39 @@ employeesRouter.post('/:id/contracts/:contractId/baja', authenticate, requireRol
       },
     });
 
-    // 2) Generar automáticamente la liquidación final (egreso) a esa fecha,
-    //    para la empresa del contrato (desvinculación en todos sus términos).
+    // 2) Generar automáticamente la liquidación del egreso para la empresa del
+    //    contrato. Dos caminos:
+    //    - CONSTRUCCIÓN (Grupo 9.1): el egreso (cesantía, IPD, licencia/vacacional
+    //      no gozado) lo paga BPS, no la empresa. Por eso la baja NO genera una
+    //      liquidación final con partidas de egreso: se liquida el mes como una
+    //      MENSUAL normal (días proporcionales hasta la baja). La fecha de egreso
+    //      y la causal igual figuran en la nómina y el FOCER (salen del contrato).
+    //    - RESTO: liquidación final con las partidas de egreso.
     let liquidacionFinalId: string | null = null;
     let avisoFinal: string | undefined;
+    const companyContrato = contrato.companyId
+      ? await prisma.company.findUnique({ where: { id: contrato.companyId } })
+      : null;
+    const esConstruccion = companyContrato ? esEmpresaConstruccion(companyContrato) : false;
     try {
-      const result = await calcularLiquidacionFinal(req.params.id, req.params.contractId, fecha, req.user!.userId, contrato.companyId ?? undefined);
-      liquidacionFinalId = result.liquidacionId;
+      if (esConstruccion && contrato.companyId) {
+        const year = fecha.getFullYear();
+        const month = fecha.getMonth() + 1;
+        const period = await prisma.payrollPeriod.upsert({
+          where: { companyId_year_month: { companyId: contrato.companyId, year, month } },
+          create: { companyId: contrato.companyId, year, month },
+          update: {},
+        });
+        const result = await generarLiquidacionMensual({ employeeId: req.params.id, periodId: period.id, year, month, userId: req.user!.userId });
+        liquidacionFinalId = result.liquidacionId;
+      } else {
+        const result = await calcularLiquidacionFinal(req.params.id, req.params.contractId, fecha, req.user!.userId, contrato.companyId ?? undefined);
+        liquidacionFinalId = result.liquidacionId;
+      }
     } catch (e) {
-      avisoFinal = `El contrato se dio de baja, pero no se pudo generar la liquidación final: ${(e as Error).message}`;
+      avisoFinal = esConstruccion
+        ? `El contrato se dio de baja, pero no se pudo generar la liquidación mensual del egreso: ${(e as Error).message}`
+        : `El contrato se dio de baja, pero no se pudo generar la liquidación final: ${(e as Error).message}`;
     }
 
     // 2b) Inactivar el CONTRATO (recién ahora, ya generada la final): la baja
