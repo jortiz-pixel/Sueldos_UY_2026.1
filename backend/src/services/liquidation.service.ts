@@ -265,6 +265,13 @@ export async function generarLiquidacionMensual(
     : esConstruccion ? horaPagada : (labor.jornal ?? 0n);
   const jornalTxt = (Number(jornalCent) / 100).toFixed(2);
 
+  // Modalidad POR JORNAL: para mostrar el detalle POR JORNAL (días × valor día)
+  // en vez de por hora. El importe no cambia; solo el detalle que se ve.
+  const jornalDiaDias = jornalDiaMode ? (input.jornalesDia ?? 0) : 0;
+  const jornalDiaValor = labor.jornal ?? 0n;            // valor por DÍA
+  const jornalDiaTxt = (Number(jornalDiaValor) / 100).toFixed(2);
+  const jornalDiaHorasExtra = jornalDiaMode ? (input.horasTrabajadas ?? 0) : 0;
+
   if (labor.salaryType === 'MENSUAL' && diasLicencia > 0) {
     // Desglose GNS: días trabajados como "Jornal" + días de licencia gozada como
     // "Licencia". Ambos gravados; la suma es el sueldo del mes (aportes sobre el total).
@@ -297,9 +304,11 @@ export async function generarLiquidacionMensual(
       concepto: 'SUELDO_BASICO',
       descripcion: labor.salaryType === 'MENSUAL'
         ? `Sueldo básico ${diasTrabajados < 30 ? `(${diasTrabajados}/30 días)` : ''}`
-        : esConstruccion && horasConstruccion !== undefined
-          ? `Horas Comunes ${horasConstruccion} x ${jornalTxt}`
-          : `Jornal (${diasTrabajados} días)`,
+        : jornalDiaMode
+          ? `Jornal ${jornalDiaDias} x ${jornalDiaTxt}${jornalDiaHorasExtra ? ` + ${jornalDiaHorasExtra} hs x ${jornalTxt}` : ''}`
+          : esConstruccion && horasConstruccion !== undefined
+            ? `Horas Comunes ${horasConstruccion} x ${jornalTxt}`
+            : `Jornal (${diasTrabajados} días)`,
       baseCalculo: labor.salarioNominal,
       rate: diasTrabajados < 30 ? Math.round(diasTrabajados * 10000 / 30) : null,
       amount: salarioBase,
@@ -308,6 +317,8 @@ export async function generarLiquidacionMensual(
         diasTrabajados,
         diasMes: 30,
         contratoId: contrato?.id ?? null,
+        // En modalidad por jornal (sin horas sueltas) se muestra "N × valor día".
+        ...(jornalDiaMode && !jornalDiaHorasExtra ? { cantidad: jornalDiaDias, valorUnit: jornalDiaValor.toString() } : {}),
       } as unknown as Prisma.JsonValue,
     });
   }
@@ -519,8 +530,16 @@ export async function generarLiquidacionMensual(
     if (amount < 0n) continue;
     // Detalle estilo GNS: "N x valor" para cantidad×valor; base para porcentajes.
     const esCantidadValor = c.tipoCalculo === 'CANTIDAD_VALOR';
-    const cantidad = esCantidadValor ? (cantidades[c.codigo] ?? 0) : undefined;
-    const valorUnit = esCantidadValor ? valorUnitarioConcepto(c, ctxConcepto) : undefined;
+    let cantidad = esCantidadValor ? (cantidades[c.codigo] ?? 0) : undefined;
+    let valorUnit = esCantidadValor ? valorUnitarioConcepto(c, ctxConcepto) : undefined;
+    // En modalidad POR JORNAL, las partidas por hora de la jornada (ropa,
+    // transporte, herramientas) se MUESTRAN por jornal: cantidad en días y valor
+    // unitario × 8 (el importe no cambia). Ticket y media hora ya van por jornada.
+    if (jornalDiaMode && esCantidadValor && valorUnit != null
+        && ['DESGASTE_ROPA', 'GASTOS_TRANSPORTE', 'DESGASTE_HERRAMIENTAS'].includes(c.codigo)) {
+      cantidad = jornadasConstruccion ?? 0;
+      valorUnit = valorUnit * 8n;
+    }
     const basePorcentaje = c.baseCalculo === 'HORAS_LAUDO'
       ? divRoundHalfUp((horaLaudo ?? c.valorFijo ?? 0n) * BigInt(Math.round((horasConstruccion ?? 0) * 100)), 100n)
       : null;
