@@ -9,7 +9,7 @@ import { AppError, NotFoundError } from '../middleware/errorHandler';
 import { calcularAntiguedad, diasLicenciaCorrespondientes } from '../utils/date';
 import { calcularLiquidacionFinal, vacacionalesDisponibles, diasVacacionalesTomados } from '../services/vacation.service';
 import { generarLiquidacionMensual } from '../services/liquidation.service';
-import { esEmpresaConstruccion } from '../services/construccion.service';
+import { TIPO_APORTE_CONSTRUCCION } from '../services/construccion.service';
 import { habilitarAccesoPortal, revocarAccesoPortal, estadoAccesoPortal } from '../services/portal.service';
 import { recordAudit } from '../services/audit.service';
 
@@ -695,21 +695,24 @@ employeesRouter.post('/:id/contracts/:contractId/baja', authenticate, requireRol
     });
 
     // 2) Generar automáticamente la liquidación del egreso para la empresa del
-    //    contrato. Dos caminos:
-    //    - CONSTRUCCIÓN (Grupo 9.1): el egreso (cesantía, IPD, licencia/vacacional
-    //      no gozado) lo paga BPS, no la empresa. Por eso la baja NO genera una
-    //      liquidación final con partidas de egreso: se liquida el mes como una
-    //      MENSUAL normal (días proporcionales hasta la baja). La fecha de egreso
-    //      y la causal igual figuran en la nómina y el FOCER (salen del contrato).
-    //    - RESTO: liquidación final con las partidas de egreso.
+    //    contrato. Dos caminos, SEGÚN LA APORTACIÓN (no según el grupo):
+    //    - Aportación CONSTRUCCIÓN (CT, tipoAporte=4): el egreso (cesantía, IPD,
+    //      licencia/vacacional no gozado) lo paga BPS, no la empresa. Por eso la
+    //      baja NO genera una liquidación final con partidas de egreso: se liquida
+    //      el mes como una MENSUAL normal (días proporcionales hasta la baja).
+    //    - RESTO, incluidas las empresas de construcción que aportan por INDUSTRIA
+    //      Y COMERCIO (IC, ej. José Lambrechts): el egreso lo paga el EMPLEADOR, así
+    //      que la liquidación FINAL va con las partidas de egreso, como siempre.
+    //    En ambos casos la fecha de egreso y la causal figuran en la nómina y el
+    //    FOCER (salen del contrato).
     let liquidacionFinalId: string | null = null;
     let avisoFinal: string | undefined;
     const companyContrato = contrato.companyId
       ? await prisma.company.findUnique({ where: { id: contrato.companyId } })
       : null;
-    const esConstruccion = companyContrato ? esEmpresaConstruccion(companyContrato) : false;
+    const esAportacionCT = companyContrato?.tipoAporte === TIPO_APORTE_CONSTRUCCION;
     try {
-      if (esConstruccion && contrato.companyId) {
+      if (esAportacionCT && contrato.companyId) {
         const year = fecha.getFullYear();
         const month = fecha.getMonth() + 1;
         const period = await prisma.payrollPeriod.upsert({
@@ -724,7 +727,7 @@ employeesRouter.post('/:id/contracts/:contractId/baja', authenticate, requireRol
         liquidacionFinalId = result.liquidacionId;
       }
     } catch (e) {
-      avisoFinal = esConstruccion
+      avisoFinal = esAportacionCT
         ? `El contrato se dio de baja, pero no se pudo generar la liquidación mensual del egreso: ${(e as Error).message}`
         : `El contrato se dio de baja, pero no se pudo generar la liquidación final: ${(e as Error).message}`;
     }
