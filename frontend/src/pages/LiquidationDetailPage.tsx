@@ -229,7 +229,20 @@ function ItemRow({ item, editable, onEdit, onDelete }: {
         )}
       </td>
       <td className="px-4 py-2.5 text-right text-xs font-mono text-gray-500">
-        {item.baseCalculo ? formatPesos(item.baseCalculo) : '—'}
+        {(() => {
+          // Detalle del cálculo en la columna Base: para los conceptos "cantidad ×
+          // valor" (ropa, transporte, herramientas, ticket, media hora, lluvia…)
+          // se muestra "N × valor unitario"; para el resto, la base en pesos.
+          const d = item.calculationDetail as { cantidad?: number; valorUnit?: string } | null | undefined;
+          if (d && d.valorUnit != null && d.cantidad != null) {
+            return (
+              <span title="cantidad × valor unitario = importe">
+                {Number(d.cantidad).toLocaleString('es-UY', { maximumFractionDigits: 2 })} × {formatPesos(d.valorUnit)}
+              </span>
+            );
+          }
+          return item.baseCalculo ? formatPesos(item.baseCalculo) : '—';
+        })()}
       </td>
       <td className="px-4 py-2.5 text-right text-xs text-gray-500">
         {formatTasa(item)}
@@ -320,7 +333,7 @@ function Section({ title, items, total, colorClass, opciones, editable, onAdd, o
         <thead>
           <tr className="table-header">
             <th className="px-4 py-2 text-left text-xs">Concepto</th>
-            <th className="px-4 py-2 text-right text-xs">Base</th>
+            <th className="px-4 py-2 text-right text-xs">Base / cálculo</th>
             <th className="px-4 py-2 text-right text-xs">Tasa</th>
             <th className="px-4 py-2 text-right text-xs">Importe</th>
           </tr>
