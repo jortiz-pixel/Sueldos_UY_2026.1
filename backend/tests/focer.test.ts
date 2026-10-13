@@ -6,7 +6,7 @@
  * Si alguien cambia una columna en focer.service.ts, este test lo detecta.
  */
 import {
-  buildFocerReg1, buildFocerReg2, buildFocerReg4, buildFocerReg6, ensamblarFocer,
+  buildFocerReg1, buildFocerReg2, buildFocerReg4, buildFocerReg5, buildFocerReg6, ensamblarFocer,
   FocerEmpresaLinea, FocerEmpleadoLinea,
 } from '../src/services/focer.service';
 
@@ -83,6 +83,25 @@ describe('FOCER — registro 4 (empleado)', () => {
   test('FOCER rjust → col 204', () => expect(r4.slice(195, 205)).toBe('    426.28'));
   test('tipo FOCER (206) y tipo contrato (208)', () => { expect(r4[206]).toBe('2'); expect(r4[208]).toBe('1'); });
   test('cierre 0.00 [215,219)', () => expect(r4.slice(215, 219)).toBe('0.00'));
+});
+
+describe('FOCER — registro 5 (egreso / baja)', () => {
+  // Validado byte a byte contra archivo real de GNS (Demaria 10/2026):
+  // "5  1DO46742165" + relleno + causal 4 + fecha 13/10/2026 (413102026), len 96.
+  const r5 = buildFocerReg5({ ...emp, tipoDoc: 'DO', doc: '46742165', causalEgreso: 4, fechaEgreso: new Date(2026, 9, 13) });
+  const esperado = '5  1DO46742165                                                                         413102026';
+  test('longitud 96', () => expect(r5.length).toBe(96));
+  test('tipo + país + doc', () => { expect(r5[0]).toBe('5'); expect(r5[3]).toBe('1'); expect(r5.slice(4, 6)).toBe('DO'); expect(r5.slice(6, 20)).toBe('46742165      '); });
+  test('causal (rjust → col 88) + fecha egreso ddmmaaaa [88,96)', () => {
+    expect(r5.slice(86, 88)).toBe(' 4');
+    expect(r5.slice(88, 96)).toBe('13102026');
+  });
+  test('igual al archivo real de GNS', () => expect(r5).toBe(esperado));
+  test('causal de 2 dígitos queda right-justified', () => {
+    const r = buildFocerReg5({ ...emp, doc: '46742165', causalEgreso: 12, fechaEgreso: new Date(2026, 9, 13) });
+    expect(r.slice(86, 88)).toBe('12');
+    expect(r.slice(88, 96)).toBe('13102026');
+  });
 });
 
 describe('FOCER — registro 6 (contacto del trabajador)', () => {

@@ -92,6 +92,9 @@ export interface FocerEmpleadoLinea {
   // [155] = 4 (CT) en vez de 1 · [157] = forma de realización de la obra ·
   // [158-159] = categoría CT del trabajador (right-just). En IC queda `1 1 198 2`.
   esCT?: boolean; categoriaCt?: number | null; formaRealizacion?: string | null;
+  // Egreso (baja) del trabajador EN EL MES: causal (Tabla 9) + fecha. Si están,
+  // se emite el registro 5 (solo para los dados de baja en el mes del archivo).
+  causalEgreso?: number | null; fechaEgreso?: Date | null;
 }
 
 // Registro 1 — empresa (219). [0]tipo·[1)bps14·[15)rut14·[29)razón40·[69)dom80·[149)depto20·[169)tel15·[184)gestoría35
@@ -149,6 +152,20 @@ export function buildFocerReg4(p: FocerEmpleadoLinea): string {
   place(b, 215, '0.00');
   return b.join('');
 }
+// Registro 5 — EGRESO del trabajador (96). Se emite SOLO para quien tiene baja
+// en el mes. Validado contra archivo real de GNS (Demaria 10/2026):
+// [0]tipo·[3]país·[4]tipoDoc2·[6]doc14 · causal (rjust→88) + fecha egreso
+// ddmmaaaa en [88-95]. Ej.: `…413102026` = causal 4 + 13/10/2026.
+export function buildFocerReg5(p: FocerEmpleadoLinea): string {
+  const b = new Array<string>(96).fill(' ');
+  b[0] = '5';
+  b[3] = '1'; // país del documento (Uruguay)
+  place(b, 4, padR(p.tipoDoc, 2));
+  place(b, 6, padR(p.doc, 14));
+  if (p.causalEgreso != null) placeR(b, 88, String(p.causalEgreso));
+  place(b, 88, ddmmaaaa(p.fechaEgreso));
+  return b.join('');
+}
 // Registro 6 — domicilio/depto/teléfono/ingreso del trabajador (155).
 export function buildFocerReg6(p: FocerEmpleadoLinea): string {
   const b = new Array<string>(155).fill(' ');
@@ -163,8 +180,8 @@ export function buildFocerReg6(p: FocerEmpleadoLinea): string {
   return b.join('');
 }
 // Ensambla el archivo completo (delimitadores + CRLF).
-export function ensamblarFocer(reg1: string, reg2: string, reg4: string[], reg6: string[]): string {
-  return ['<FOCERINI>', reg1, reg2, ...reg4, ...reg6, '<FOCERFIN>'].join('\r\n');
+export function ensamblarFocer(reg1: string, reg2: string, reg4: string[], reg6: string[], reg5: string[] = []): string {
+  return ['<FOCERINI>', reg1, reg2, ...reg4, ...reg5, ...reg6, '<FOCERFIN>'].join('\r\n');
 }
 
 // ── ¿La empresa debe declarar FOCER? (Grupo 9 · Subgrupo 1) ─────────
@@ -270,6 +287,7 @@ export async function generarFocer(companyId: string, year: number, month: numbe
     .sort((a, b) => soloDigitos(a.employee.ci).localeCompare(soloDigitos(b.employee.ci), 'es', { numeric: true }));
 
   const reg4: string[] = [];
+  const reg5: string[] = []; // egresos (bajas del mes); va entre reg4 y reg6
   const reg6: string[] = [];
   const empleadosOut: FocerGenerado['empleados'] = [];
   let totGravado = 0n;
@@ -353,6 +371,16 @@ export async function generarFocer(companyId: string, year: number, month: numbe
 
     const obraTrab = contrato.obraId ? obraById.get(contrato.obraId) : null;
     if (esCT && contrato.categoriaCtCod == null) advertencias.push(`${quien}: falta la categoría CT (código) en el contrato (FOCER reg. 4).`);
+
+    // Egreso (baja) del trabajador dentro del mes del archivo: se declara en el
+    // registro 5 (causal Tabla 9 + fecha). Si falta la causal, se asume 1 (Voluntario).
+    const finEg = contrato.fechaFin ? new Date(contrato.fechaFin) : null;
+    const tieneEgreso = !!finEg && finEg >= monthStart && finEg <= monthEnd;
+    const causalEgreso = tieneEgreso ? (contrato.causalEgresoCod ?? 1) : null;
+    if (tieneEgreso && contrato.causalEgresoCod == null) {
+      advertencias.push(`${quien}: baja el ${finEg!.toLocaleDateString('es-UY')} sin causal de egreso — se declara causal 1 (Voluntario) en FOCER.`);
+    }
+
     const lineaEmp: FocerEmpleadoLinea = {
       tipoDoc, doc,
       apellido: e.apellido, apellido2: e.apellido2, nombre: e.nombre, nombre2: e.nombre2,
@@ -361,8 +389,10 @@ export async function generarFocer(companyId: string, year: number, month: numbe
       focerTipo, focerTipoContrato: contrato.focerTipoContrato ?? 1,
       direccion, departamento, telefono, fechaIngreso: e.fechaIngreso,
       esCT, categoriaCt: contrato.categoriaCtCod, formaRealizacion: obraTrab?.fRealizacion ?? null,
+      causalEgreso, fechaEgreso: tieneEgreso ? finEg : null,
     };
     reg4.push(buildFocerReg4(lineaEmp));
+    if (tieneEgreso) reg5.push(buildFocerReg5(lineaEmp));
     reg6.push(buildFocerReg6(lineaEmp));
 
     empleadosOut.push({
@@ -398,7 +428,7 @@ export async function generarFocer(companyId: string, year: number, month: numbe
   const reg1 = buildFocerReg1(lineaEmpresa);
   const reg2 = buildFocerReg2(lineaEmpresa);
 
-  const lineas = ['<FOCERINI>', reg1, reg2, ...reg4, ...reg6, '<FOCERFIN>'];
+  const lineas = ['<FOCERINI>', reg1, reg2, ...reg4, ...reg5, ...reg6, '<FOCERFIN>'];
   const contenido = lineas.join('\r\n');
 
   const sigla = (company.nombreFantasia || company.razonSocial || 'EMP')
