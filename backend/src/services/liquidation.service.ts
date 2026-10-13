@@ -93,6 +93,8 @@ export interface LiquidacionInput {
   diasTrabajados?: number;
   diasLicencia?: number;   // días de licencia gozada en el mes (desglosa el sueldo)
   horasTrabajadas?: number; // construcción: horas efectivas del mes (jornalero por horas)
+  jornalesDia?: number;     // construcción: JORNALES (días) con el jornal del contrato como valor DÍA (base = días × jornal)
+  jornalValorDia?: boolean; // construcción: el jornal del contrato es valor DÍA → valor hora = jornal ÷ 8
   horasExtraDiurnas?: number;
   horasExtraNocturnas?: number;
   comisiones?: bigint;
@@ -196,13 +198,25 @@ export async function generarLiquidacionMensual(
   const laudoVigente = esConstruccion
     ? await jornalHoraVigente(contrato?.categoria, recuadroDeEmpresa(period.company), asOfDate)
     : null;
+  // MODALIDAD POR JORNAL (DÍA): el jornal del contrato es el valor por DÍA (no por
+  // hora). Entonces el valor HORA = jornal ÷ 8, la base = días × jornal (o
+  // horas × jornal÷8), y las partidas por hora del laudo usan horas = días × 8.
+  // Para trabajadores de construcción que cobran por jornal diario. Convive con
+  // el modelo por HORA (jornal = valor hora, validado contra GNS), que es el
+  // default cuando jornalValorDia no está marcado.
+  const jornalDiaMode = esConstruccion && labor.salaryType === 'JORNALERO' && !!input.jornalValorDia;
+
   const horaPagada = esConstruccion
-    ? ((labor.jornal ?? 0n) > (laudoVigente ?? 0n) ? (labor.jornal ?? 0n) : (laudoVigente ?? labor.jornal ?? 0n))
+    ? jornalDiaMode
+      ? divRoundHalfUp(labor.jornal ?? 0n, 8n)
+      : ((labor.jornal ?? 0n) > (laudoVigente ?? 0n) ? (labor.jornal ?? 0n) : (laudoVigente ?? labor.jornal ?? 0n))
     : (labor.jornal ?? 0n);
 
-  const horasConstruccion = esConstruccion && labor.salaryType === 'JORNALERO'
-    ? (input.horasTrabajadas ?? diasTrabajados * 8)
-    : input.horasTrabajadas;
+  const horasConstruccion = jornalDiaMode
+    ? (input.jornalesDia ?? 0) * 8 + (input.horasTrabajadas ?? 0)
+    : esConstruccion && labor.salaryType === 'JORNALERO'
+      ? (input.horasTrabajadas ?? diasTrabajados * 8)
+      : input.horasTrabajadas;
   const jornadasConstruccion = horasConstruccion !== undefined
     ? Math.round((horasConstruccion / 8) * 100) / 100
     : undefined;
@@ -216,9 +230,12 @@ export async function generarLiquidacionMensual(
 
   const salarioBase = labor.salaryType === 'MENSUAL'
     ? salarioProporcional(labor.salarioNominal, diasTrabajados, 30)
-    : esConstruccion && horasConstruccion !== undefined
-      ? divRoundHalfUp(horaPagada * BigInt(Math.round(horasConstruccion * 100)), 100n)
-      : (labor.jornal ?? 0n) * BigInt(diasTrabajados);
+    : jornalDiaMode
+      // días × jornal (exacto) + horas sueltas × (jornal ÷ 8)
+      ? (labor.jornal ?? 0n) * BigInt(input.jornalesDia ?? 0) + divRoundHalfUp(horaPagada * BigInt(Math.round((input.horasTrabajadas ?? 0) * 100)), 100n)
+      : esConstruccion && horasConstruccion !== undefined
+        ? divRoundHalfUp(horaPagada * BigInt(Math.round(horasConstruccion * 100)), 100n)
+        : (labor.jornal ?? 0n) * BigInt(diasTrabajados);
 
   // Cantidades para el motor de conceptos (construcción): con solo cargar las
   // horas, todo lo demás sale automático — ropa siempre; transporte para

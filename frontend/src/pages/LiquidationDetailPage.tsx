@@ -436,6 +436,10 @@ export default function LiquidationDetailPage() {
   const [horasLluvia, setHorasLluvia] = useState('');
   const [ticketCant, setTicketCant] = useState('');
   const [mediasHoras, setMediasHoras] = useState('');
+  // Construcción paga por JORNAL (día): el jornal del contrato es valor DÍA →
+  // base = días × jornal (y hora suelta = jornal ÷ 8). Para quien cobra por día.
+  const [jornalValorDia, setJornalValorDia] = useState(false);
+  const [jornalesDia, setJornalesDia] = useState('');
   // JORNALERO (no construcción): cantidad de jornales efectivos del mes.
   const liqExtra = liq as unknown as { salaryType?: string | null; jornalContrato?: string | null } | undefined;
   const esJornalero = liqExtra?.salaryType === 'JORNALERO';
@@ -481,6 +485,8 @@ export default function LiquidationDetailPage() {
       year: liq!.year,
       month: liq!.month,
       ...(horasMes !== '' ? { horasTrabajadas: Number(horasMes) } : {}),
+      ...(jornalValorDia ? { jornalValorDia: true } : {}),
+      ...(jornalValorDia && jornalesDia !== '' ? { jornalesDia: Number(jornalesDia) } : {}),
       cantidadesConcepto: {
         ...(horasLluvia !== '' ? { HORAS_LLUVIA: Number(horasLluvia) } : {}),
         ...(ticketCant !== '' ? { TICKET_ALIMENTACION: Number(ticketCant) } : {}),
@@ -741,12 +747,22 @@ export default function LiquidationDetailPage() {
       {esConstruccion && liq.type === 'MENSUAL' && puedeEditar && (
         <div className="card p-4 border-t-4 border-t-amber-400 space-y-3">
           <p className="text-sm font-semibold text-gray-800 flex items-center gap-2">
-            <HardHat size={16} className="text-amber-500" /> Construcción — horas del mes
+            <HardHat size={16} className="text-amber-500" /> Construcción — jornales / horas del mes
           </p>
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input type="checkbox" checked={jornalValorDia} onChange={(e) => setJornalValorDia(e.target.checked)} className="rounded" />
+            El jornal del contrato es valor por DÍA (base = días × jornal · hora = jornal ÷ 8)
+          </label>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            {jornalValorDia && (
+              <div>
+                <label className="form-label">Jornales (días)</label>
+                <input type="number" min="0" step="0.5" value={jornalesDia} onChange={(e) => setJornalesDia(e.target.value)} placeholder="ej. 20" className="form-input" />
+              </div>
+            )}
             <div>
-              <label className="form-label">Horas comunes</label>
-              <input type="number" min="0" step="0.5" value={horasMes} onChange={(e) => setHorasMes(e.target.value)} placeholder="ej. 176" className="form-input" />
+              <label className="form-label">{jornalValorDia ? 'Horas sueltas' : 'Horas comunes'}</label>
+              <input type="number" min="0" step="0.5" value={horasMes} onChange={(e) => setHorasMes(e.target.value)} placeholder={jornalValorDia ? '0' : 'ej. 176'} className="form-input" />
             </div>
             <div>
               <label className="form-label">Horas lluvia</label>
@@ -767,10 +783,10 @@ export default function LiquidationDetailPage() {
             </div>
           </div>
           <p className="text-[11px] text-gray-400">
-            Cargando solo las horas, todo sale automático: Horas Comunes (horas × laudo vigente de la categoría, o el jornal del
-            contrato si es mayor), presentismos, ropa, transporte, herramientas (según categoría), ticket de alimentación y media
-            hora (1 por jornada de 8 hs), y Fondo Social/Vivienda. Solo la lluvia se indica a mano; tickets y medias horas se pueden
-            corregir acá. Recalcular pisa los conceptos manuales agregados.
+            {jornalValorDia
+              ? 'Modo POR JORNAL: el jornal del contrato es el valor por DÍA. Base = días × jornal (y hora suelta = jornal ÷ 8). Las partidas del laudo (presentismo, ropa, transporte, herramientas, ticket, media hora) usan horas = días × 8.'
+              : 'Cargando solo las horas, todo sale automático: Horas Comunes (horas × laudo vigente de la categoría, o el jornal del contrato si es mayor), presentismos, ropa, transporte, herramientas (según categoría), ticket de alimentación y media hora (1 por jornada de 8 hs).'}
+            {' '}Solo la lluvia se indica a mano; tickets y medias horas se pueden corregir acá. Recalcular pisa los conceptos manuales agregados.
           </p>
         </div>
       )}

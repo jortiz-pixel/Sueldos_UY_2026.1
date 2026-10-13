@@ -219,6 +219,8 @@ liquidationRouter.post('/generate', authenticate, requireRole(UserRole.ADMIN, Us
       diasTrabajados: z.number().int().min(0).max(31).optional(),
       diasLicencia: z.number().min(0).max(31).optional(),        // días de licencia GOZADA del mes (desglosa el sueldo)
       horasTrabajadas: z.number().min(0).max(400).optional(),   // construcción: horas del mes
+      jornalesDia: z.number().min(0).max(31).optional(),         // construcción: jornales (días), jornal del contrato como valor día
+      jornalValorDia: z.boolean().optional(),                    // construcción: el jornal del contrato es valor DÍA (hora = jornal ÷ 8)
       cantidadesConcepto: z.record(z.number().min(0)).optional(), // cantidades por código de concepto
       horasExtraDiurnas: z.number().min(0).optional(),
       horasExtraNocturnas: z.number().min(0).optional(),
