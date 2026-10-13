@@ -12,7 +12,7 @@ import { parametersService } from './parameters.service';
 import { resolverContratoEnMes, diasTrabajadosEnMes, datosLaboralesEfectivos } from './contract.service';
 import { evaluarConcepto, valorUnitarioConcepto, ConceptoContext } from './concept.engine';
 import { calcularAguinaldoBrutoSemestre } from './aguinaldo.service';
-import { correspondeHerramientas, esEmpresaConstruccion, ensureConceptosConstruccion, esMiCasaSA, grupoConsejoDeEmpresa, jornalHoraVigente, recuadroDeEmpresa } from './construccion.service';
+import { correspondeHerramientas, esEmpresaConstruccion, ensureConceptosConstruccion, esMiCasaSA, grupoConsejoDeEmpresa, jornalHoraVigente, recuadroDeEmpresa, TIPO_APORTE_CONSTRUCCION } from './construccion.service';
 import { AppError } from '../middleware/errorHandler';
 
 // Días hábiles de licencia GOZADA (LeaveRequest aprobada/pendiente) que caen
@@ -181,6 +181,13 @@ export async function generarLiquidacionMensual(
   // partidas del laudo (presentismo, ropa, transporte, herramientas) y los
   // fondos se calculan solos vía el motor de conceptos.
   const esConstruccion = esEmpresaConstruccion(period.company);
+  // Aportación CONSTRUCCIÓN (CT): el worker NO lleva en su recibo el Aporte
+  // Jubilatorio (15%) ni el FONASA Seguro (3%) — esos van en el aporte unificado
+  // de la construcción que paga el EMPLEADOR a BPS (factura autogestionada). El
+  // recibo solo descuenta FRL, Adicional FONASA, IRPF, Fondo Social, Fondo
+  // Vivienda y Cesantía (FOCER) personal. En aportación Industria y Comercio (IC,
+  // ej. José Lambrechts) SÍ se descuentan jubilatorio y FONASA (sin cambios).
+  const esAportacionCT = period.company.tipoAporte === TIPO_APORTE_CONSTRUCCION;
   // Automatización total para grupo 9: si la empresa es de construcción y aún
   // no tiene los conceptos del laudo (p. ej. fue creada antes de esta regla o
   // con aportación Industria y Comercio), se cargan acá mismo antes de liquidar.
@@ -608,28 +615,33 @@ export async function generarLiquidacionMensual(
     fonasaAdicionalExtraBase,
   });
 
-  items.push({
-    employeeId: input.employeeId,
-    itemType: ItemType.DESCUENTO_OBRERO,
-    concepto: 'BPS_JUBILATORIO',
-    descripcion: 'BPS Jubilatorio',
-    baseCalculo: aportesObreros.baseJubilatorio,
-    rate: params.bpsJubilatorioRate,
-    amount: aportesObreros.jubilatorio,
-    calculationDetail: { base: aportesObreros.baseJubilatorio.toString(), gravado: baseGravada.toString(), rateBp: params.bpsJubilatorioRate } as unknown as Prisma.JsonValue,
-  });
+  // Aporte Jubilatorio (15%) y FONASA Seguro (3%): SOLO en IC. En aportación
+  // CONSTRUCCIÓN (CT) van en el aporte unificado que paga el empleador, no en el
+  // recibo del trabajador.
+  if (!esAportacionCT) {
+    items.push({
+      employeeId: input.employeeId,
+      itemType: ItemType.DESCUENTO_OBRERO,
+      concepto: 'BPS_JUBILATORIO',
+      descripcion: 'BPS Jubilatorio',
+      baseCalculo: aportesObreros.baseJubilatorio,
+      rate: params.bpsJubilatorioRate,
+      amount: aportesObreros.jubilatorio,
+      calculationDetail: { base: aportesObreros.baseJubilatorio.toString(), gravado: baseGravada.toString(), rateBp: params.bpsJubilatorioRate } as unknown as Prisma.JsonValue,
+    });
 
-  // FONASA (Seguro por Enfermedad): 3% fijo sobre el total de haberes.
-  items.push({
-    employeeId: input.employeeId,
-    itemType: ItemType.DESCUENTO_OBRERO,
-    concepto: 'FONASA',
-    descripcion: 'FONASA (Seguro por Enfermedad)',
-    baseCalculo: baseGravada,
-    rate: aportesObreros.detail.fonasaSeguroRate,
-    amount: aportesObreros.fonasaBasico,
-    calculationDetail: { base: baseGravada.toString(), rateBp: aportesObreros.detail.fonasaSeguroRate } as unknown as Prisma.JsonValue,
-  });
+    // FONASA (Seguro por Enfermedad): 3% fijo sobre el total de haberes.
+    items.push({
+      employeeId: input.employeeId,
+      itemType: ItemType.DESCUENTO_OBRERO,
+      concepto: 'FONASA',
+      descripcion: 'FONASA (Seguro por Enfermedad)',
+      baseCalculo: baseGravada,
+      rate: aportesObreros.detail.fonasaSeguroRate,
+      amount: aportesObreros.fonasaBasico,
+      calculationDetail: { base: baseGravada.toString(), rateBp: aportesObreros.detail.fonasaSeguroRate } as unknown as Prisma.JsonValue,
+    });
+  }
 
   // Adicional FONASA: complemento según el seguro de salud (escalón > 2,5 BPC +
   // hijos + cónyuge). Partida SEPARADA. En junio/diciembre su base incluye el
@@ -730,12 +742,19 @@ export async function generarLiquidacionMensual(
     const haberesParaFondos = items
       .filter((i) => i.itemType === ItemType.HABER && !['REINTEGRO_GASTOS', 'AJUSTE_NO_GRAVADO', 'VIATICOS'].includes(i.concepto))
       .reduce((sum, i) => sum + i.amount, 0n);
+    // En CT el worker no paga jubilatorio ni FONASA seguro, así que NO se restan
+    // de la base de los fondos (solo los aportes personales reales: adicional
+    // FONASA + FRL). En IC se restan todos (jub + FONASA seguro + adic + FRL).
     const rateFonasaFrl = BigInt(
-      aportesObreros.detail.fonasaSeguroRate + aportesObreros.detail.fonasaAdicionalRate + params.frlObreroRate,
+      (esAportacionCT ? 0 : aportesObreros.detail.fonasaSeguroRate)
+      + aportesObreros.detail.fonasaAdicionalRate + params.frlObreroRate,
     );
+    const jubilatorioTerm = esAportacionCT
+      ? 0n
+      : aportesObreros.baseJubilatorio * BigInt(params.bpsJubilatorioRate);
     const apliAFondos = divRoundHalfUp(
       haberesParaFondos * 10000n
-        - aportesObreros.baseJubilatorio * BigInt(params.bpsJubilatorioRate)
+        - jubilatorioTerm
         - baseGravada * rateFonasaFrl
         - irpfRetencion * 10000n,
       10000n,

@@ -6,7 +6,7 @@ import { authenticate, requireRole } from '../middleware/auth';
 import { assertCompanyAccess } from '../middleware/tenancy';
 import { AppError, NotFoundError } from '../middleware/errorHandler';
 import { generarLiquidacionMensual, confirmarLiquidacion, valorJornalFalta, calcularPrimaAntiguedad, recalcularTitularDelPeriodo } from '../services/liquidation.service';
-import { esMiCasaSA, grupoConsejoDeEmpresa } from '../services/construccion.service';
+import { esMiCasaSA, grupoConsejoDeEmpresa, TIPO_APORTE_CONSTRUCCION } from '../services/construccion.service';
 import { applyRate, divRoundHalfUp } from '../utils/money';
 import { calcularAguinaldo, calcularAguinaldoBrutoSemestre } from '../services/aguinaldo.service';
 import { calcularLiquidacionLicencia, calcularLiquidacionFinal } from '../services/vacation.service';
@@ -924,10 +924,14 @@ async function recalcularLiquidacionInterna(liquidationId: string): Promise<void
     const totalHaberesMes = liq.items
       .filter((i) => i.itemType === ItemType.HABER && !['REINTEGRO_GASTOS', 'AJUSTE_NO_GRAVADO', 'VIATICOS'].includes(i.concepto))
       .reduce((s, i) => s + i.amount, 0n);
-    const rateFonasaFrl = BigInt(obreros.detail.fonasaSeguroRate + obreros.detail.fonasaAdicionalRate + params.frlObreroRate);
+    // En aportación CONSTRUCCIÓN (CT) el worker no paga jubilatorio ni FONASA
+    // seguro, así que NO se restan de la base de los fondos (solo adicional + FRL).
+    const esAportacionCT = liq.period?.company?.tipoAporte === TIPO_APORTE_CONSTRUCCION;
+    const rateFonasaFrl = BigInt((esAportacionCT ? 0 : obreros.detail.fonasaSeguroRate) + obreros.detail.fonasaAdicionalRate + params.frlObreroRate);
+    const jubTerm = esAportacionCT ? 0n : obreros.baseJubilatorio * BigInt(params.bpsJubilatorioRate);
     const apliAFondos = divRoundHalfUp(
       totalHaberesMes * 10000n
-        - obreros.baseJubilatorio * BigInt(params.bpsJubilatorioRate)
+        - jubTerm
         - baseGravada * rateFonasaFrl
         - irpf.retencionMensual * 10000n,
       10000n,
