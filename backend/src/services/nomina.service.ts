@@ -380,10 +380,14 @@ export async function generarNominaBps(companyId: string, year: number, month: n
     // Conceptos (registro 7): agrupar ítems HABER por código BPS.
     // El concepto 1 siempre se declara (aunque sea 0); para los JORNALEROS de
     // CONSTRUCCIÓN, GNS declara también el 5 (partidas exentas) aunque sea 0.
+    // EXCEPCIÓN: el TITULAR / socio SIN REMUNERACIÓN no declara el concepto 5
+    // (Monto Imponible Adicional IRPF): BPS lo rechaza para los patrones
+    // ("conceptos de IRPF no válidos para éstos patrones", error 231). Solo
+    // declara el ficto como concepto 1.
     const porConcepto = new Map<number, bigint>();
     const siempreDeclarados = new Set<number>([1]);
     porConcepto.set(1, 0n);
-    if (esEmpresaConstruccion(company) && contrato.salaryType === 'JORNALERO') {
+    if (esEmpresaConstruccion(company) && contrato.salaryType === 'JORNALERO' && !esTitularUnipersonal) {
       porConcepto.set(5, 0n);
       siempreDeclarados.add(5);
     }
@@ -453,8 +457,12 @@ export async function generarNominaBps(companyId: string, year: number, month: n
       String(al),
       ddmmaaaa(contrato.fechaIngreso),
       // Tipo de remuneración BPS (Tabla 2): el código del contrato (1..6); si no
-      // está, se deriva del salaryType (JORNALERO → 2, si no → 1).
-      String(contrato.tipoRemuneracion ?? (contrato.salaryType === 'JORNALERO' ? 2 : 1)),
+      // está, se deriva del salaryType (JORNALERO → 2, si no → 1). El TITULAR /
+      // socio SIN REMUNERACIÓN declara el ficto como "ficto patronal" → tipo 1
+      // (Mensual, "incluye fictos patronales"), aunque su contrato de
+      // construcción esté marcado como jornalero: BPS rechaza el tipo 2 para el
+      // vínculo de patrón (error 68).
+      String(esTitularUnipersonal ? 1 : (contrato.tipoRemuneracion ?? (contrato.salaryType === 'JORNALERO' ? 2 : 1))),
       contrato.horasSemanales != null ? String(contrato.horasSemanales) : '',
       contrato.vinculoFuncional != null ? String(contrato.vinculoFuncional) : '',
       String(contrato.exoneracionAporte ?? 9),
