@@ -246,6 +246,11 @@ export async function generarLiquidacionMensual(
         ? divRoundHalfUp(horaPagada * BigInt(Math.round(horasConstruccion * 100)), 100n)
         : (labor.jornal ?? 0n) * BigInt(diasTrabajados);
 
+  // Base EXACTA del presentismo en modalidad por jornal: el TOTAL DE LOS JORNALES
+  // sin adicionales (= el sueldo básico / Horas Comunes, días × jornal), para que
+  // no se pierda el redondeo de jornal ÷ 8. En el modelo por hora no se usa.
+  const baseHorasLaudo = jornalDiaMode ? salarioBase : undefined;
+
   // Cantidades para el motor de conceptos (construcción): con solo cargar las
   // horas, todo lo demás sale automático — ropa siempre; transporte para
   // jornaleros; herramientas SOLO desde Medio Oficial; TICKET de alimentación y
@@ -490,6 +495,7 @@ export async function generarLiquidacionMensual(
       cantidades,
       horasTrabajadas: horasConstruccion,
       horaLaudo: horaPresentismo ?? undefined,
+      baseHorasLaudo,
       valorMediaHora,
       valorHoraPagada,
     }));
@@ -514,6 +520,7 @@ export async function generarLiquidacionMensual(
     cantidades,
     horasTrabajadas: horasConstruccion,
     horaLaudo: horaPresentismo ?? undefined,
+    baseHorasLaudo,
     valorMediaHora,
     valorHoraPagada,
   };
@@ -544,7 +551,7 @@ export async function generarLiquidacionMensual(
     const cantidad = esCantidadValor ? (cantidades[c.codigo] ?? 0) : undefined;
     const valorUnit = esCantidadValor ? valorUnitarioConcepto(c, ctxConcepto) : undefined;
     const basePorcentaje = c.baseCalculo === 'HORAS_LAUDO'
-      ? divRoundHalfUp((horaPresentismo ?? c.valorFijo ?? 0n) * BigInt(Math.round((horasConstruccion ?? 0) * 100)), 100n)
+      ? (baseHorasLaudo ?? divRoundHalfUp((horaPresentismo ?? c.valorFijo ?? 0n) * BigInt(Math.round((horasConstruccion ?? 0) * 100)), 100n))
       : null;
     items.push({
       employeeId: input.employeeId,
@@ -757,6 +764,7 @@ export async function generarLiquidacionMensual(
       cantidades,
       horasTrabajadas: horasConstruccion,
       horaLaudo: horaPresentismo ?? undefined,
+      baseHorasLaudo,
       valorMediaHora,
       valorHoraPagada,
       baseFondoConstruccion,
@@ -842,6 +850,7 @@ export async function generarLiquidacionMensual(
       cantidades,
       horasTrabajadas: horasConstruccion,
       horaLaudo: horaPresentismo ?? undefined,
+      baseHorasLaudo,
       valorMediaHora,
       valorHoraPagada,
       baseFondoConstruccion,

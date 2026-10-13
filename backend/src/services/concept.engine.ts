@@ -28,6 +28,9 @@ export interface ConceptoContext {
   baseFondoConstruccion?: bigint; // construcción: base de Fondo Social/Vivienda
                             // (fórmula GNS "ApliAFondos": total de haberes −
                             // aportes BPS teóricos − IRPF). Base FONDO_CONSTRUCCION.
+  baseHorasLaudo?: bigint;  // construcción (modalidad por jornal): base EXACTA del
+                            // presentismo = total de los jornales sin adicionales
+                            // (días × jornal). Si está, se usa en vez de hora × horas.
 }
 
 /** Valor unitario de un concepto CANTIDAD_VALOR (dinámico según baseCalculo). */
@@ -44,6 +47,8 @@ function baseDelConcepto(c: Concepto, ctx: ConceptoContext): bigint {
   if (c.baseCalculo === 'NOMINAL') return ctx.salarioNominal;
   if (c.baseCalculo === 'SUELDO_BASICO') return ctx.sueldoBasico;
   if (c.baseCalculo === 'HORAS_LAUDO') {
+    // Modalidad por jornal: base EXACTA = total de los jornales sin adicionales.
+    if (ctx.baseHorasLaudo != null) return ctx.baseHorasLaudo;
     const horas = ctx.horasTrabajadas ?? 0;
     const hora = ctx.horaLaudo ?? c.valorFijo ?? 0n;
     return divRoundHalfUp(hora * BigInt(Math.round(horas * 100)), 100n);
