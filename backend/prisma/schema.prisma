@@ -552,6 +552,9 @@ model Contrato {
   categoriaCtCod     Int?
   cajaActividad      Int?
   asignacionFamiliar Boolean?
+  // Construcción: si el jornal del contrato es valor por DÍA (true → base = días
+  // × jornal, valor hora = jornal ÷ 8) o por HORA (false, default = modelo validado).
+  construccionPorJornal Boolean @default(false)
   observacion      String?
   activo           Boolean    @default(true)
   // Obra a la que está asignado el trabajador (empresas de CONSTRUCCIÓN por

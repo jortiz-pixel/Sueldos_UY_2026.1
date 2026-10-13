@@ -441,8 +441,16 @@ export default function LiquidationDetailPage() {
   const [jornalValorDia, setJornalValorDia] = useState(false);
   const [jornalesDia, setJornalesDia] = useState('');
   // JORNALERO (no construcción): cantidad de jornales efectivos del mes.
-  const liqExtra = liq as unknown as { salaryType?: string | null; jornalContrato?: string | null } | undefined;
+  const liqExtra = liq as unknown as { salaryType?: string | null; jornalContrato?: string | null; construccionPorJornal?: boolean } | undefined;
   const esJornalero = liqExtra?.salaryType === 'JORNALERO';
+  // Si el contrato está marcado "paga por jornal (día)", el panel de construcción
+  // arranca en ese modo (mostrando Jornales en vez de Horas comunes).
+  const porJornalPrefillDone = useRef(false);
+  useEffect(() => {
+    if (porJornalPrefillDone.current || !liqExtra) return;
+    if (liqExtra.construccionPorJornal) { setJornalValorDia(true); }
+    porJornalPrefillDone.current = true;
+  }, [liqExtra?.construccionPorJornal]);
   const [jornalesTrab, setJornalesTrab] = useState('');
   const jornalesPrefillDone = useRef(false);
   useEffect(() => {

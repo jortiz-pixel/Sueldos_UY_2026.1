@@ -91,6 +91,8 @@ const contratoFields = {
   categoriaCtCod: z.number().int().optional().nullable(),
   cajaActividad: z.number().int().optional().nullable(),
   asignacionFamiliar: z.boolean().optional().nullable(),
+  // Construcción: el jornal del contrato es valor por DÍA (true) o por HORA (false).
+  construccionPorJornal: z.boolean().optional(),
   observacion: z.string().optional(),
 };
 
@@ -358,6 +360,7 @@ employeesRouter.post('/', authenticate, requireRole(UserRole.ADMIN, UserRole.OPE
         categoriaCtCod: c.categoriaCtCod ?? undefined,
         cajaActividad: c.cajaActividad ?? undefined,
         asignacionFamiliar: c.asignacionFamiliar ?? undefined,
+        construccionPorJornal: c.construccionPorJornal ?? undefined,
         observacion: c.observacion,
       },
     });
@@ -520,6 +523,7 @@ employeesRouter.post('/:id/contracts', authenticate, requireRole(UserRole.ADMIN,
         categoriaCtCod: data.categoriaCtCod ?? undefined,
         cajaActividad: data.cajaActividad ?? undefined,
         asignacionFamiliar: data.asignacionFamiliar ?? undefined,
+        construccionPorJornal: data.construccionPorJornal ?? undefined,
         observacion: data.observacion,
       },
     });

@@ -204,7 +204,10 @@ export async function generarLiquidacionMensual(
   // Para trabajadores de construcción que cobran por jornal diario. Convive con
   // el modelo por HORA (jornal = valor hora, validado contra GNS), que es el
   // default cuando jornalValorDia no está marcado.
-  const jornalDiaMode = esConstruccion && labor.salaryType === 'JORNALERO' && !!input.jornalValorDia;
+  // Se activa por el flag del CONTRATO (modalidad fija y persistida) o por el
+  // flag del input (override puntual desde el panel de la liquidación).
+  const jornalDiaMode = esConstruccion && labor.salaryType === 'JORNALERO'
+    && (!!(contrato as { construccionPorJornal?: boolean } | null)?.construccionPorJornal || !!input.jornalValorDia);
 
   const horaPagada = esConstruccion
     ? jornalDiaMode

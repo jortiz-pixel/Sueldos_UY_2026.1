@@ -43,6 +43,7 @@ interface ContractForm {
   categoriaCtCod?: string;
   cajaActividad?: string;
   asignacionFamiliar?: string; // '', 'S' o 'N' (vacío = automática según hijos)
+  construccionPorJornal?: boolean; // jornal del contrato = valor DÍA (base = días × jornal)
   observacion?: string;
 }
 
@@ -140,7 +141,7 @@ export default function ContractsPage() {
     setFormError('');
     setBajaCausal('');
     const hoy = new Date().toISOString().slice(0, 10);
-    reset({ personId: '', vigenciaDesde: hoy, fechaIngreso: hoy, fechaFin: '', salaryType: 'MENSUAL', tipoRemuneracion: 1, salarioNominalPesos: 0, cargo: '', sector: '', categoria: '', nivel: '', tipoContrato: '', sucursal: '', cuentaSueldos: '', observacion: '', vinculoFuncional: '12', fictoCategoria: '', seguroSalud: '', aportaPor: '', computosEspeciales: '99', exoneracionAporte: '9', horasSemanales: 44, focerTipo: '2', focerTipoContrato: '1', obraId: '', categoriaCtCod: '', cajaActividad: '', asignacionFamiliar: '' });
+    reset({ personId: '', vigenciaDesde: hoy, fechaIngreso: hoy, fechaFin: '', salaryType: 'MENSUAL', tipoRemuneracion: 1, salarioNominalPesos: 0, cargo: '', sector: '', categoria: '', nivel: '', tipoContrato: '', sucursal: '', cuentaSueldos: '', observacion: '', vinculoFuncional: '12', fictoCategoria: '', seguroSalud: '', aportaPor: '', computosEspeciales: '99', exoneracionAporte: '9', horasSemanales: 44, focerTipo: '2', focerTipoContrato: '1', obraId: '', categoriaCtCod: '', cajaActividad: '', asignacionFamiliar: '', construccionPorJornal: false });
     setModalOpen(true);
   };
 
@@ -174,6 +175,7 @@ export default function ContractsPage() {
       categoriaCtCod: (c as unknown as { categoriaCtCod?: number | null }).categoriaCtCod != null ? String((c as unknown as { categoriaCtCod?: number | null }).categoriaCtCod) : '',
       cajaActividad: (c as unknown as { cajaActividad?: number | null }).cajaActividad != null ? String((c as unknown as { cajaActividad?: number | null }).cajaActividad) : '',
       asignacionFamiliar: (() => { const v = (c as unknown as { asignacionFamiliar?: boolean | null }).asignacionFamiliar; return v == null ? '' : (v ? 'S' : 'N'); })(),
+      construccionPorJornal: !!(c as unknown as { construccionPorJornal?: boolean }).construccionPorJornal,
     });
     setModalOpen(true);
   };
@@ -209,6 +211,7 @@ export default function ContractsPage() {
         categoriaCtCod: data.categoriaCtCod ? Number(data.categoriaCtCod) : null,
         cajaActividad: data.cajaActividad ? Number(data.cajaActividad) : null,
         asignacionFamiliar: data.asignacionFamiliar === 'S' ? true : data.asignacionFamiliar === 'N' ? false : null,
+        construccionPorJornal: !!data.construccionPorJornal,
         observacion: data.observacion || undefined,
       };
       return editing
@@ -501,6 +504,15 @@ export default function ContractsPage() {
                       )}
                       {CATEGORIAS_CONSTRUCCION.map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
+                  </div>
+                )}
+                {esConstruccion && (
+                  <div className="col-span-2">
+                    <label className="flex items-center gap-2 text-sm text-gray-700">
+                      <input type="checkbox" {...register('construccionPorJornal')} className="rounded" />
+                      Paga por JORNAL (día) — el jornal del contrato es valor por día (base = días × jornal · hora = jornal ÷ 8)
+                    </label>
+                    <p className="text-xs text-gray-400 mt-1">Marcá esto si al trabajador se le paga por jornal diario. Si cobra por hora, dejalo sin marcar (el jornal se toma como valor hora).</p>
                   </div>
                 )}
                 {esConstruccion && (

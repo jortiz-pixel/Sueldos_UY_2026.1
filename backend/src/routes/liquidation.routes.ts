@@ -448,10 +448,12 @@ liquidationRouter.get('/:id/preview', authenticate, async (req: Request, res: Re
     );
     const salaryType = contratoMes?.salaryType ?? null;
     const jornalContrato = contratoMes?.jornal ?? null;
+    const construccionPorJornal = !!(contratoMes as { construccionPorJornal?: boolean } | null)?.construccionPorJornal;
 
     res.json({
       ...liquidation,
       salaryType,
+      construccionPorJornal,
       jornalContrato: jornalContrato != null ? jornalContrato.toString() : null,
       totalHaberes: liquidation.totalHaberes.toString(),
       totalDescuentos: liquidation.totalDescuentos.toString(),
