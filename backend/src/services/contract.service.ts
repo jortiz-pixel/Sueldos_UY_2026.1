@@ -38,12 +38,17 @@ export async function resolverContratoEnMes(employeeId: string, year: number, mo
   return prisma.contrato.findFirst({
     where: {
       employeeId,
-      activo: true,
       ...(companyId ? { companyId } : {}),
       vigenciaDesde: { lte: monthEnd },
       AND: [
         { OR: [{ vigenciaHasta: null }, { vigenciaHasta: { gte: monthStart } }] },
         { OR: [{ fechaFin: null }, { fechaFin: { gte: monthStart } }] },
+        // Incluir los contratos ACTIVOS y también los dados de BAJA del mes
+        // (egreso: activo=false con fechaFin dentro/después del mes): el
+        // trabajador que egresó igual se liquida el mes de la baja, y hay que
+        // poder regenerar esa mensual (p. ej. cargar los jornales de obra).
+        // Se excluyen los desactivados por error (activo=false y sin fechaFin).
+        { OR: [{ activo: true }, { fechaFin: { not: null } }] },
       ],
     },
     orderBy: { vigenciaDesde: 'desc' },
