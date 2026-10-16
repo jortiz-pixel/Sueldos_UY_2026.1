@@ -725,7 +725,7 @@ importacionesRouter.get('/:id/costeo.pdf', async (req: Request, res: Response, n
   try {
     const imp = await prisma.importacion.findUnique({
       where: { id: req.params.id },
-      include: { gastos: true, company: true },
+      include: { gastos: true, tributos: true, company: true },
     });
     if (!imp) throw new NotFoundError('Importación');
     await assertCompanyAccess(req, imp.companyId);
