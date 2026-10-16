@@ -136,6 +136,7 @@ export interface LiquidacionParsed {
   despachante: string | null; carpeta: string | null; fecha: string | null; aduana: string | null;
   importador: string | null; proveedor: string | null; origen: string | null; transporte: string | null;
   cif: number | null; tipoCambio: number | null; moneda: string;
+  kilosBrutos: number | null; kilosNetos: number | null;
   conceptos: Record<string, number>; total: number | null; gastosAgenciaExtra: number | null;
 }
 
@@ -174,6 +175,14 @@ export function parseLiquidacionDespachante(texto: string): LiquidacionParsed {
     const n = parseNum(val);
     if (n != null) conceptos[clave] = n;
   }
+  // Kilos (label con punteado y espacios raros): se busca por etiqueta sin espacios.
+  const numPorEtiqueta = (match: string): number | null => {
+    const ln = lineas.find((l) => l.includes(':') && norm(l.slice(0, l.lastIndexOf(':')).replace(/[^A-Za-z]/g, '')).includes(match));
+    if (!ln) return null;
+    return parseNum(ln.slice(ln.lastIndexOf(':') + 1).replace(/\s+/g, ''));
+  };
+  const kilosBrutos = numPorEtiqueta('kilosbrutos');
+  const kilosNetos = numPorEtiqueta('kilosnetos');
   const total = (() => { const v = texto.match(/Total[.\s]*\$?\s*([\d.\s]+,\d+)/i); return v ? parseNum(v[1]) : null; })();
   const gastosAgencia = (() => { const v = texto.match(/Gastos Agencia[.\sU$S]*?([\d.\s]+,\d+)/i); return v ? parseNum(v[1]) : null; })();
   return {
@@ -188,6 +197,7 @@ export function parseLiquidacionDespachante(texto: string): LiquidacionParsed {
     cif: (() => { const v = buscar(/Importe CIF[.\sU$S]*:?\s*([\d.,]+)/i); return v ? parseNum(v) : null; })(),
     tipoCambio: (() => { const v = buscar(/T\/?Cambio[^\d]*([\d.,]+)/i); return v ? parseNum(v) : null; })(),
     moneda: 'UYU',
+    kilosBrutos, kilosNetos,
     conceptos, total, gastosAgenciaExtra: gastosAgencia,
   };
 }

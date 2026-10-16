@@ -35,7 +35,7 @@ export interface ImportacionPdf {
 interface EmpresaPdf { razonSocial: string; rut: string | null }
 interface ArticuloPdf { nro: number; codigo: string | null; descripcion: string; cantidad: number; precioUnit: number; total: bigint }
 interface FacturaPdf { proveedor: string | null; numero: string | null; fecha: Date | null; moneda: string; incoterm: string | null; fob: bigint; flete: bigint; seguro: bigint; cif: bigint; total: bigint; articulos: ArticuloPdf[] }
-interface LiquidacionPdf { carpeta: string | null; fecha: Date | null; aduana: string | null; despachante: string | null; transporte: string | null; tipoCambio: number | null; moneda: string; total: bigint; gastosAgenciaExtra: number | null; conceptos: { clave: string; monto: bigint }[] }
+interface LiquidacionPdf { carpeta: string | null; fecha: Date | null; aduana: string | null; despachante: string | null; transporte: string | null; tipoCambio: number | null; moneda: string; kilosBrutos: number | null; kilosNetos: number | null; total: bigint; gastosAgenciaExtra: number | null; conceptos: { clave: string; monto: bigint }[] }
 interface TransferenciaPdf { referencia: string | null; fecha: Date | null; moneda: string; importe: bigint; comision: bigint; totalDebitado: bigint; beneficiario: string | null; nroDocs: number }
 interface DocumentoPdf { fileName: string; tipo: string | null; paginas: number | null; estado: string }
 
@@ -140,6 +140,29 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     doc.text(`Fecha de elaboración: ${new Date().toISOString().slice(0, 10)}`, M, y); y += 10;
     doc.moveTo(M, y).lineTo(RIGHT, y).strokeColor('#1E5BFF').lineWidth(1).stroke(); y += 14;
 
+    // ── Resumen ejecutivo (recuadro con cifras clave) ──
+    const liq0 = liquidaciones[0];
+    const fac0 = facturas[0];
+    const totPagRes = transferencias.reduce((s, t) => s + t.importe, 0n);
+    const resumen: Array<[string, string]> = [
+      ['CIF', fac0 ? money(fac0.cif, sym(fac0.moneda)) : money(imp.cif)],
+      ['Costo de la mercadería', money(imp.costoMercaderia)],
+      ['Crédito fiscal IVA', money(imp.creditoFiscalIva)],
+      ['Anticipos (pago a cuenta)', money(imp.anticipos)],
+      ['Total pagado al proveedor', money(totPagRes, 'US$')],
+      ['Liquidación despachante', liq0 ? money(liq0.total, sym(liq0.moneda)) : '—'],
+    ];
+    const boxH = 16 + Math.ceil(resumen.length / 2) * 15 + 8;
+    doc.save().rect(M, y, W, boxH).fill('#F3F6FF'); doc.restore();
+    doc.fontSize(9).font('Helvetica-Bold').fillColor('#0B1B3A').text('RESUMEN EJECUTIVO', M + 8, y + 6);
+    let ry = y + 22;
+    for (let i = 0; i < resumen.length; i += 2) {
+      const col = (idx: number, cx: number) => { if (!resumen[idx]) return; doc.fontSize(8.5).font('Helvetica').fillColor('#555').text(resumen[idx][0], cx, ry, { width: W / 2 - 110 }); doc.font('Helvetica-Bold').fillColor('#0B1B3A').text(resumen[idx][1], cx + W / 2 - 110, ry, { width: 100, align: 'right' }); };
+      col(i, M + 8); col(i + 1, M + 8 + W / 2);
+      ry += 15;
+    }
+    y += boxH + 14;
+
     // ── 1. Datos generales ──
     heading('1. Datos generales');
     kv('Importador', empresa.razonSocial);
@@ -150,6 +173,10 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     kv('Despachante', imp.despachante ?? '—');
     kv('Moneda / Tipo de cambio', `${imp.monedaOrigen} · ${imp.tipoCambio}`);
     kv('Fecha de nacionalización', fdate(imp.fechaNacionalizacion));
+    if (liq0) {
+      kv('Transporte', liq0.transporte ?? '—');
+      if (liq0.kilosBrutos != null || liq0.kilosNetos != null) kv('Peso bruto / neto', `${liq0.kilosBrutos ?? '—'} kg / ${liq0.kilosNetos ?? '—'} kg`);
+    }
 
     // ── 2. Valor de importación ── (usa la factura extraída si existe)
     heading('2. Valor de importación');
@@ -210,8 +237,20 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
       if (totCom > 0n) total2('Comisiones bancarias (no al proveedor)', money(totCom, monP));
     } else { doc.fontSize(9).font('Helvetica').fillColor('#777').text('Sin movimientos del proveedor.', M + 4, y); y += 14; }
 
-    // ── 5. Gastos y tributos (liquidación del despachante) ──
-    heading('5. Gastos y tributos (liquidación del despachante)');
+    // ── 5. Estado de cuenta del despachante ──
+    heading('5. Estado de cuenta del despachante');
+    if (liq0) {
+      const monD = sym(liq0.moneda);
+      kv('Despachante', liq0.despachante ?? '—');
+      total2('Total liquidación de gastos', money(liq0.total, monD), true);
+      if (liq0.gastosAgenciaExtra) total2('Gastos de agencia (en USD, aparte)', `US$ ${liq0.gastosAgenciaExtra.toLocaleString('es-UY', { minimumFractionDigits: 2 })}`);
+      total2('Fondos entregados al despachante', money(0n, monD));
+      total2('Saldo a pagar al despachante', money(liq0.total, monD), true);
+      doc.fontSize(7.5).font('Helvetica-Oblique').fillColor('#777').text('Una solicitud de fondos no constituye pago: el saldo refleja la liquidación menos los fondos efectivamente entregados y documentados.', M + 2, y + 2); y += 14;
+    } else { doc.fontSize(9).font('Helvetica').fillColor('#777').text('Sin liquidación del despachante registrada.', M + 4, y); y += 14; }
+
+    // ── 6. Gastos y tributos (liquidación del despachante) ──
+    heading('6. Gastos y tributos (liquidación del despachante)');
     const liq = liquidaciones[0];
     if (liq) {
       kv('Carpeta / Fecha', `${liq.carpeta ?? '—'} · ${fdate(liq.fecha)}`);
@@ -224,8 +263,14 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     } else { doc.fontSize(9).font('Helvetica').fillColor('#777').text('Sin liquidación del despachante registrada.', M + 4, y); y += 14; }
 
     // ── 6. Costo del inventario y distribución por artículo ──
-    heading('6. Costo del inventario y distribución por artículo');
-    total2('Costo de la mercadería', money(imp.costoMercaderia), true);
+    heading('7. Costo del inventario y distribución por artículo');
+    // Composición del costo (cómo se llega al costo de la mercadería).
+    const recup: TributoImportacionTipo[] = [TributoImportacionTipo.IVA_IMPORTACION, TributoImportacionTipo.ANTICIPO_IVA, TributoImportacionTipo.ANTICIPO_IRAE];
+    const tribNoRec = imp.tributos.filter((t) => !recup.includes(t.tipo)).reduce((s, t) => s + t.monto, 0n);
+    total2('CIF (FOB + flete + seguro)', money(imp.cif));
+    total2('+ Tributos no recuperables', money(tribNoRec));
+    total2('+ Gastos de plaza', money(imp.totalGastos));
+    total2('= Costo de la mercadería', money(imp.costoMercaderia), true);
     y += 4;
     if (fac && fac.articulos.length) {
       const sumaFob = fac.articulos.reduce((s, a) => s + a.total, 0n);
@@ -245,7 +290,7 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     } else { doc.fontSize(9).font('Helvetica').fillColor('#777').text('Sin detalle de artículos (procesá la factura en "Datos extraídos").', M + 4, y); y += 14; }
 
     // ── 7. Tratamiento fiscal (IVA y anticipos, separados) ──
-    heading('7. Tratamiento fiscal (IVA y anticipos)');
+    heading('8. Tratamiento fiscal (IVA y anticipos)');
     const sumTrib = (...ts: TributoImportacionTipo[]) => imp.tributos.filter((t) => ts.includes(t.tipo)).reduce((s, t) => s + t.monto, 0n);
     const ivaImp = sumTrib(TributoImportacionTipo.IVA_IMPORTACION);
     const ivaGastos = imp.gastos.reduce((s, g) => s + g.ivaGasto, 0n);
@@ -262,7 +307,7 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     doc.fontSize(7.5).font('Helvetica-Oblique').fillColor('#777').text('El IVA importación, el IVA de servicios y los anticipos de IVA/IRAE no integran el costo (son crédito fiscal / pagos a cuenta).', M + 2, y + 2); y += 14;
 
     // ── 7. Asientos contables ──
-    heading('8. Asientos contables');
+    heading('9. Asientos contables');
     const asiento = armarAsientoImportacion(imp, plan);
     tabla(
       [{ w: W - 220, title: 'Cuenta' }, { w: 110, title: 'Debe', align: 'right' }, { w: 110, title: 'Haber', align: 'right' }],
@@ -272,7 +317,7 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     if (!asiento.balanceado) { doc.fontSize(8).fillColor('#c00').text('⚠ El asiento no balancea.', M + 4, y); y += 12; }
 
     // ── 8. Conciliación ──
-    heading('9. Conciliación');
+    heading('10. Conciliación');
     const check = (label: string, ok: boolean, detalle: string) => {
       ensure(14);
       doc.fontSize(8.5).font('Helvetica-Bold').fillColor(ok ? '#1a7f37' : '#b54708').text(ok ? 'OK' : '!', M + 2, y, { width: 18, lineBreak: false });
@@ -295,7 +340,7 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     if (documentos.every((d) => (d.tipo ?? '') !== 'DUA')) check('DUA definitivo', false, 'no se adjuntó el DUA oficial (expediente preliminar).');
 
     // ── 9. Documentación de respaldo ──
-    heading('10. Documentación de respaldo');
+    heading('11. Documentación de respaldo');
     if (documentos.length) {
       const estadoCorto: Record<string, string> = { PROCESADO: 'Procesado', PENDIENTE: 'Pendiente', PROCESANDO: 'Procesando', ERROR: 'Error', DUPLICADO: 'Duplicado' };
       tabla(
@@ -304,12 +349,24 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
       );
     } else { doc.fontSize(9).font('Helvetica').fillColor('#777').text('Sin documentos adjuntos.', M + 4, y); y += 14; }
 
-    // ── 10. Estado y aprobación ──
-    heading('11. Estado y aprobación');
+    // ── 12. Estado y aprobación ──
+    heading('12. Estado y aprobación');
     kv('Estado del expediente', imp.estado);
     kv('Observaciones', imp.notas ?? '—');
+    // Bloque de firmas.
+    y += 16;
+    ensure(56);
+    const col3 = (W - 24) / 3;
+    const firmas = ['Preparado por', 'Revisado por', 'Aprobado por'];
+    firmas.forEach((f, i) => {
+      const x = M + i * (col3 + 12);
+      doc.moveTo(x, y + 24).lineTo(x + col3, y + 24).strokeColor('#999').lineWidth(0.5).stroke();
+      doc.fontSize(8).font('Helvetica').fillColor('#555').text(f, x, y + 28, { width: col3, align: 'center' });
+      doc.fontSize(7).fillColor('#999').text('Nombre · Fecha', x, y + 40, { width: col3, align: 'center' });
+    });
+    y += 56;
     doc.fontSize(7.5).font('Helvetica-Oblique').fillColor('#777')
-      .text('Informe generado por AsysTax. Los importes provienen del costeo y de la extracción documental del expediente.', M, y + 4, { width: W });
+      .text('Informe generado por AsysTax. Los importes provienen del costeo y de la extracción documental del expediente.', M, y + 2, { width: W });
 
     // Pie de página con numeración en todas las hojas. Se anula el margen
     // inferior al escribir para que pdfkit NO agregue páginas por "overflow".

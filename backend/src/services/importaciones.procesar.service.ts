@@ -83,7 +83,8 @@ export async function procesarExpediente(importacionId: string): Promise<Procesa
           importacionId, documentoId: doc.id,
           despachante: l.despachante, carpeta: l.carpeta, fecha: fecha(l.fecha), aduana: l.aduana,
           origen: l.origen, transporte: l.transporte, cif: C(l.cif), tipoCambio: l.tipoCambio ?? null,
-          moneda: l.moneda, total: C(l.total), gastosAgenciaExtra: l.gastosAgenciaExtra ?? null,
+          moneda: l.moneda, kilosBrutos: l.kilosBrutos ?? null, kilosNetos: l.kilosNetos ?? null,
+          total: C(l.total), gastosAgenciaExtra: l.gastosAgenciaExtra ?? null,
           conceptos: { create: Object.entries(l.conceptos).map(([clave, monto]) => ({ clave, monto: C(monto) })) },
         },
       });

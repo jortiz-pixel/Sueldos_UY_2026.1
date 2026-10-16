@@ -1309,6 +1309,8 @@ model ImportacionLiquidacion {
   cif                BigInt                           @default(0)
   tipoCambio         Float?
   moneda             String                           @default("UYU")
+  kilosBrutos        Float?
+  kilosNetos         Float?
   total              BigInt                           @default(0)
   gastosAgenciaExtra Float? // informado aparte, en moneda extranjera
   estadoRevision     String                           @default("PENDIENTE")

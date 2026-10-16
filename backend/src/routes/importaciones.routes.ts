@@ -741,7 +741,7 @@ importacionesRouter.get('/:id/costeo.pdf', async (req: Request, res: Response, n
       imp,
       plan,
       facturas: facturas.map((f) => ({ proveedor: f.proveedor, numero: f.numero, fecha: f.fecha, moneda: f.moneda, incoterm: f.incoterm, fob: f.fob, flete: f.flete, seguro: f.seguro, cif: f.cif, total: f.total, articulos: f.articulos.map((a) => ({ nro: a.nro, codigo: a.codigo, descripcion: a.descripcion, cantidad: a.cantidad, precioUnit: a.precioUnit, total: a.total })) })),
-      liquidaciones: liquidaciones.map((l) => ({ carpeta: l.carpeta, fecha: l.fecha, aduana: l.aduana, despachante: l.despachante, transporte: l.transporte, tipoCambio: l.tipoCambio, moneda: l.moneda, total: l.total, gastosAgenciaExtra: l.gastosAgenciaExtra, conceptos: l.conceptos.map((c) => ({ clave: c.clave, monto: c.monto })) })),
+      liquidaciones: liquidaciones.map((l) => ({ carpeta: l.carpeta, fecha: l.fecha, aduana: l.aduana, despachante: l.despachante, transporte: l.transporte, tipoCambio: l.tipoCambio, moneda: l.moneda, kilosBrutos: l.kilosBrutos, kilosNetos: l.kilosNetos, total: l.total, gastosAgenciaExtra: l.gastosAgenciaExtra, conceptos: l.conceptos.map((c) => ({ clave: c.clave, monto: c.monto })) })),
       transferencias: transferencias.map((t) => ({ referencia: t.referencia, fecha: t.fecha, moneda: t.moneda, importe: t.importe, comision: t.comision, totalDebitado: t.totalDebitado, beneficiario: t.beneficiario, nroDocs: t.nroDocs })),
       documentos: documentos.map((d) => ({ fileName: d.fileName, tipo: d.tipoConfirmado ?? d.tipoDetectado, paginas: d.paginas, estado: d.estadoProc })),
     });
