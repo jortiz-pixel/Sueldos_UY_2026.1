@@ -398,6 +398,26 @@ export interface Importacion {
   gastos: ImportacionGasto[];
 }
 
+export type TipoDocImportacion =
+  | 'FACTURA_COMERCIAL' | 'DUA' | 'LIQUIDACION_DESPACHANTE' | 'SOLICITUD_FONDOS'
+  | 'FACTURA_SERVICIOS_DESPACHANTE' | 'SWIFT' | 'DEBITO_BANCARIO' | 'FACTURA_FLETE'
+  | 'FACTURA_SEGURO' | 'PAGO_TRIBUTOS' | 'PACKING_LIST' | 'DOC_TRANSPORTE'
+  | 'NOTA_CREDITO_DEBITO' | 'OTRO';
+export type EstadoProcDoc = 'PENDIENTE' | 'PROCESANDO' | 'PROCESADO' | 'ERROR' | 'DUPLICADO';
+export interface ImportacionDocumento {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  tamano: number;
+  paginas: number | null;
+  tipoDetectado: TipoDocImportacion | null;
+  tipoConfirmado: TipoDocImportacion | null;
+  confianzaTipo: number | null;
+  estadoProc: EstadoProcDoc;
+  errorProc: string | null;
+  createdAt: string;
+}
+
 export interface ImportacionCliente {
   companyId: string;
   razonSocial: string;

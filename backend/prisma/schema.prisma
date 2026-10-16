@@ -1066,10 +1066,11 @@ model Importacion {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  company  Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  items    ItemImportacion[]
-  tributos TributoImportacion[]
-  gastos   GastoImportacion[]
+  company    Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  items      ItemImportacion[]
+  tributos   TributoImportacion[]
+  gastos     GastoImportacion[]
+  documentos ImportacionDocumento[]
 
   @@index([companyId])
   @@index([estado])
@@ -1120,4 +1121,59 @@ model GastoImportacion {
 
   @@index([importacionId])
   @@map("importacion_gastos")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EXPEDIENTE DE IMPORTACIÓN — documentos del expediente (Etapa 1 de lectura y
+// conciliación). El "expediente" es la propia Importacion; acá se guardan los
+// archivos ORIGINALES sin modificar, su hash (anti-duplicado), el tipo de
+// documento detectado y el estado de procesamiento. Ver docs/importaciones-diseno.md.
+// ─────────────────────────────────────────────────────────────────────────────
+enum TipoDocumentoImportacion {
+  FACTURA_COMERCIAL
+  DUA
+  LIQUIDACION_DESPACHANTE
+  SOLICITUD_FONDOS
+  FACTURA_SERVICIOS_DESPACHANTE
+  SWIFT
+  DEBITO_BANCARIO
+  FACTURA_FLETE
+  FACTURA_SEGURO
+  PAGO_TRIBUTOS
+  PACKING_LIST
+  DOC_TRANSPORTE
+  NOTA_CREDITO_DEBITO
+  OTRO
+}
+
+enum EstadoProcesamientoDoc {
+  PENDIENTE
+  PROCESANDO
+  PROCESADO
+  ERROR
+  DUPLICADO
+}
+
+model ImportacionDocumento {
+  id             String                    @id @default(cuid())
+  importacionId  String
+  fileName       String
+  mimeType       String
+  storageKey     String
+  hash           String // SHA-256 del archivo (anti-duplicado)
+  tamano         Int
+  paginas        Int?
+  tipoDetectado  TipoDocumentoImportacion?
+  tipoConfirmado TipoDocumentoImportacion? // clasificación confirmada/corregida por el usuario
+  confianzaTipo  Float? // 0..1 de la detección
+  estadoProc     EstadoProcesamientoDoc    @default(PENDIENTE)
+  errorProc      String?
+  subidoPor      String?
+  createdAt      DateTime                  @default(now())
+
+  importacion Importacion @relation(fields: [importacionId], references: [id], onDelete: Cascade)
+
+  @@index([importacionId])
+  @@index([importacionId, hash])
+  @@map("importacion_documentos")
 }

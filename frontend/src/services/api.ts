@@ -1,5 +1,5 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
-import { AuthResponse, User, Company, Employee, PayrollPeriod, Liquidation, NominaItem, PayrollParameters, TipoAporte, TipoContribuyente, GrupoActividad, Contrato, Concepto, Obra, Importacion, ImportacionPayload, ImportacionEstado, AsientoImportacion, CreditoFiscalReporte, ImportacionImportResult, ImportacionCliente, ImportacionExtraido } from '../types';
+import { AuthResponse, User, Company, Employee, PayrollPeriod, Liquidation, NominaItem, PayrollParameters, TipoAporte, TipoContribuyente, GrupoActividad, Contrato, Concepto, Obra, Importacion, ImportacionPayload, ImportacionEstado, AsientoImportacion, CreditoFiscalReporte, ImportacionImportResult, ImportacionCliente, ImportacionExtraido, ImportacionDocumento } from '../types';
 
 const BASE_URL = import.meta.env.VITE_API_URL || '';
 
@@ -810,6 +810,16 @@ export const importacionesApi = {
   estado: (id: string, estado: ImportacionEstado) =>
     api.patch<Importacion>(`/importaciones/${id}/estado`, { estado }).then((r) => r.data),
   remove: (id: string) => api.delete(`/importaciones/${id}`).then((r) => r.data),
+  documentos: {
+    list: (id: string) => api.get<ImportacionDocumento[]>(`/importaciones/${id}/documentos`).then((r) => r.data),
+    upload: (id: string, files: File[]) => {
+      const fd = new FormData();
+      files.forEach((f) => fd.append('files', f));
+      return api.post<{ creados: ImportacionDocumento[]; duplicados: string[] }>(`/importaciones/${id}/documentos`, fd).then((r) => r.data);
+    },
+    download: (docId: string) => api.get(`/importaciones/documentos/${docId}/download`, { responseType: 'blob' }).then((r) => r.data as Blob),
+    remove: (docId: string) => api.delete(`/importaciones/documentos/${docId}`).then((r) => r.data),
+  },
   asiento: (id: string) => api.get<AsientoImportacion>(`/importaciones/${id}/asiento`).then((r) => r.data),
   costeoPdf: (id: string) => api.get(`/importaciones/${id}/costeo.pdf`, { responseType: 'blob' }).then((r) => r.data as Blob),
   creditoFiscal: (companyId: string, year: number, month: number) =>

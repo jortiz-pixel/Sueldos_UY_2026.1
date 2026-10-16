@@ -4,11 +4,14 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
+import { createHash } from 'crypto';
 import {
   UserRole, Prisma,
   ImportacionEstado, ImportacionRegimen,
   TributoImportacionTipo, GastoImportacionConcepto,
+  EstadoProcesamientoDoc,
 } from '@prisma/client';
+import { storageService, safeFileName } from '../services/storage.service';
 import { prisma } from '../utils/prisma';
 import { authenticate, requireRole } from '../middleware/auth';
 import { assertCompanyAccess } from '../middleware/tenancy';
@@ -18,7 +21,7 @@ import { recordAudit } from '../services/audit.service';
 import { calcularCosteo, esTributoRecuperable, armarAsientoImportacion } from '../services/importaciones.service';
 import { generateCosteoPDF, costeoFilename } from '../services/importaciones.pdf.service';
 import { parseImportacionesExcel, buildPlantillaImportaciones } from '../services/importaciones.import.service';
-import { extraerImportacionDesdePdf } from '../services/importaciones.pdf-extract.service';
+import { extraerImportacionDesdePdf, contarPaginasPdf } from '../services/importaciones.pdf-extract.service';
 
 export const importacionesRouter = Router();
 
@@ -26,6 +29,7 @@ export const importacionesRouter = Router();
 importacionesRouter.use(authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR));
 
 const uploadXls = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+const uploadDocs = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 30 } });
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const money = z.number().nonnegative(); // pesos (se convierten a centésimos)
@@ -402,6 +406,100 @@ importacionesRouter.get('/credito-fiscal/excel', async (req: Request, res: Respo
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="credito_fiscal_importaciones_${String(month).padStart(2, '0')}${year}.xlsx"`);
     res.send(buf);
+  } catch (err) { next(err); }
+});
+
+// ── Documentos del expediente ────────────────────────────────────────────────
+const MIME_DOC = new Set([
+  'application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/tiff',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel',
+  'text/csv', 'application/csv',
+]);
+
+function serializarDoc(d: {
+  id: string; fileName: string; mimeType: string; tamano: number; paginas: number | null;
+  tipoDetectado: string | null; tipoConfirmado: string | null; confianzaTipo: number | null;
+  estadoProc: string; errorProc: string | null; createdAt: Date;
+}) {
+  return {
+    id: d.id, fileName: d.fileName, mimeType: d.mimeType, tamano: d.tamano, paginas: d.paginas,
+    tipoDetectado: d.tipoDetectado, tipoConfirmado: d.tipoConfirmado, confianzaTipo: d.confianzaTipo,
+    estadoProc: d.estadoProc, errorProc: d.errorProc, createdAt: d.createdAt.toISOString(),
+  };
+}
+
+// GET /:id/documentos — lista de documentos del expediente.
+importacionesRouter.get('/:id/documentos', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const imp = await prisma.importacion.findUnique({ where: { id: req.params.id } });
+    if (!imp) throw new NotFoundError('Importación');
+    await assertCompanyAccess(req, imp.companyId);
+    const docs = await prisma.importacionDocumento.findMany({ where: { importacionId: imp.id }, orderBy: { createdAt: 'asc' } });
+    res.json(docs.map(serializarDoc));
+  } catch (err) { next(err); }
+});
+
+// POST /:id/documentos — subir uno o varios archivos (campo "files").
+importacionesRouter.post('/:id/documentos', uploadDocs.array('files', 30), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const imp = await prisma.importacion.findUnique({ where: { id: req.params.id } });
+    if (!imp) throw new NotFoundError('Importación');
+    await assertCompanyAccess(req, imp.companyId);
+    const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+    if (!files.length) throw new AppError(400, 'No se subió ningún archivo (campo "files")');
+
+    const existentes = await prisma.importacionDocumento.findMany({ where: { importacionId: imp.id }, select: { hash: true } });
+    const hashes = new Set(existentes.map((e) => e.hash));
+    const creados: ReturnType<typeof serializarDoc>[] = [];
+    const duplicados: string[] = [];
+
+    for (const file of files) {
+      if (!MIME_DOC.has(file.mimetype)) { duplicados.push(`${file.originalname}: tipo no permitido`); continue; }
+      const hash = createHash('sha256').update(file.buffer).digest('hex');
+      if (hashes.has(hash)) { duplicados.push(`${file.originalname}: duplicado (ya está en el expediente)`); continue; }
+      hashes.add(hash);
+
+      const paginas = file.mimetype === 'application/pdf' ? await contarPaginasPdf(file.buffer) : (file.mimetype.startsWith('image/') ? 1 : null);
+      const key = `${imp.companyId}/IMPORTACION/${imp.id}/${hash.slice(0, 12)}_${safeFileName(file.originalname)}`;
+      await storageService.save(key, file.buffer);
+      const doc = await prisma.importacionDocumento.create({
+        data: {
+          importacionId: imp.id, fileName: file.originalname, mimeType: file.mimetype,
+          storageKey: key, hash, tamano: file.size, paginas: paginas || null,
+          estadoProc: EstadoProcesamientoDoc.PENDIENTE, subidoPor: req.user?.userId ?? null,
+        },
+      });
+      creados.push(serializarDoc(doc));
+    }
+
+    await recordAudit({ req, action: 'IMPORTACION_DOC_UPLOAD', entity: 'importacion', entityId: imp.id, companyId: imp.companyId, newData: { creados: creados.length, duplicados: duplicados.length } });
+    res.status(201).json({ creados, duplicados });
+  } catch (err) { next(err); }
+});
+
+// GET /documentos/:docId/download — descarga del archivo original.
+importacionesRouter.get('/documentos/:docId/download', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const doc = await prisma.importacionDocumento.findUnique({ where: { id: req.params.docId }, include: { importacion: true } });
+    if (!doc) throw new NotFoundError('Documento');
+    await assertCompanyAccess(req, doc.importacion.companyId);
+    const buffer = await storageService.read(doc.storageKey);
+    res.setHeader('Content-Type', doc.mimeType);
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(doc.fileName)}"`);
+    res.send(buffer);
+  } catch (err) { next(err); }
+});
+
+// DELETE /documentos/:docId — eliminar un documento del expediente.
+importacionesRouter.delete('/documentos/:docId', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const doc = await prisma.importacionDocumento.findUnique({ where: { id: req.params.docId }, include: { importacion: true } });
+    if (!doc) throw new NotFoundError('Documento');
+    await assertCompanyAccess(req, doc.importacion.companyId);
+    await storageService.remove(doc.storageKey).catch(() => { /* archivo ya ausente */ });
+    await prisma.importacionDocumento.delete({ where: { id: doc.id } });
+    await recordAudit({ req, action: 'IMPORTACION_DOC_DELETE', entity: 'importacion', entityId: doc.importacionId, companyId: doc.importacion.companyId, oldData: { fileName: doc.fileName } });
+    res.json({ message: 'Documento eliminado' });
   } catch (err) { next(err); }
 });
 

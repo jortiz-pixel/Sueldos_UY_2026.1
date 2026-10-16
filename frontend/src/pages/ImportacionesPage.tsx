@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Ship, Plus, Trash2, Save, X, Pencil, FileDown, Download, Calculator, Paperclip, Upload, FileSpreadsheet, CheckCircle, AlertCircle } from 'lucide-react';
-import { importacionesApi, attachmentApi, Attachment } from '../services/api';
+import { importacionesApi } from '../services/api';
 import { useCompany } from '../hooks/useCompany';
 import {
   Importacion, ImportacionPayload, ImportacionEstado, ImportacionRegimen,
-  TributoTipo, GastoConcepto, MESES, ImportacionExtraido,
+  TributoTipo, GastoConcepto, MESES, ImportacionExtraido, TipoDocImportacion, EstadoProcDoc,
 } from '../types';
 
 function descargarBlob(blob: Blob, filename: string) {
@@ -360,17 +360,9 @@ function FormImportacion({ companyId, inicial, importacion, onClose, onSaved, on
     mutationFn: async () => {
       const payload = aPayload(companyId, f);
       const saved = importacion ? await importacionesApi.update(importacion.id, payload) : await importacionesApi.create(payload);
-      // Adjuntar los documentos cargados en el alta a la importación recién creada.
+      // Subir al expediente los documentos cargados en el alta.
       if (!importacion && pendientes.length) {
-        for (const file of pendientes) {
-          const fd = new FormData();
-          fd.append('file', file);
-          fd.append('companyId', companyId);
-          fd.append('ownerType', 'IMPORTACION');
-          fd.append('ownerId', saved.id);
-          fd.append('tipo', 'OTRO');
-          await attachmentApi.upload(fd);
-        }
+        await importacionesApi.documentos.upload(saved.id, pendientes);
       }
       return saved;
     },
@@ -539,10 +531,10 @@ function FormImportacion({ companyId, inicial, importacion, onClose, onSaved, on
         </div>
       )}
 
-      {importacion && <AdjuntosCard companyId={companyId} importacionId={importacion.id} />}
+      {importacion && <DocumentosPanel importacionId={importacion.id} />}
       {!importacion && (
         <div className="card p-4 text-sm text-ink-subtle">
-          <Paperclip size={14} className="inline mr-1" /> Guardá la importación para poder adjuntar la factura, el DUA, el conocimiento de embarque y demás documentos.
+          <Paperclip size={14} className="inline mr-1" /> Guardá la importación para gestionar los documentos del expediente (subida múltiple, clasificación y estado).
         </div>
       )}
 
@@ -866,57 +858,100 @@ function ImportadorPanel({ companyId, onImported }: { companyId: string; onImpor
   );
 }
 
-function AdjuntosCard({ companyId, importacionId }: { companyId: string; importacionId: string }) {
+const TIPO_DOC_LABEL: Record<TipoDocImportacion, string> = {
+  FACTURA_COMERCIAL: 'Factura comercial', DUA: 'DUA', LIQUIDACION_DESPACHANTE: 'Liquidación despachante',
+  SOLICITUD_FONDOS: 'Solicitud de fondos', FACTURA_SERVICIOS_DESPACHANTE: 'Factura servicios despachante',
+  SWIFT: 'SWIFT', DEBITO_BANCARIO: 'Débito bancario', FACTURA_FLETE: 'Factura de flete',
+  FACTURA_SEGURO: 'Factura de seguro', PAGO_TRIBUTOS: 'Pago de tributos', PACKING_LIST: 'Packing list',
+  DOC_TRANSPORTE: 'Documento de transporte', NOTA_CREDITO_DEBITO: 'Nota crédito/débito', OTRO: 'Otro',
+};
+const ESTADO_DOC_BADGE: Record<EstadoProcDoc, string> = {
+  PENDIENTE: 'badge-gray', PROCESANDO: 'badge-yellow', PROCESADO: 'badge-green', ERROR: 'badge-red', DUPLICADO: 'badge-yellow',
+};
+const ESTADO_DOC_LABEL: Record<EstadoProcDoc, string> = {
+  PENDIENTE: 'Pendiente', PROCESANDO: 'Procesando', PROCESADO: 'Procesado', ERROR: 'Error', DUPLICADO: 'Duplicado',
+};
+
+function DocumentosPanel({ importacionId }: { importacionId: string }) {
   const qc = useQueryClient();
-  const params = { companyId, ownerType: 'IMPORTACION', ownerId: importacionId };
-  const { data: adjuntos = [] } = useQuery({
-    queryKey: ['importacion-adjuntos', importacionId],
-    queryFn: () => attachmentApi.list(params),
+  const [dragOver, setDragOver] = useState(false);
+  const [aviso, setAviso] = useState('');
+  const { data: docs = [] } = useQuery({
+    queryKey: ['importacion-documentos', importacionId],
+    queryFn: () => importacionesApi.documentos.list(importacionId),
   });
-  const invalidar = () => qc.invalidateQueries({ queryKey: ['importacion-adjuntos', importacionId] });
+  const invalidar = () => qc.invalidateQueries({ queryKey: ['importacion-documentos', importacionId] });
 
   const subir = useMutation({
-    mutationFn: (f: File) => {
-      const fd = new FormData();
-      fd.append('file', f);
-      fd.append('companyId', companyId);
-      fd.append('ownerType', 'IMPORTACION');
-      fd.append('ownerId', importacionId);
-      fd.append('tipo', 'OTRO');
-      return attachmentApi.upload(fd);
-    },
-    onSuccess: invalidar,
+    mutationFn: (files: File[]) => importacionesApi.documentos.upload(importacionId, files),
+    onSuccess: (r) => { invalidar(); setAviso(r.duplicados.length ? `No se subieron ${r.duplicados.length}: ${r.duplicados.join(' · ')}` : ''); },
+    onError: () => setAviso('No se pudieron subir los documentos.'),
   });
-  const borrar = useMutation({ mutationFn: (id: string) => attachmentApi.remove(id), onSuccess: invalidar });
+  const borrar = useMutation({ mutationFn: (id: string) => importacionesApi.documentos.remove(id), onSuccess: invalidar });
+
+  const recibir = (files: FileList | null) => { if (files && files.length) subir.mutate(Array.from(files)); };
 
   return (
     <div className="card p-5 space-y-3">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-subtle flex items-center gap-2"><Paperclip size={16} /> Documentos adjuntos</h2>
-        <label className="btn-secondary btn-sm cursor-pointer">
-          <Upload size={14} /> {subir.isPending ? 'Subiendo…' : 'Subir documento'}
-          <input type="file" accept=".pdf,image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) subir.mutate(f); e.target.value = ''; }} />
-        </label>
+      <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-subtle flex items-center gap-2"><Paperclip size={16} /> Documentos del expediente</h2>
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => { e.preventDefault(); setDragOver(false); recibir(e.dataTransfer.files); }}
+        className={`rounded-lg border-2 border-dashed p-6 text-center text-sm ${dragOver ? 'border-brand-600 bg-brand-50/40' : 'border-hairline text-ink-subtle'}`}
+      >
+        <Upload size={20} className="mx-auto mb-2 text-brand-600" />
+        Arrastrá y soltá los documentos acá, o
+        <label className="text-brand-600 font-medium cursor-pointer"> elegí archivos
+          <input type="file" multiple accept=".pdf,image/*,.xlsx,.xls,.csv" className="hidden" onChange={(e) => { recibir(e.target.files); e.target.value = ''; }} />
+        </label>.
+        <div className="text-xs text-ink-subtle mt-1">PDF, imágenes (JPG/PNG), Excel o CSV — hasta 20 MB cada uno. Se evitan duplicados por contenido.</div>
+        {subir.isPending && <div className="text-xs text-brand-600 mt-2">Subiendo…</div>}
       </div>
-      <p className="text-xs text-ink-subtle">Factura comercial, DUA, conocimiento de embarque (BL/AWB), certificado de origen, póliza de seguro… (PDF o imagen, hasta 5 MB).</p>
-      {adjuntos.length === 0 ? (
-        <p className="text-sm text-ink-subtle">Sin documentos adjuntos.</p>
+      {aviso && <div className="text-sm text-ink bg-warn-bg border border-warn/40 rounded-lg p-2">{aviso}</div>}
+
+      {docs.length === 0 ? (
+        <p className="text-sm text-ink-subtle">Todavía no hay documentos en el expediente.</p>
       ) : (
-        <ul className="divide-y divide-hairline/60">
-          {(adjuntos as Attachment[]).map((a) => (
-            <li key={a.id} className="flex items-center justify-between py-2 text-sm">
-              <button
-                className="text-brand-600 hover:underline inline-flex items-center gap-1"
-                onClick={async () => descargarBlob(await attachmentApi.blob(a.id), a.fileName)}
-              ><FileDown size={14} /> {a.fileName}</button>
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-ink-subtle">{(a.tamano / 1024).toFixed(0)} KB</span>
-                <button className="text-bad hover:underline" onClick={() => { if (confirm('¿Eliminar este documento?')) borrar.mutate(a.id); }}><Trash2 size={14} /></button>
-              </div>
-            </li>
-          ))}
-        </ul>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="table-header">
+              <tr>
+                <th className="px-3 py-2 text-left">Archivo</th>
+                <th className="px-3 py-2 text-left">Tipo detectado</th>
+                <th className="px-3 py-2 text-right">Págs.</th>
+                <th className="px-3 py-2 text-left">Estado</th>
+                <th className="px-3 py-2 text-left">Subido</th>
+                <th className="px-3 py-2"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-hairline/60">
+              {docs.map((d) => {
+                const tipo = d.tipoConfirmado ?? d.tipoDetectado;
+                return (
+                  <tr key={d.id}>
+                    <td className="px-3 py-2">
+                      <button className="text-brand-600 hover:underline inline-flex items-center gap-1"
+                        onClick={async () => descargarBlob(await importacionesApi.documentos.download(d.id), d.fileName)}>
+                        <FileDown size={14} /> {d.fileName}
+                      </button>
+                      {d.errorProc && <div className="text-xs text-bad">{d.errorProc}</div>}
+                    </td>
+                    <td className="px-3 py-2 text-xs">{tipo ? TIPO_DOC_LABEL[tipo] : <span className="text-ink-subtle">— sin clasificar</span>}</td>
+                    <td className="px-3 py-2 text-right">{d.paginas ?? '—'}</td>
+                    <td className="px-3 py-2"><span className={`text-xs rounded-full px-2 py-0.5 ${ESTADO_DOC_BADGE[d.estadoProc]}`}>{ESTADO_DOC_LABEL[d.estadoProc]}</span></td>
+                    <td className="px-3 py-2 text-xs text-ink-subtle">{new Date(d.createdAt).toLocaleDateString('es-UY')}</td>
+                    <td className="px-3 py-2 text-right">
+                      <button className="text-bad hover:underline" onClick={() => { if (confirm('¿Eliminar este documento del expediente?')) borrar.mutate(d.id); }}><Trash2 size={14} /></button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
+      <p className="text-xs text-ink-subtle">La clasificación automática y la extracción de datos de cada documento se agregan en las próximas sub-etapas.</p>
     </div>
   );
 }

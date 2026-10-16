@@ -17,6 +17,16 @@ import type { ImportacionImportData } from './importaciones.import.service';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const pdfjs = require('pdfjs-dist/legacy/build/pdf.js');
 
+/** Cuenta las páginas de un PDF (0 si no se puede leer). */
+export async function contarPaginasPdf(buffer: Buffer): Promise<number> {
+  try {
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(buffer), isEvalSupported: false }).promise;
+    return doc.numPages as number;
+  } catch {
+    return 0;
+  }
+}
+
 /** Extrae el texto del PDF reconstruyendo las líneas por su posición vertical. */
 async function textoDelPdf(buffer: Buffer): Promise<string> {
   const doc = await pdfjs.getDocument({

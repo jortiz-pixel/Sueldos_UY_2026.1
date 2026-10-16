@@ -202,3 +202,31 @@ en una segunda etapa sin cambiar el modelo.
       importación?
 - [ ] ¿Se necesita adjuntar los documentos (factura, BL, DUA) al registro
       (storage de adjuntos ya existe en el sistema)?
+
+## Etapa de LECTURA Y CONCILIACIÓN (expediente multi-documento)
+
+Ampliación pedida 16/10/2026: el expediente (la `Importacion`) pasa a tener
+MUCHOS documentos clasificados y extraídos con trazabilidad, más un motor de
+conciliación. Decisiones: extracción con **IA (Claude) + reglas** (requiere
+`ANTHROPIC_API_KEY` en el server; cae a reglas si falta) y **OCR** con
+tesseract.js para escaneados. NO incluye asientos ni cálculo fiscal (ya
+existen de etapas previas y quedan aparte).
+
+Sub-etapas (se entregan de a una):
+1. **HECHO** — Modelo `importacion_documentos` (archivo original + SHA-256 +
+   tipo + estado + páginas) y subida MÚLTIPLE con drag-drop, anti-duplicado por
+   hash, conteo de páginas y panel de Documentos en la ficha del expediente.
+2. Clasificación automática del tipo de documento (14 tipos) + override manual.
+3. Extracción estructurada por tipo (factura con artículos, DUA, liquidación,
+   SWIFT/banco) con trazabilidad por dato (doc, página, región, valor original
+   vs normalizado, confianza, estado) + pestaña Datos extraídos editable.
+4. Motor de conciliación (6 controles) + estados Conciliado/Revisar/Pendiente +
+   pestañas Conciliación/Observaciones.
+5. Aprobar + historial de cambios + pestaña Resumen + visor con salto al origen.
+6. Tests con el caso MARPOLOS URUGUAY SAS.
+
+Caso de prueba MARPOLOS (criterios de aceptación en el pedido): FOB 4.838,44 ·
+flete 760,40 · seguro 30,00 · CIF 5.628,84 · 2 transferencias (3.000,00 +
+2.628,98) · comisiones 80,00 · diferencia 0,14 · carpeta 105523/2026 ·
+liquidación $96.137 · IVA imp. $49.843 · IVA ant. $22.656 · IVA gastos $1.804 ·
+USD 155 informados aparte · 33 artículos. Requiere los 6 PDF reales.
