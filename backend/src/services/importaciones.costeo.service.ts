@@ -150,7 +150,7 @@ export function construirCosteoDocumental(input: CosteoDocInput): CosteoDocResul
     if (importadorRut && s.rutComprador && s.rutComprador !== importadorRut) continue;
     const esUsd = (s.moneda ?? '').toUpperCase() === 'USD';
     const factor = esUsd ? (tcContable ?? 0) : 1; // los gastos en ME solo se convierten con TC contable válido
-    if (esUsd && !tcContable) { motivos.push(`Falta cotización contable para convertir un gasto en ${s.moneda}.`); }
+    if (esUsd && !tcContable) { motivos.push(`Falta la cotización fiscal del día para convertir un gasto en ${s.moneda}.`); }
     const hon = Number(s.honorarios) || 0;
     const gop = Number(s.gastosOperativos) || 0;
     if (hon || gop) {
@@ -169,7 +169,7 @@ export function construirCosteoDocumental(input: CosteoDocInput): CosteoDocResul
 
   // Adquisición (costo) = CIF de la factura × TC CONTABLE. Sin TC contable o sin
   // factura válida, NO se calcula el costo (queda pendiente).
-  if (!tcContable) motivos.push('Falta la cotización contable de la fecha de reconocimiento (no se usa el TC aduanero para el costo).');
+  if (!tcContable) motivos.push('Falta la cotización fiscal del día de la operación (no se pudo obtener del DUA ni del BCU).');
   if (!factura) motivos.push('Falta la factura comercial del proveedor.');
   else if (factura.fob <= 0n) motivos.push('El FOB de la factura es inválido o incompleto.');
   if (!dua) motivos.push('Falta el DUA oficial.');

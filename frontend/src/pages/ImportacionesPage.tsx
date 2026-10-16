@@ -687,7 +687,7 @@ function AsientoTabla({ importacionId }: { importacionId: string }) {
     <div className="space-y-4">
       {asiento.estado === 'PENDIENTE' && (
         <div className="text-xs text-bad bg-bad-bg border border-bad/30 rounded px-3 py-2">
-          Costeo PENDIENTE: {asiento.motivo || 'faltan datos para completar el costo'}. Los asientos de reconocimiento de la compra y gastos quedan <b>bloqueados</b> hasta cargar la cotización contable.
+          Costeo PENDIENTE: {asiento.motivo || 'faltan datos para completar el costo'}. Los asientos de reconocimiento de la compra y gastos quedan <b>bloqueados</b> hasta obtener la cotización fiscal del día de la operación.
         </div>
       )}
       {asiento.asientos.length === 0 && <p className="text-xs text-ink-subtle">Sin asientos (procesá los documentos del expediente).</p>}

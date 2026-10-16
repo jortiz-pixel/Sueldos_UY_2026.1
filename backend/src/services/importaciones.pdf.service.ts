@@ -181,7 +181,7 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
       ['Crédito fiscal IVA', money(imp.creditoFiscalIva)],
       ['Anticipos (pago a cuenta)', money(imp.anticipos)],
       ['Total pagado al proveedor', money(totPagRes, 'US$')],
-      ['TC contable / aduanero', `${imp.tcContable ?? '—'} / ${imp.tcAduanero ?? '—'}`],
+      ['TC fiscal (día operación)', `${imp.tcContable ?? '—'}`],
     ];
     const boxH = 16 + Math.ceil(resumen.length / 2) * 15 + 8;
     doc.save().rect(M, y, W, boxH).fill('#F3F6FF'); doc.restore();
@@ -413,7 +413,7 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     total2('+ Gastos de plaza directamente atribuibles', money(imp.totalGastos));
     total2('= Costo del inventario', money(imp.costoMercaderia), true);
     if (exDua && exDua.datos?.valorAduanaPesos != null) {
-      nota(`Valor en Aduana (base fiscal de los tributos): $ ${(exDua.datos.valorAduanaPesos).toLocaleString('es-UY', { minimumFractionDigits: 2 })} al TC aduanero ${exDua.datos?.tipoCambio ?? '—'}. El costo del inventario NO usa este valor: la adquisición se reconoce al CIF de la factura (${imp.monedaOrigen} ${sym(imp.monedaOrigen)}) convertido al TC contable ${imp.tipoCambio}, más gastos atribuibles y tributos no recuperables. Los anticipos de IVA/IRAE son pagos a cuenta y NO integran el costo.`);
+      nota(`Valor en Aduana (base fiscal de los tributos): $ ${(exDua.datos.valorAduanaPesos).toLocaleString('es-UY', { minimumFractionDigits: 2 })}. El costo del inventario NO usa ese valor: la adquisición se reconoce al CIF de la factura (${imp.monedaOrigen} ${sym(imp.monedaOrigen)}) convertido a la COTIZACIÓN FISCAL DEL DÍA DE LA OPERACIÓN (TC ${imp.tcContable ?? '—'}), más gastos atribuibles y tributos no recuperables. Los anticipos de IVA/IRAE son pagos a cuenta y NO integran el costo.`);
     }
     y += 4;
     if (fac && fac.articulos.length) {

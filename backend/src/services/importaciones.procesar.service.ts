@@ -53,33 +53,41 @@ export interface ProcesarResultado {
 }
 
 /**
- * Obtiene la cotización CONTABLE (fuente verificable) para valuar la adquisición
- * según la fecha de reconocimiento: primero una cotización cargada de tipo
- * CONTABLE; si no hay, la toma del BCU (venta/TCV, con la que se compra la ME) y
- * la guarda. Si no se consigue, devuelve null → el costo queda PENDIENTE.
- * IMPORTANTE: NUNCA cae al TC aduanero para la contabilidad.
+ * Cotización FISCAL del DÍA DE LA OPERACIÓN para valuar la adquisición. Prioridad:
+ *   1. Cotización cargada a mano para la fecha (override del operador).
+ *   2. El tipo de cambio que informa el DUA: es la cotización oficial que la
+ *      Aduana aplicó el día de la operación (cotización fiscal del día).
+ *   3. BCU para la fecha exacta (fuente oficial y verificable), y se guarda.
+ * Si no se consigue ninguna, devuelve null → el costo queda PENDIENTE.
  */
-async function obtenerTcContable(moneda: string, fecha: Date | null): Promise<number | null> {
-  if (!fecha) return null;
-  const guardada = await prisma.cotizacion.findFirst({
-    where: { monedaOrigen: moneda, tipo: 'CONTABLE', fecha: { lte: fecha } },
-    orderBy: { fecha: 'desc' },
-  });
-  if (guardada && validarTipoCambio(guardada.valor).valido) return guardada.valor;
-  // Toma automática del BCU para la fecha exacta (fuente oficial y verificable).
-  try {
-    const fechaStr = fecha.toISOString().slice(0, 10);
-    const bcu = await cotizacionBcu(moneda, fechaStr);
-    const v = validarTipoCambio(bcu?.venta);
-    if (bcu && v.valido && v.valor != null) {
-      await prisma.cotizacion.upsert({
-        where: { fecha_monedaOrigen_monedaDestino_tipo: { fecha, monedaOrigen: moneda, monedaDestino: 'UYU', tipo: 'CONTABLE' } },
-        create: { fecha, monedaOrigen: moneda, monedaDestino: 'UYU', tipo: 'CONTABLE', valor: v.valor, compra: bcu.compra, venta: bcu.venta, fuente: 'BCU' },
-        update: { valor: v.valor, compra: bcu.compra, venta: bcu.venta, fuente: 'BCU' },
-      });
-      return v.valor;
-    }
-  } catch { /* BCU no disponible → se deja pendiente, sin inventar datos */ }
+async function obtenerTcFiscalOperacion(moneda: string, fecha: Date | null, tcDua: number | null): Promise<number | null> {
+  // 1) Cotización cargada por el operador para la fecha (si existe).
+  if (fecha) {
+    const guardada = await prisma.cotizacion.findFirst({
+      where: { monedaOrigen: moneda, tipo: 'CONTABLE', fecha: { lte: fecha } },
+      orderBy: { fecha: 'desc' },
+    });
+    if (guardada && validarTipoCambio(guardada.valor).valido) return guardada.valor;
+  }
+  // 2) La cotización fiscal del día que informa el DUA (validada estrictamente).
+  const vDua = validarTipoCambio(tcDua);
+  if (vDua.valido && vDua.valor != null) return vDua.valor;
+  // 3) BCU para la fecha exacta de la operación.
+  if (fecha) {
+    try {
+      const fechaStr = fecha.toISOString().slice(0, 10);
+      const bcu = await cotizacionBcu(moneda, fechaStr);
+      const v = validarTipoCambio(bcu?.venta);
+      if (bcu && v.valido && v.valor != null) {
+        await prisma.cotizacion.upsert({
+          where: { fecha_monedaOrigen_monedaDestino_tipo: { fecha, monedaOrigen: moneda, monedaDestino: 'UYU', tipo: 'CONTABLE' } },
+          create: { fecha, monedaOrigen: moneda, monedaDestino: 'UYU', tipo: 'CONTABLE', valor: v.valor, compra: bcu.compra, venta: bcu.venta, fuente: 'BCU' },
+          update: { valor: v.valor, compra: bcu.compra, venta: bcu.venta, fuente: 'BCU' },
+        });
+        return v.valor;
+      }
+    } catch { /* BCU no disponible → se deja pendiente, sin inventar datos */ }
+  }
   return null;
 }
 
@@ -103,9 +111,11 @@ async function reconstruirCosteoDesdeExtraccion(importacionId: string): Promise<
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const d: any = duaEx.datos ?? {};
   const moneda: string = imp.monedaOrigen || d.moneda || 'USD';
-  const fechaOp = factura?.fecha ?? (d.fechaPago ? new Date(`${d.fechaPago}T00:00:00Z`) : null);
-  const tcContable = await obtenerTcContable(moneda, fechaOp);
   const tcAdVal = validarTipoCambio(d.tipoCambio);
+  // Día de la operación: fecha del DUA (numeración/nacionalización); si no, la de la factura.
+  const fechaOp = (d.fechaPago ? new Date(`${d.fechaPago}T00:00:00Z`) : null) ?? factura?.fecha ?? null;
+  // Cotización FISCAL del día de la operación (DUA → cargada → BCU).
+  const tcContable = await obtenerTcFiscalOperacion(moneda, fechaOp, tcAdVal.valor);
 
   const input: CosteoDocInput = {
     dua: {

@@ -91,7 +91,7 @@ describe('construirCosteoDocumental', () => {
     expect(r.estado).toBe('PENDIENTE');
     expect(r.costoInventario).toBeNull();
     expect(r.items).toBeNull();
-    expect(r.motivos.join(' ')).toMatch(/cotización contable/i);
+    expect(r.motivos.join(' ')).toMatch(/cotización fiscal/i);
     // Aun pendiente, los tributos se toman del DUA (no de una solicitud preliminar).
     expect(r.ivaImportacion).toBe(C(49863));
     expect(r.anticipos).toBe(C(22665));
