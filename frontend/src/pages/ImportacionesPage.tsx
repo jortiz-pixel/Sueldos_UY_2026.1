@@ -163,31 +163,46 @@ function aPayload(companyId: string, f: FormState): ImportacionPayload {
   };
 }
 
-// Vuelca los datos extraídos de un archivo en el formulario (para revisar y guardar).
-function aplicarExtraido(prev: FormState, d: NonNullable<ImportacionExtraido['datos']>): FormState {
+// FUSIONA los datos extraídos de un documento en el formulario SIN pisar lo que
+// ya había con vacíos/ceros. Pensado para procesar VARIOS documentos de un
+// expediente (factura + liquidación + SWIFT…) y que cada uno aporte lo suyo.
+function fusionarExtraido(prev: FormState, d: NonNullable<ImportacionExtraido['datos']>): FormState {
+  const txt = (nuevo: string | null | undefined, viejo: string) => (nuevo && nuevo.trim() ? nuevo : viejo);
+  const num = (nuevo: number | undefined, viejo: number) => (nuevo && nuevo > 0 ? nuevo : viejo);
+  // Tributos: unión por tipo (no duplica el mismo tipo).
+  const tributos = [...prev.tributos];
+  for (const t of d.tributos) if (t.monto > 0 && !tributos.some((x) => x.tipo === t.tipo)) tributos.push({ tipo: t.tipo, tasa: 0, monto: t.monto });
+  // Gastos: agrega los que no estén (por concepto+monto).
+  const gastos = [...prev.gastos];
+  for (const g of d.gastos) if ((g.monto > 0 || g.ivaGasto > 0) && !gastos.some((x) => x.concepto === g.concepto && x.monto === g.monto)) gastos.push({ concepto: g.concepto, descripcion: '', monto: g.monto, gravadoIva: g.ivaGasto > 0, ivaGasto: g.ivaGasto });
+  // Ítems: agrega por descripción.
+  const items = [...prev.items];
+  for (const it of d.items ?? []) if (it.descripcion.trim() && !items.some((x) => x.descripcion === it.descripcion)) items.push({ descripcion: it.descripcion, ncm: '', cantidad: 1, fobUnitario: 0 });
+  // Notas: concatena sin repetir.
+  const notas = d.notas && !prev.notas.includes(d.notas) ? [prev.notas, d.notas].filter(Boolean).join(' · ') : prev.notas;
   return {
     ...prev,
-    regimen: d.regimen ?? prev.regimen,
-    proveedorExterior: d.proveedorExterior ?? prev.proveedorExterior,
-    paisOrigen: d.paisOrigen ?? prev.paisOrigen,
-    incoterm: d.incoterm ?? prev.incoterm,
-    monedaOrigen: d.monedaOrigen || prev.monedaOrigen,
-    tipoCambio: d.tipoCambio || prev.tipoCambio,
-    duaNumero: d.duaNumero ?? prev.duaNumero,
-    duaFecha: d.duaFecha ?? prev.duaFecha,
-    despachante: d.despachante ?? prev.despachante,
-    aduana: d.aduana ?? prev.aduana,
-    fechaNacionalizacion: d.fechaNacionalizacion ?? prev.fechaNacionalizacion,
-    fob: d.fob, flete: d.flete, seguro: d.seguro,
-    facturaComercialNro: d.facturaComercialNro ?? prev.facturaComercialNro,
-    facturaComercialFecha: d.facturaComercialFecha ?? prev.facturaComercialFecha,
-    transporteDoc: d.transporteDoc ?? prev.transporteDoc,
-    notas: d.notas ?? prev.notas,
-    tributos: d.tributos.map((t) => ({ tipo: t.tipo, tasa: 0, monto: t.monto })),
-    gastos: d.gastos.map((g) => ({ concepto: g.concepto, descripcion: '', monto: g.monto, gravadoIva: g.ivaGasto > 0, ivaGasto: g.ivaGasto })),
-    items: (d.items && d.items.length)
-      ? d.items.map((it) => ({ descripcion: it.descripcion, ncm: '', cantidad: 1, fobUnitario: 0 }))
-      : prev.items,
+    regimen: prev.regimen,
+    proveedorExterior: txt(d.proveedorExterior, prev.proveedorExterior),
+    paisOrigen: txt(d.paisOrigen, prev.paisOrigen),
+    incoterm: txt(d.incoterm, prev.incoterm),
+    monedaOrigen: txt(d.monedaOrigen, prev.monedaOrigen),
+    tipoCambio: d.tipoCambio && d.tipoCambio !== 1 ? d.tipoCambio : prev.tipoCambio,
+    duaNumero: txt(d.duaNumero, prev.duaNumero),
+    duaFecha: txt(d.duaFecha, prev.duaFecha),
+    despachante: txt(d.despachante, prev.despachante),
+    aduana: txt(d.aduana, prev.aduana),
+    fechaNacionalizacion: txt(d.fechaNacionalizacion, prev.fechaNacionalizacion),
+    fob: num(d.fob, prev.fob),
+    flete: num(d.flete, prev.flete),
+    seguro: num(d.seguro, prev.seguro),
+    facturaComercialNro: txt(d.facturaComercialNro, prev.facturaComercialNro),
+    facturaComercialFecha: txt(d.facturaComercialFecha, prev.facturaComercialFecha),
+    transporteDoc: txt(d.transporteDoc, prev.transporteDoc),
+    notas,
+    tributos,
+    gastos,
+    items,
   };
 }
 
@@ -390,24 +405,31 @@ function FormImportacion({ companyId, inicial, importacion, onClose, onSaved, on
 
   const [autoLoading, setAutoLoading] = useState(false);
   const [textoLeido, setTextoLeido] = useState('');
-  async function onAutocompletar(file: File) {
+  // Un solo botón: adjunta VARIOS documentos y extrae/fusiona la info de todos.
+  async function onAdjuntarYExtraer(files: FileList | null) {
+    if (!files || !files.length) return;
+    const lista = Array.from(files);
     setAutoLoading(true); setAvisoAuto(''); setTextoLeido('');
-    try {
-      const r = await importacionesApi.extraer(file);
-      if (r.datos) {
-        setF((prev) => aplicarExtraido(prev, r.datos!));
-        setAvisoAuto(r.aviso || 'Datos cargados del archivo. Revisalos antes de guardar.');
-      } else {
-        setAvisoAuto(r.aviso || 'No se pudieron extraer datos del archivo.');
+    // Encolar los archivos para adjuntarlos al guardar (evita duplicados por nombre).
+    setPendientes((p) => {
+      const nombres = new Set(p.map((x) => x.name));
+      return [...p, ...lista.filter((f) => !nombres.has(f.name))];
+    });
+    const leidos: string[] = [];
+    const textos: string[] = [];
+    for (const file of lista) {
+      try {
+        const r = await importacionesApi.extraer(file);
+        if (r.datos) { setF((prev) => fusionarExtraido(prev, r.datos!)); leidos.push(`${file.name}: ${(r.encontrados ?? []).join(', ') || 'datos'}`); }
+        else leidos.push(`${file.name}: ${r.aviso || 'sin datos legibles'}`);
+        if (r.texto) textos.push(`──── ${file.name} ────\n${r.texto}`);
+      } catch {
+        leidos.push(`${file.name}: no se pudo leer`);
       }
-      if (r.texto) setTextoLeido(r.texto);
-      // Si el PDF/archivo es la fuente de datos de una importación nueva, se adjunta también.
-      if (!importacion && !pendientes.some((x) => x.name === file.name)) setPendientes((p) => [...p, file]);
-    } catch {
-      setAvisoAuto('No se pudo leer el archivo.');
-    } finally {
-      setAutoLoading(false);
     }
+    setAvisoAuto(`Procesados ${lista.length} documento(s). ${leidos.join(' | ')}. Revisá y completá antes de guardar.`);
+    setTextoLeido(textos.join('\n\n'));
+    setAutoLoading(false);
   }
 
   return (
@@ -423,22 +445,16 @@ function FormImportacion({ companyId, inicial, importacion, onClose, onSaved, on
       <div className="card p-5 space-y-3 border-t-4 border-t-brand-600">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-subtle flex items-center gap-2"><Paperclip size={16} /> Documentos y autocompletado</h2>
         <div className="flex flex-wrap items-center gap-3">
-          <label className="btn-secondary cursor-pointer">
-            <Upload size={16} /> {autoLoading ? 'Leyendo…' : 'Subir archivo y autocompletar'}
-            <input type="file" accept=".pdf,.xlsx,.xls,.csv" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) onAutocompletar(file); e.target.value = ''; }} />
+          <label className="btn-primary cursor-pointer">
+            <Paperclip size={16} /> {autoLoading ? 'Leyendo documentos…' : 'Adjuntar documentos y extraer datos'}
+            <input type="file" multiple accept=".pdf,image/*,.xlsx,.xls,.csv" className="hidden" onChange={(e) => { onAdjuntarYExtraer(e.target.files); e.target.value = ''; }} />
           </label>
           <button type="button" className="btn-secondary btn-sm" onClick={async () => descargarBlob(await importacionesApi.plantilla(), 'plantilla_importaciones.xlsx')}>
             <Download size={14} /> Plantilla
           </button>
-          {!importacion && (
-            <label className="btn-secondary cursor-pointer">
-              <Paperclip size={16} /> Adjuntar documento
-              <input type="file" accept=".pdf,image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) setPendientes((p) => [...p, file]); e.target.value = ''; }} />
-            </label>
-          )}
         </div>
         <p className="text-xs text-ink-subtle">
-          Subí la <b>factura del proveedor, el comprobante de pago o el DUA en PDF</b> (o un Excel/CSV): el sistema lee el archivo y toma los valores que puede identificar (FOB/total, flete, seguro, IVA, N° de factura/DUA, fecha, moneda). <b>Revisá y completá</b> antes de guardar. En una importación nueva, el archivo subido también queda adjunto.
+          Subí <b>todos los documentos juntos</b> (factura del proveedor, DUA, liquidación del despachante, comprobantes de pago/SWIFT, en PDF, imagen, Excel o CSV). El sistema lee cada uno y <b>fusiona</b> en el formulario los datos que identifica (proveedor, factura, FOB/flete/seguro, tributos, IVA, DUA, fecha, moneda, tipo de cambio…). <b>Revisá y completá</b> antes de guardar; todos los archivos quedan adjuntos al expediente.
         </p>
         {avisoAuto && <div className="text-sm text-ink bg-canvas/70 rounded-lg p-2">{avisoAuto}</div>}
         {textoLeido && (
