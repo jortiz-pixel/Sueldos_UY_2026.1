@@ -2,6 +2,7 @@
 // mercadería por empresa (multiempresa). CRUD con costeo según normativa UY;
 // toda operación valida el acceso a la empresa dueña (anti-IDOR) y audita.
 import { Router, Request, Response, NextFunction } from 'express';
+import multer from 'multer';
 import { z } from 'zod';
 import {
   UserRole, Prisma,
@@ -16,11 +17,14 @@ import * as XLSX from 'xlsx';
 import { recordAudit } from '../services/audit.service';
 import { calcularCosteo, esTributoRecuperable, armarAsientoImportacion } from '../services/importaciones.service';
 import { generateCosteoPDF, costeoFilename } from '../services/importaciones.pdf.service';
+import { parseImportacionesExcel, buildPlantillaImportaciones } from '../services/importaciones.import.service';
 
 export const importacionesRouter = Router();
 
 // Todo el módulo es interno del estudio: solo ADMIN/OPERATOR.
 importacionesRouter.use(authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR));
+
+const uploadXls = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const money = z.number().nonnegative(); // pesos (se convierten a centésimos)
@@ -215,6 +219,57 @@ importacionesRouter.get('/', async (req: Request, res: Response, next: NextFunct
       orderBy: [{ duaFecha: 'desc' }, { createdAt: 'desc' }],
     });
     res.json(importaciones.map(serializar));
+  } catch (err) { next(err); }
+});
+
+// ── GET /plantilla — Excel de ejemplo para importar ──────────────────────────
+importacionesRouter.get('/plantilla', (_req: Request, res: Response) => {
+  const buf = buildPlantillaImportaciones();
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename="plantilla_importaciones.xlsx"');
+  res.send(buf);
+});
+
+// ── POST /importar — generar registros desde un Excel/CSV ────────────────────
+// commit != 'true' → dry-run (parsea y valida). commit == 'true' → crea.
+importacionesRouter.post('/importar', uploadXls.single('file'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const companyId = String(req.body.companyId ?? '');
+    if (!companyId) throw new AppError(400, 'companyId requerido');
+    await assertCompanyAccess(req, companyId);
+    const commit = String(req.body.commit ?? '') === 'true';
+    if (!req.file) throw new AppError(400, 'Archivo requerido (campo "file")');
+
+    const { headers, mapeo, rows } = parseImportacionesExcel(req.file.buffer);
+    if (rows.length === 0) throw new AppError(400, 'El archivo no tiene filas de datos');
+
+    const validas = rows.filter((r) => r.errores.length === 0);
+    const resumen = { total: rows.length, validas: validas.length, conErrores: rows.length - validas.length };
+
+    if (!commit) {
+      res.json({ dryRun: true, headers, mapeo, resumen, filas: rows });
+      return;
+    }
+
+    let creadas = 0;
+    for (const row of validas) {
+      try {
+        const data = importacionSchema.parse({ companyId, ...row.datos });
+        const d = construirDatos(data);
+        const imp = await prisma.importacion.create({
+          data: {
+            companyId, estado: ImportacionEstado.BORRADOR, creadoPor: req.user?.userId ?? null,
+            ...d.cabezal,
+            items: { create: d.items }, tributos: { create: d.tributos }, gastos: { create: d.gastos },
+          },
+        });
+        await recordAudit({ req, action: 'IMPORTACION_IMPORT', entity: 'importacion', entityId: imp.id, companyId, newData: { duaNumero: imp.duaNumero } });
+        creadas++;
+      } catch (e) {
+        row.errores.push('Error al crear: ' + (e as Error).message);
+      }
+    }
+    res.json({ dryRun: false, resumen: { ...resumen, creadas }, filas: rows });
   } catch (err) { next(err); }
 });
 

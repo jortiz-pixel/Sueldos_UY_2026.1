@@ -1,5 +1,5 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
-import { AuthResponse, User, Company, Employee, PayrollPeriod, Liquidation, NominaItem, PayrollParameters, TipoAporte, TipoContribuyente, GrupoActividad, Contrato, Concepto, Obra, Importacion, ImportacionPayload, ImportacionEstado, AsientoImportacion, CreditoFiscalReporte } from '../types';
+import { AuthResponse, User, Company, Employee, PayrollPeriod, Liquidation, NominaItem, PayrollParameters, TipoAporte, TipoContribuyente, GrupoActividad, Contrato, Concepto, Obra, Importacion, ImportacionPayload, ImportacionEstado, AsientoImportacion, CreditoFiscalReporte, ImportacionImportResult } from '../types';
 
 const BASE_URL = import.meta.env.VITE_API_URL || '';
 
@@ -816,6 +816,14 @@ export const importacionesApi = {
     api.get<CreditoFiscalReporte>('/importaciones/credito-fiscal', { params: { companyId, year, month } }).then((r) => r.data),
   creditoFiscalExcel: (companyId: string, year: number, month: number) =>
     api.get('/importaciones/credito-fiscal/excel', { params: { companyId, year, month }, responseType: 'blob' }).then((r) => r.data as Blob),
+  plantilla: () => api.get('/importaciones/plantilla', { responseType: 'blob' }).then((r) => r.data as Blob),
+  importar: (companyId: string, file: File, commit: boolean) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('companyId', companyId);
+    fd.append('commit', String(commit));
+    return api.post<ImportacionImportResult>('/importaciones/importar', fd).then((r) => r.data);
+  },
 };
 
 export default api;

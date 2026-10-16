@@ -421,6 +421,17 @@ export interface CreditoFiscalReporte {
   };
 }
 
+export interface ImportacionImportResult {
+  dryRun: boolean;
+  mapeo?: Record<string, string>;
+  resumen: { total: number; validas: number; conErrores: number; creadas?: number };
+  filas: Array<{
+    fila: number;
+    datos: { duaNumero: string | null; proveedorExterior: string | null; fob: number; duaFecha?: string };
+    errores: string[];
+  }>;
+}
+
 // Payload de alta/edición: los montos van en PESOS (number); el backend convierte.
 export interface ImportacionPayload {
   companyId: string;

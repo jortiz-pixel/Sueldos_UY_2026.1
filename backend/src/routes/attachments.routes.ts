@@ -20,7 +20,7 @@ const ALLOWED_MIME = new Set([
   'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf',
 ]);
 
-const OWNER_TYPES = new Set(['PERSONA', 'EMPRESA', 'CONTRATO']);
+const OWNER_TYPES = new Set(['PERSONA', 'EMPRESA', 'CONTRATO', 'IMPORTACION']);
 
 // POST /api/attachments  (multipart/form-data, campo "file")
 const uploadSchema = z.object({

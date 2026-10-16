@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Ship, Plus, Trash2, Save, X, Pencil, FileDown, Download, Calculator } from 'lucide-react';
-import { importacionesApi } from '../services/api';
+import { Ship, Plus, Trash2, Save, X, Pencil, FileDown, Download, Calculator, Paperclip, Upload, FileSpreadsheet, CheckCircle, AlertCircle } from 'lucide-react';
+import { importacionesApi, attachmentApi, Attachment } from '../services/api';
 import { useCompany } from '../hooks/useCompany';
 import {
   Importacion, ImportacionPayload, ImportacionEstado, ImportacionRegimen,
@@ -216,6 +216,8 @@ export default function ImportacionesPage() {
 
       <CreditoFiscalPanel companyId={activeCompanyId} />
 
+      <ImportadorPanel companyId={activeCompanyId} onImported={invalidar} />
+
       {isLoading ? (
         <div className="card p-6 text-ink-subtle">Cargando…</div>
       ) : lista.length === 0 ? (
@@ -396,6 +398,13 @@ function FormImportacion({ companyId, inicial, importacion, onClose, onSaved, on
           </div>
           <AsientoTabla importacionId={importacion.id} />
           <p className="text-xs text-ink-subtle">El asiento refleja el último guardado. Si editaste importes, guardá primero para verlo actualizado.</p>
+        </div>
+      )}
+
+      {importacion && <AdjuntosCard companyId={companyId} importacionId={importacion.id} />}
+      {!importacion && (
+        <div className="card p-4 text-sm text-ink-subtle">
+          <Paperclip size={14} className="inline mr-1" /> Guardá la importación para poder adjuntar la factura, el DUA, el conocimiento de embarque y demás documentos.
         </div>
       )}
 
@@ -624,6 +633,151 @@ function CreditoFiscalPanel({ companyId }: { companyId: string }) {
             </div>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+function ImportadorPanel({ companyId, onImported }: { companyId: string; onImported: () => void }) {
+  const [abierto, setAbierto] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
+  const [error, setError] = useState('');
+  const [committed, setCommitted] = useState(false);
+
+  const preview = useMutation({
+    mutationFn: (f: File) => importacionesApi.importar(companyId, f, false),
+    onSuccess: () => { setCommitted(false); setError(''); },
+    onError: (e: unknown) => setError((e as { response?: { data?: { error?: string } } })?.response?.data?.error || 'No se pudo leer el archivo'),
+  });
+  const commit = useMutation({
+    mutationFn: (f: File) => importacionesApi.importar(companyId, f, true),
+    onSuccess: () => { setCommitted(true); setError(''); onImported(); },
+    onError: (e: unknown) => setError((e as { response?: { data?: { error?: string } } })?.response?.data?.error || 'No se pudo importar'),
+  });
+  const result = commit.data ?? preview.data;
+
+  return (
+    <div className="card p-4 space-y-3">
+      <button className="flex items-center gap-2 text-sm font-semibold text-ink w-full" onClick={() => setAbierto((v) => !v)}>
+        <Upload size={16} className="text-brand-600" /> Generar desde archivo
+        <span className="text-ink-subtle font-normal">— subí la planilla con los datos del DUA y el sistema crea el registro</span>
+      </button>
+      {abierto && (
+        <div className="space-y-3">
+          <button className="btn-secondary btn-sm" onClick={async () => descargarBlob(await importacionesApi.plantilla(), 'plantilla_importaciones.xlsx')}>
+            <Download size={14} /> Descargar plantilla
+          </button>
+          <div className="flex items-center gap-3 flex-wrap">
+            <label className="btn-secondary cursor-pointer">
+              <FileSpreadsheet size={16} /> Elegir archivo
+              <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setCommitted(false); setError(''); preview.reset(); commit.reset(); }} />
+            </label>
+            <span className="text-sm text-ink-muted">{file ? file.name : 'Ningún archivo seleccionado'}</span>
+            <button className="btn-primary" disabled={!file || preview.isPending} onClick={() => file && preview.mutate(file)}>
+              <Upload size={16} /> {preview.isPending ? 'Analizando…' : 'Previsualizar'}
+            </button>
+          </div>
+
+          {error && <div className="flex items-center gap-2 p-3 bg-bad-bg border border-bad/30 rounded-lg text-sm text-bad"><AlertCircle size={16} /> {error}</div>}
+
+          {result && (
+            <div className="space-y-3">
+              <div className="flex gap-4 text-sm">
+                <span className="text-ink-subtle">Total: <b>{result.resumen.total}</b></span>
+                <span className="text-ok">Válidas: <b>{result.resumen.validas}</b></span>
+                <span className="text-bad">Con errores: <b>{result.resumen.conErrores}</b></span>
+                {committed && <span className="text-brand-600">Creadas: <b>{result.resumen.creadas ?? 0}</b></span>}
+              </div>
+              <div className="border border-hairline/60 rounded-lg overflow-auto max-h-80">
+                <table className="w-full text-sm">
+                  <thead className="table-header sticky top-0">
+                    <tr><th className="px-3 py-2 text-left">Fila</th><th className="px-3 py-2 text-left">DUA</th><th className="px-3 py-2 text-left">Proveedor</th><th className="px-3 py-2 text-right">FOB</th><th className="px-3 py-2 text-left">Estado</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-hairline/60">
+                    {result.filas.map((r) => (
+                      <tr key={r.fila} className={r.errores.length ? 'bg-bad-bg/40' : ''}>
+                        <td className="px-3 py-1.5 text-ink-subtle">{r.fila}</td>
+                        <td className="px-3 py-1.5">{r.datos.duaNumero || '—'}</td>
+                        <td className="px-3 py-1.5">{r.datos.proveedorExterior || '—'}</td>
+                        <td className="px-3 py-1.5 text-right figure">{(r.datos.fob || 0).toLocaleString('es-UY')}</td>
+                        <td className="px-3 py-1.5">
+                          {r.errores.length === 0
+                            ? <span className="inline-flex items-center gap-1 text-ok text-xs"><CheckCircle size={13} /> OK</span>
+                            : <span className="text-bad text-xs">{r.errores.join('; ')}</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {!committed && result.resumen.validas > 0 && (
+                <button className="btn-primary" disabled={commit.isPending} onClick={() => file && commit.mutate(file)}>
+                  {commit.isPending ? 'Importando…' : `Crear ${result.resumen.validas} importación(es)`}
+                </button>
+              )}
+              {committed && (
+                <div className="flex items-center gap-2 p-3 bg-ok-bg border border-ok/30 rounded-lg text-sm text-ink">
+                  <CheckCircle size={16} className="text-ok" /> Se crearon {result.resumen.creadas ?? 0} importación(es) en borrador. Revisalas y completá los adjuntos.
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AdjuntosCard({ companyId, importacionId }: { companyId: string; importacionId: string }) {
+  const qc = useQueryClient();
+  const params = { companyId, ownerType: 'IMPORTACION', ownerId: importacionId };
+  const { data: adjuntos = [] } = useQuery({
+    queryKey: ['importacion-adjuntos', importacionId],
+    queryFn: () => attachmentApi.list(params),
+  });
+  const invalidar = () => qc.invalidateQueries({ queryKey: ['importacion-adjuntos', importacionId] });
+
+  const subir = useMutation({
+    mutationFn: (f: File) => {
+      const fd = new FormData();
+      fd.append('file', f);
+      fd.append('companyId', companyId);
+      fd.append('ownerType', 'IMPORTACION');
+      fd.append('ownerId', importacionId);
+      fd.append('tipo', 'OTRO');
+      return attachmentApi.upload(fd);
+    },
+    onSuccess: invalidar,
+  });
+  const borrar = useMutation({ mutationFn: (id: string) => attachmentApi.remove(id), onSuccess: invalidar });
+
+  return (
+    <div className="card p-5 space-y-3">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-subtle flex items-center gap-2"><Paperclip size={16} /> Documentos adjuntos</h2>
+        <label className="btn-secondary btn-sm cursor-pointer">
+          <Upload size={14} /> {subir.isPending ? 'Subiendo…' : 'Subir documento'}
+          <input type="file" accept=".pdf,image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) subir.mutate(f); e.target.value = ''; }} />
+        </label>
+      </div>
+      <p className="text-xs text-ink-subtle">Factura comercial, DUA, conocimiento de embarque (BL/AWB), certificado de origen, póliza de seguro… (PDF o imagen, hasta 5 MB).</p>
+      {adjuntos.length === 0 ? (
+        <p className="text-sm text-ink-subtle">Sin documentos adjuntos.</p>
+      ) : (
+        <ul className="divide-y divide-hairline/60">
+          {(adjuntos as Attachment[]).map((a) => (
+            <li key={a.id} className="flex items-center justify-between py-2 text-sm">
+              <button
+                className="text-brand-600 hover:underline inline-flex items-center gap-1"
+                onClick={async () => descargarBlob(await attachmentApi.blob(a.id), a.fileName)}
+              ><FileDown size={14} /> {a.fileName}</button>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-ink-subtle">{(a.tamano / 1024).toFixed(0)} KB</span>
+                <button className="text-bad hover:underline" onClick={() => { if (confirm('¿Eliminar este documento?')) borrar.mutate(a.id); }}><Trash2 size={14} /></button>
+              </div>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

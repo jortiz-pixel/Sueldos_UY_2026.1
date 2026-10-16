@@ -5,12 +5,15 @@ estudio, según normativa uruguaya (DNA/Aduana, DGI, Mercosur). Módulo nuevo,
 dominio aparte del de sueldos, pero **reusa** el modelo multiempresa, el control
 de accesos (anti-IDOR) y la auditoría ya existentes.
 
-> Estado: **ETAPAS 1 y 2 IMPLEMENTADAS** (16/10/2026).
+> Estado: **ETAPAS 1, 2 y 3 IMPLEMENTADAS** (16/10/2026).
 > - Etapa 1: modelo + carga manual + costeo en vivo + menú "Importaciones".
 > - Etapa 2: ficha de costeo (PDF), reporte de crédito fiscal del mes (DGI, con
 >   Excel) y asiento contable por importación.
-> Pendiente: Etapa 3 (importador del archivo del despachante, requiere muestra
-> real — ver §7).
+> - Etapa 3: adjuntos por importación (factura, DUA, BL, etc.) e importador que
+>   genera el registro desde una **plantilla Excel** (descargable) con auto-mapeo
+>   de columnas → previsualización → alta en borrador.
+> Pendiente opcional: parser DIRECTO del archivo nativo del despachante (sin
+> plantilla), que requiere una muestra real del archivo — ver §7.
 
 ## 1. Decisiones de alcance (acordadas)
 
