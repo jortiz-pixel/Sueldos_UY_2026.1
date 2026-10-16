@@ -66,6 +66,18 @@ const DUA_TRIB_TIPO: Record<string, TributoImportacionTipo> = {
   '02': TributoImportacionTipo.ARANCEL_TEC,
 };
 
+/** TC CONTABLE para valuar la adquisición: última cotización de tipo CONTABLE
+ *  cargada para la moneda con fecha ≤ la de la operación. Si no hay, null (y se
+ *  usa el TC del DUA como respaldo). Honra el marco contable sin inventar datos. */
+async function tcContableParaFecha(moneda: string, fecha: Date | null): Promise<number | null> {
+  if (!fecha) return null;
+  const c = await prisma.cotizacion.findFirst({
+    where: { monedaOrigen: moneda, tipo: 'CONTABLE', fecha: { lte: fecha } },
+    orderBy: { fecha: 'desc' },
+  });
+  return c ? c.valor : null;
+}
+
 /**
  * Recalcula el COSTEO del expediente a partir de los documentos oficiales ya
  * extraídos (DUA + factura comercial + e-facturas de servicios), que son la
@@ -89,17 +101,25 @@ async function reconstruirCosteoDesdeExtraccion(importacionId: string): Promise<
   if (!duaEx) return false;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const d: any = duaEx.datos ?? {};
-  const tc = Number(d.tipoCambio) || imp.tipoCambio || 1;
+  const moneda: string = imp.monedaOrigen || d.moneda || 'USD';
+  const tcAduanero = Number(d.tipoCambio) || imp.tipoCambio || 1; // TC del DUA (base de valoración aduanera)
+  // Costo de ADQUISICIÓN según el marco contable: se usa el TC CONTABLE si hay una
+  // cotización cargada para la fecha de la operación; si no, el del DUA. El VALOR
+  // EN ADUANA (fiscal, convertido al TC aduanero) NO se usa como costo: solo es la
+  // base de los tributos y se informa aparte en la sección del DUA.
+  const fechaOp = factura?.fecha ?? (d.fechaPago ? new Date(`${d.fechaPago}T00:00:00Z`) : null);
+  const tc = (await tcContableParaFecha(moneda, fechaOp)) ?? tcAduanero;
   const importadorRut: string | null = d.importadorRut ?? null;
   const P = (pesos: number | null | undefined): bigint => BigInt(Math.round((pesos ?? 0) * 100)); // pesos → centésimos
-  const usdCtmsAPesos = (ctmsUsd: bigint): bigint => BigInt(Math.round(Number(ctmsUsd) * tc)); // centésimos USD → centésimos pesos
+  const aPesos = (ctmsExtranjera: bigint): bigint => BigInt(Math.round(Number(ctmsExtranjera) * tc)); // centésimos ME → centésimos pesos
 
-  // CIF en pesos: el valor en Aduana del DUA manda; FOB/flete de la factura×TC y
-  // el seguro absorbe el redondeo para que FOB+flete+seguro = Valor en Aduana.
-  const cifPesos = d.valorAduanaPesos != null ? P(d.valorAduanaPesos) : (factura ? usdCtmsAPesos(factura.fob + factura.flete + factura.seguro) : 0n);
-  const fobPesos = factura ? usdCtmsAPesos(factura.fob) : cifPesos;
-  const fletePesos = factura ? usdCtmsAPesos(factura.flete) : 0n;
-  const seguroPesos = factura ? (cifPesos - fobPesos - fletePesos) : 0n;
+  // CIF contable (base del costo) = FOB + flete + seguro de la factura convertidos
+  // al TC contable. NO se sustituye por el valor en aduana del DUA (NIC/NIIF: el
+  // inventario se reconoce al precio de adquisición + costos atribuibles).
+  const fobPesos = factura ? aPesos(factura.fob) : (d.valorAduanaPesos != null ? P(d.valorAduanaPesos) : 0n);
+  const fletePesos = factura ? aPesos(factura.flete) : 0n;
+  const seguroPesos = factura ? aPesos(factura.seguro) : 0n;
+  const usdCtmsAPesos = aPesos;
 
   // Tributos: los importes LIQUIDADOS en el DUA (pesos enteros).
   const tributos: Array<{ tipo: TributoImportacionTipo; baseImponible: bigint; tasa: number; monto: bigint; recuperable: boolean }> =

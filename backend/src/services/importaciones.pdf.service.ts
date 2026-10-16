@@ -394,10 +394,13 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     // Composición del costo (cómo se llega al costo de la mercadería).
     const recup: TributoImportacionTipo[] = [TributoImportacionTipo.IVA_IMPORTACION, TributoImportacionTipo.ANTICIPO_IVA, TributoImportacionTipo.ANTICIPO_IRAE];
     const tribNoRec = imp.tributos.filter((t) => !recup.includes(t.tipo)).reduce((s, t) => s + t.monto, 0n);
-    total2('CIF (FOB + flete + seguro)', money(imp.cif));
+    total2('Adquisición (CIF contable: FOB + flete + seguro)', money(imp.cif));
     total2('+ Tributos no recuperables', money(tribNoRec));
-    total2('+ Gastos de plaza', money(imp.totalGastos));
-    total2('= Costo de la mercadería', money(imp.costoMercaderia), true);
+    total2('+ Gastos de plaza directamente atribuibles', money(imp.totalGastos));
+    total2('= Costo del inventario', money(imp.costoMercaderia), true);
+    if (exDua && exDua.datos?.valorAduanaPesos != null) {
+      nota(`Valor en Aduana (base fiscal de los tributos): $ ${(exDua.datos.valorAduanaPesos).toLocaleString('es-UY', { minimumFractionDigits: 2 })} al TC aduanero ${exDua.datos?.tipoCambio ?? '—'}. El costo del inventario NO usa este valor: la adquisición se reconoce al CIF de la factura (${imp.monedaOrigen} ${sym(imp.monedaOrigen)}) convertido al TC contable ${imp.tipoCambio}, más gastos atribuibles y tributos no recuperables. Los anticipos de IVA/IRAE son pagos a cuenta y NO integran el costo.`);
+    }
     y += 4;
     if (fac && fac.articulos.length) {
       const sumaFob = fac.articulos.reduce((s, a) => s + a.total, 0n);
