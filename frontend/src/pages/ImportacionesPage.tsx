@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Ship, Plus, Trash2, Save, X, Pencil, FileDown, Download, Calculator, Paperclip, Upload, FileSpreadsheet, CheckCircle, AlertCircle } from 'lucide-react';
+import { Ship, Plus, Trash2, Save, X, Pencil, FileDown, Download, Calculator, Paperclip, Upload, FileSpreadsheet, CheckCircle, AlertCircle, Settings } from 'lucide-react';
 import { importacionesApi } from '../services/api';
 import { useCompany } from '../hooks/useCompany';
 import {
   Importacion, ImportacionPayload, ImportacionEstado, ImportacionRegimen,
   TributoTipo, GastoConcepto, MESES, ImportacionExtraido, TipoDocImportacion, EstadoProcDoc,
+  ImportacionConfigPayload,
 } from '../types';
 
 function descargarBlob(blob: Blob, filename: string) {
@@ -194,6 +195,7 @@ export default function ImportacionesPage() {
   const { activeCompanyId } = useCompany();
   const qc = useQueryClient();
   const [editando, setEditando] = useState<Importacion | null | 'nueva'>(null);
+  const [mostrarConfig, setMostrarConfig] = useState(false);
   const [error, setError] = useState('');
   const [companyId, setCompanyId] = useState<string>(() => localStorage.getItem('importacionesCompanyId') || '');
 
@@ -236,6 +238,10 @@ export default function ImportacionesPage() {
     return <div className="card p-6 text-ink-subtle">No hay empresas disponibles para importaciones.</div>;
   }
 
+  if (mostrarConfig) {
+    return <ConfigEmpresa companyId={companyId} empresaNombre={empresa?.nombreFantasia || empresa?.razonSocial || ''} onClose={() => setMostrarConfig(false)} />;
+  }
+
   if (editando) {
     return (
       <FormImportacion
@@ -257,7 +263,10 @@ export default function ImportacionesPage() {
           <h1 className="text-2xl font-bold text-ink flex items-center gap-2"><Ship size={22} className="text-brand-600" /> Importaciones</h1>
           <p className="text-ink-subtle text-sm">Operaciones de comercio exterior. Costeo, crédito fiscal y seguimiento del trámite.</p>
         </div>
-        <button className="btn-primary" onClick={() => setEditando('nueva')}><Plus size={16} /> Nueva importación</button>
+        <div className="flex gap-2">
+          <button className="btn-secondary" onClick={() => setMostrarConfig(true)}><Settings size={16} /> Configuración</button>
+          <button className="btn-primary" onClick={() => setEditando('nueva')}><Plus size={16} /> Nueva importación</button>
+        </div>
       </div>
 
       {/* Selector de empresa: TODAS las del estudio (Sueldos + solo-Tareas). */}
@@ -952,6 +961,139 @@ function DocumentosPanel({ importacionId }: { importacionId: string }) {
         </div>
       )}
       <p className="text-xs text-ink-subtle">La clasificación automática y la extracción de datos de cada documento se agregan en las próximas sub-etapas.</p>
+    </div>
+  );
+}
+
+const OPCIONES = {
+  iraeRegimen: ['GENERAL', 'FICTO'],
+  ivaRegimen: ['GENERAL', 'MINIMO'],
+  grupoCede: ['NO_CEDE', 'CEDE'],
+  formularioDgi: ['2178', '1306', 'OTRO'],
+  tipoActividad: ['GRAVADA', 'EXONERADA', 'MIXTA'],
+  marcoContable: ['NIIF_PYMES', 'NIIF_PLENAS', 'DECRETO_291'],
+  metodoCosteo: ['PPP', 'FIFO', 'IDENTIFICACION'],
+  politicaDistribucion: ['FOB', 'PESO', 'CANTIDAD', 'VOLUMEN', 'MANUAL'],
+};
+const ETIQUETA_OPCION: Record<string, string> = {
+  GENERAL: 'General', FICTO: 'Ficto', MINIMO: 'IVA mínimo', NO_CEDE: 'NO CEDE', CEDE: 'CEDE',
+  '2178': 'Formulario 2178', '1306': 'Formulario 1306', OTRO: 'Otro',
+  GRAVADA: 'Gravada', EXONERADA: 'Exonerada', MIXTA: 'Mixta',
+  NIIF_PYMES: 'NIIF para PYMES', NIIF_PLENAS: 'NIIF plenas', DECRETO_291: 'Decreto 291/014',
+  PPP: 'Precio promedio ponderado', FIFO: 'PEPS (FIFO)', IDENTIFICACION: 'Identificación específica',
+  PESO: 'Peso', CANTIDAD: 'Cantidad', VOLUMEN: 'Volumen', MANUAL: 'Manual',
+};
+
+function ConfigEmpresa({ companyId, empresaNombre, onClose }: { companyId: string; empresaNombre: string; onClose: () => void }) {
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery({
+    queryKey: ['importaciones-config', companyId],
+    queryFn: () => importacionesApi.config.get(companyId),
+  });
+  const [form, setForm] = useState<ImportacionConfigPayload | null>(null);
+  const [guardado, setGuardado] = useState(false);
+
+  useEffect(() => {
+    if (!data) return;
+    const c = data.config;
+    setForm({
+      companyId,
+      iraeRegimen: c?.iraeRegimen ?? 'GENERAL',
+      ivaRegimen: c?.ivaRegimen ?? 'GENERAL',
+      grupoCede: c?.grupoCede ?? 'NO_CEDE',
+      formularioDgi: c?.formularioDgi ?? '2178',
+      tipoActividad: c?.tipoActividad ?? 'GRAVADA',
+      porcentajeDeduccionIva: c?.porcentajeDeduccionIva ?? null,
+      marcoContable: c?.marcoContable ?? 'NIIF_PYMES',
+      metodoCosteo: c?.metodoCosteo ?? 'PPP',
+      politicaDistribucion: c?.politicaDistribucion ?? 'FOB',
+      tratamientoMoneda: c?.tratamientoMoneda ?? '',
+      monedaFuncional: c?.monedaFuncional ?? 'UYU',
+      monedaPresentacion: c?.monedaPresentacion ?? 'UYU',
+      cierreEjercicio: c?.cierreEjercicio ?? '12-31',
+      inicioActividad: c?.inicioActividad ?? '',
+      planCuentas: c?.planCuentas ?? {},
+    });
+  }, [data, companyId]);
+
+  const guardar = useMutation({
+    mutationFn: (payload: ImportacionConfigPayload) => importacionesApi.config.save(payload),
+    onSuccess: () => { setGuardado(true); qc.invalidateQueries({ queryKey: ['importaciones-config', companyId] }); },
+  });
+
+  if (isLoading || !form || !data) return <div className="card p-6 text-ink-subtle">Cargando configuración…</div>;
+
+  const set = <K extends keyof ImportacionConfigPayload>(k: K, v: ImportacionConfigPayload[K]) => { setForm((p) => (p ? { ...p, [k]: v } : p)); setGuardado(false); };
+  const setCuenta = (clave: string, campo: 'codigo' | 'nombre', v: string) => {
+    setForm((p) => p ? { ...p, planCuentas: { ...(p.planCuentas ?? {}), [clave]: { ...(p.planCuentas?.[clave] ?? {}), [campo]: v } } } : p);
+    setGuardado(false);
+  };
+  const Sel = ({ campo, opts }: { campo: keyof ImportacionConfigPayload; opts: string[] }) => (
+    <select className="form-input" value={(form[campo] as string) ?? ''} onChange={(e) => set(campo, e.target.value as never)}>
+      {opts.map((o) => <option key={o} value={o}>{ETIQUETA_OPCION[o] ?? o}</option>)}
+    </select>
+  );
+
+  return (
+    <div className="space-y-5 max-w-5xl">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-ink flex items-center gap-2"><Settings size={22} className="text-brand-600" /> Configuración contable y fiscal</h1>
+        <button className="btn-secondary" onClick={onClose}><X size={16} /> Cerrar</button>
+      </div>
+      <p className="text-ink-subtle text-sm">Empresa: <b>{empresaNombre || '—'}</b>. Define el régimen, el marco contable y el plan de cuentas que usan los asientos y el resumen fiscal.</p>
+
+      <div className="card p-5 space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-subtle">Régimen tributario</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div><label className="form-label">IRAE</label><Sel campo="iraeRegimen" opts={OPCIONES.iraeRegimen} /></div>
+          <div><label className="form-label">IVA</label><Sel campo="ivaRegimen" opts={OPCIONES.ivaRegimen} /></div>
+          <div><label className="form-label">Grupo</label><Sel campo="grupoCede" opts={OPCIONES.grupoCede} /></div>
+          <div><label className="form-label">Formulario DGI</label><Sel campo="formularioDgi" opts={OPCIONES.formularioDgi} /></div>
+          <div><label className="form-label">Actividades</label><Sel campo="tipoActividad" opts={OPCIONES.tipoActividad} /></div>
+          <div><label className="form-label">% deducción IVA (mixtas)</label><input type="number" step="0.01" className="form-input" value={form.porcentajeDeduccionIva ?? ''} onChange={(e) => set('porcentajeDeduccionIva', e.target.value === '' ? null : Number(e.target.value))} /></div>
+        </div>
+      </div>
+
+      <div className="card p-5 space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-subtle">Marco contable</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div><label className="form-label">Normas contables</label><Sel campo="marcoContable" opts={OPCIONES.marcoContable} /></div>
+          <div><label className="form-label">Método de costeo</label><Sel campo="metodoCosteo" opts={OPCIONES.metodoCosteo} /></div>
+          <div><label className="form-label">Distribución de gastos</label><Sel campo="politicaDistribucion" opts={OPCIONES.politicaDistribucion} /></div>
+          <div><label className="form-label">Moneda funcional</label><input className="form-input" value={form.monedaFuncional ?? ''} onChange={(e) => set('monedaFuncional', e.target.value)} /></div>
+          <div><label className="form-label">Moneda de presentación</label><input className="form-input" value={form.monedaPresentacion ?? ''} onChange={(e) => set('monedaPresentacion', e.target.value)} /></div>
+          <div><label className="form-label">Cierre de ejercicio (MM-DD)</label><input className="form-input" placeholder="12-31" value={form.cierreEjercicio ?? ''} onChange={(e) => set('cierreEjercicio', e.target.value)} /></div>
+          <div><label className="form-label">Inicio de actividad</label><input type="date" className="form-input" value={form.inicioActividad ?? ''} onChange={(e) => set('inicioActividad', e.target.value)} /></div>
+        </div>
+      </div>
+
+      <div className="card p-5 space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-subtle">Plan de cuentas</h2>
+        <p className="text-xs text-ink-subtle">Asigná el código de tu plan a cada cuenta. El nombre es opcional (si lo dejás vacío se usa el nombre por defecto). Estas cuentas son las que usan los asientos del expediente.</p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="table-header">
+              <tr><th className="px-3 py-2 text-left">Cuenta</th><th className="px-3 py-2 text-left">Código</th><th className="px-3 py-2 text-left">Nombre (opcional)</th></tr>
+            </thead>
+            <tbody className="divide-y divide-hairline/60">
+              {(data.catalogoCuentas).map((c) => (
+                <tr key={c.clave}>
+                  <td className="px-3 py-1.5"><span className="text-ink">{c.nombre}</span><div className="text-xs text-ink-subtle">{c.grupo}</div></td>
+                  <td className="px-3 py-1.5"><input className="form-input w-28" value={form.planCuentas?.[c.clave]?.codigo ?? ''} onChange={(e) => setCuenta(c.clave, 'codigo', e.target.value)} /></td>
+                  <td className="px-3 py-1.5"><input className="form-input w-full" placeholder={c.nombre} value={form.planCuentas?.[c.clave]?.nombre ?? ''} onChange={(e) => setCuenta(c.clave, 'nombre', e.target.value)} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-end gap-3">
+        {guardado && <span className="text-sm text-ok inline-flex items-center gap-1"><CheckCircle size={15} /> Configuración guardada</span>}
+        <button className="btn-primary" disabled={guardar.isPending} onClick={() => guardar.mutate(form)}>
+          <Save size={16} /> {guardar.isPending ? 'Guardando…' : 'Guardar configuración'}
+        </button>
+      </div>
     </div>
   );
 }

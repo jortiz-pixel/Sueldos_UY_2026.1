@@ -418,6 +418,26 @@ export interface ImportacionDocumento {
   createdAt: string;
 }
 
+export interface CuentaCatalogo { clave: string; nombre: string; grupo: string; }
+export interface ImportacionEmpresaConfig {
+  iraeRegimen?: string | null;
+  ivaRegimen?: string | null;
+  grupoCede?: string | null;
+  formularioDgi?: string | null;
+  tipoActividad?: string | null;
+  porcentajeDeduccionIva?: number | null;
+  marcoContable?: string | null;
+  metodoCosteo?: string | null;
+  politicaDistribucion?: string | null;
+  tratamientoMoneda?: string | null;
+  monedaFuncional?: string;
+  monedaPresentacion?: string;
+  cierreEjercicio?: string | null;
+  inicioActividad?: string | null;
+  planCuentas?: Record<string, { codigo?: string | null; nombre?: string | null }> | null;
+}
+export interface ImportacionConfigPayload extends ImportacionEmpresaConfig { companyId: string; }
+
 export interface ImportacionCliente {
   companyId: string;
   razonSocial: string;

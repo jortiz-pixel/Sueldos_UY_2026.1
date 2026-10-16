@@ -230,3 +230,21 @@ flete 760,40 · seguro 30,00 · CIF 5.628,84 · 2 transferencias (3.000,00 +
 2.628,98) · comisiones 80,00 · diferencia 0,14 · carpeta 105523/2026 ·
 liquidación $96.137 · IVA imp. $49.843 · IVA ant. $22.656 · IVA gastos $1.804 ·
 USD 155 informados aparte · 33 artículos. Requiere los 6 PDF reales.
+
+## Etapa 2 (contable/fiscal) — progreso
+
+Secuencia elegida: **fundación primero**.
+- **HECHO §3** — Configuración fiscal y contable por empresa (`importacion_empresa_config`):
+  régimen (IRAE/IVA/CEDE/formulario DGI/actividad/% deducción), marco contable
+  (normas, método de costeo, política de distribución, monedas, cierre) y
+  **plan de cuentas configurable** (mapa canónico → código+nombre, 16 cuentas).
+  Pantalla "Configuración" en el módulo. Los **asientos y la ficha de costeo ya
+  usan las cuentas configuradas** (si no hay config, usan los nombres por defecto).
+Pendiente (próximas sub-etapas): §6 motor de cotizaciones (tipos + BCU/manual +
+trazabilidad) · §4/§8 motor de reglas contables versionado + estados de asiento
+(borrador/aprobado/contabilizado/revertido) y validaciones · §5 costo de
+adquisición con clasificación configurable · §12 distribución por artículo
+(varios criterios) · §9/§10 IVA/IRAE · §11 mapeo DGI 2178 versionado · §13 cuadro
+de conciliación · §15 panel "Contabilidad e impuestos" (5 pestañas) · §17 tests
+MARPOLOS. Varias dependen de completar la extracción de Etapa 1 (transferencias,
+33 artículos, aprobación).

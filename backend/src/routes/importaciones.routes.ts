@@ -22,6 +22,7 @@ import { calcularCosteo, esTributoRecuperable, armarAsientoImportacion } from '.
 import { generateCosteoPDF, costeoFilename } from '../services/importaciones.pdf.service';
 import { parseImportacionesExcel, buildPlantillaImportaciones } from '../services/importaciones.import.service';
 import { extraerImportacionDesdePdf, contarPaginasPdf } from '../services/importaciones.pdf-extract.service';
+import { CUENTAS_IMPORTACION, PlanCuentas } from '../services/importaciones.config.service';
 
 export const importacionesRouter = Router();
 
@@ -224,6 +225,62 @@ importacionesRouter.get('/', async (req: Request, res: Response, next: NextFunct
       orderBy: [{ duaFecha: 'desc' }, { createdAt: 'desc' }],
     });
     res.json(importaciones.map(serializar));
+  } catch (err) { next(err); }
+});
+
+// ── Configuración fiscal y contable de la empresa (Etapa 2 §3) ───────────────
+const cuentaCfgSchema = z.object({ codigo: z.string().nullable().optional(), nombre: z.string().nullable().optional() });
+const configSchema = z.object({
+  companyId: z.string().cuid(),
+  iraeRegimen: z.string().nullable().optional(),
+  ivaRegimen: z.string().nullable().optional(),
+  grupoCede: z.string().nullable().optional(),
+  formularioDgi: z.string().nullable().optional(),
+  tipoActividad: z.string().nullable().optional(),
+  porcentajeDeduccionIva: z.number().nullable().optional(),
+  marcoContable: z.string().nullable().optional(),
+  metodoCosteo: z.string().nullable().optional(),
+  politicaDistribucion: z.string().nullable().optional(),
+  tratamientoMoneda: z.string().nullable().optional(),
+  monedaFuncional: z.string().optional(),
+  monedaPresentacion: z.string().optional(),
+  cierreEjercicio: z.string().nullable().optional(),
+  inicioActividad: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  planCuentas: z.record(cuentaCfgSchema).nullable().optional(),
+});
+
+// GET /config?companyId= → configuración (o null) + catálogo canónico de cuentas.
+importacionesRouter.get('/config', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const companyId = (req.query.companyId as string) || req.user!.companyId;
+    if (!companyId) throw new AppError(400, 'companyId requerido');
+    await assertCompanyAccess(req, companyId);
+    const cfg = await prisma.importacionEmpresaConfig.findUnique({ where: { companyId } });
+    res.json({
+      config: cfg ? { ...cfg, inicioActividad: cfg.inicioActividad ? cfg.inicioActividad.toISOString().slice(0, 10) : null } : null,
+      catalogoCuentas: CUENTAS_IMPORTACION,
+    });
+  } catch (err) { next(err); }
+});
+
+// PUT /config → crea o actualiza la configuración de la empresa.
+importacionesRouter.put('/config', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const data = configSchema.parse(req.body);
+    await assertCompanyAccess(req, data.companyId);
+    const { companyId, inicioActividad, planCuentas, ...rest } = data;
+    const payload = {
+      ...rest,
+      inicioActividad: inicioActividad ? new Date(`${inicioActividad}T00:00:00Z`) : null,
+      planCuentas: (planCuentas ?? undefined) as Prisma.InputJsonValue | undefined,
+    };
+    const cfg = await prisma.importacionEmpresaConfig.upsert({
+      where: { companyId },
+      create: { companyId, ...payload },
+      update: payload,
+    });
+    await recordAudit({ req, action: 'IMPORTACION_CONFIG', entity: 'importacion_config', entityId: cfg.id, companyId, newData: { formularioDgi: cfg.formularioDgi } });
+    res.json({ ...cfg, inicioActividad: cfg.inicioActividad ? cfg.inicioActividad.toISOString().slice(0, 10) : null });
   } catch (err) { next(err); }
 });
 
@@ -513,13 +570,20 @@ importacionesRouter.get('/:id', async (req: Request, res: Response, next: NextFu
   } catch (err) { next(err); }
 });
 
+// Plan de cuentas configurado de una empresa (o null).
+async function planDeEmpresa(companyId: string): Promise<PlanCuentas | null> {
+  const cfg = await prisma.importacionEmpresaConfig.findUnique({ where: { companyId }, select: { planCuentas: true } });
+  return (cfg?.planCuentas as PlanCuentas | null) ?? null;
+}
+
 // ── GET /:id/asiento — asiento contable de la importación (JSON) ─────────────
 importacionesRouter.get('/:id/asiento', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const imp = await prisma.importacion.findUnique({ where: { id: req.params.id }, include: incluir });
     if (!imp) throw new NotFoundError('Importación');
     await assertCompanyAccess(req, imp.companyId);
-    res.json(armarAsientoImportacion(imp));
+    const plan = await planDeEmpresa(imp.companyId);
+    res.json(armarAsientoImportacion(imp, plan));
   } catch (err) { next(err); }
 });
 
@@ -532,7 +596,8 @@ importacionesRouter.get('/:id/costeo.pdf', async (req: Request, res: Response, n
     });
     if (!imp) throw new NotFoundError('Importación');
     await assertCompanyAccess(req, imp.companyId);
-    const pdf = await generateCosteoPDF(imp, { razonSocial: imp.company.razonSocial, rut: imp.company.rut });
+    const plan = await planDeEmpresa(imp.companyId);
+    const pdf = await generateCosteoPDF(imp, { razonSocial: imp.company.razonSocial, rut: imp.company.rut }, plan);
     const nombre = `${costeoFilename(imp)}.pdf`;
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${nombre}"`);

@@ -208,19 +208,20 @@ model Company {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  employees      Employee[]
-  contratos      Contrato[]
-  payrollPeriods PayrollPeriod[]
-  users          User[]
-  laudos         Laudo[]
-  conceptos      Concepto[]
-  auditLogs      AuditLog[]
-  memberships    Membership[]
-  entitlements   Entitlement[]
-  attachments    Attachment[]
-  tareas         Tarea[]
-  obras          Obra[]
-  importaciones  Importacion[]
+  employees         Employee[]
+  contratos         Contrato[]
+  payrollPeriods    PayrollPeriod[]
+  users             User[]
+  laudos            Laudo[]
+  conceptos         Concepto[]
+  auditLogs         AuditLog[]
+  memberships       Membership[]
+  entitlements      Entitlement[]
+  attachments       Attachment[]
+  tareas            Tarea[]
+  obras             Obra[]
+  importaciones     Importacion[]
+  importacionConfig ImportacionEmpresaConfig?
 
   @@map("companies")
 }
@@ -1176,4 +1177,38 @@ model ImportacionDocumento {
   @@index([importacionId])
   @@index([importacionId, hash])
   @@map("importacion_documentos")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONFIGURACIÓN FISCAL Y CONTABLE de la empresa para IMPORTACIONES (Etapa 2 §3).
+// Una por empresa. El plan de cuentas se guarda como mapa canónico →
+// {codigo, nombre} para no fijar números de cuenta iguales en todos los clientes.
+// ─────────────────────────────────────────────────────────────────────────────
+model ImportacionEmpresaConfig {
+  id                     String    @id @default(cuid())
+  companyId              String    @unique
+  // Régimen tributario
+  iraeRegimen            String? // GENERAL | FICTO | ...
+  ivaRegimen             String? // GENERAL | MINIMO
+  grupoCede              String? // CEDE | NO_CEDE
+  formularioDgi          String? // 2178 | 1306 | ...
+  tipoActividad          String? // GRAVADA | EXONERADA | MIXTA
+  porcentajeDeduccionIva Float? // prorrata (0..100) para actividades mixtas
+  // Marco contable
+  marcoContable          String? // NIIF_PYMES | NIIF_PLENAS | DECRETO_291 | ...
+  metodoCosteo           String? // PPP | FIFO | IDENTIFICACION
+  politicaDistribucion   String? // FOB | PESO | CANTIDAD | VOLUMEN | MANUAL
+  tratamientoMoneda      String? // texto breve de política
+  monedaFuncional        String    @default("UYU")
+  monedaPresentacion     String    @default("UYU")
+  cierreEjercicio        String? // 'MM-DD' (ej. 12-31)
+  inicioActividad        DateTime?
+  // Plan de cuentas: { claveCanonica: { codigo, nombre } }
+  planCuentas            Json?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("importacion_empresa_config")
 }

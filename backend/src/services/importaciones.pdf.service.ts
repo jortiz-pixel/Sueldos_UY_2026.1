@@ -6,6 +6,7 @@
 import PDFDocument from 'pdfkit';
 import { ImportacionEstado, ImportacionRegimen, TributoImportacionTipo, GastoImportacionConcepto } from '@prisma/client';
 import { armarAsientoImportacion } from './importaciones.service';
+import type { PlanCuentas } from './importaciones.config.service';
 
 interface ItemPdf { descripcion: string; ncm: string | null; cantidad: number; fobTotal: bigint; costoProrrateado: bigint }
 interface TributoPdf { tipo: TributoImportacionTipo; tasa: number; monto: bigint }
@@ -51,7 +52,7 @@ export function costeoFilename(imp: ImportacionPdf): string {
   return `costeo_importacion_${(imp.duaNumero || 'sindua').replace(/[^\w-]/g, '')}`;
 }
 
-export function generateCosteoPDF(imp: ImportacionPdf, empresa: EmpresaPdf): Promise<Buffer> {
+export function generateCosteoPDF(imp: ImportacionPdf, empresa: EmpresaPdf, plan?: PlanCuentas | null): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 36 });
     doc.info.Title = costeoFilename(imp);
@@ -147,7 +148,7 @@ export function generateCosteoPDF(imp: ImportacionPdf, empresa: EmpresaPdf): Pro
     y += 18;
 
     // Asiento contable
-    const asiento = armarAsientoImportacion(imp);
+    const asiento = armarAsientoImportacion(imp, plan);
     seccion('Asiento contable');
     doc.fontSize(8).font('Helvetica-Bold').fillColor('#555');
     doc.text('Cuenta', L + 4, y, { width: W - 230 });

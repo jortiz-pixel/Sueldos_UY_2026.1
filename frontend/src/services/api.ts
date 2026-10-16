@@ -1,5 +1,5 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
-import { AuthResponse, User, Company, Employee, PayrollPeriod, Liquidation, NominaItem, PayrollParameters, TipoAporte, TipoContribuyente, GrupoActividad, Contrato, Concepto, Obra, Importacion, ImportacionPayload, ImportacionEstado, AsientoImportacion, CreditoFiscalReporte, ImportacionImportResult, ImportacionCliente, ImportacionExtraido, ImportacionDocumento } from '../types';
+import { AuthResponse, User, Company, Employee, PayrollPeriod, Liquidation, NominaItem, PayrollParameters, TipoAporte, TipoContribuyente, GrupoActividad, Contrato, Concepto, Obra, Importacion, ImportacionPayload, ImportacionEstado, AsientoImportacion, CreditoFiscalReporte, ImportacionImportResult, ImportacionCliente, ImportacionExtraido, ImportacionDocumento, CuentaCatalogo, ImportacionEmpresaConfig, ImportacionConfigPayload } from '../types';
 
 const BASE_URL = import.meta.env.VITE_API_URL || '';
 
@@ -827,6 +827,12 @@ export const importacionesApi = {
   creditoFiscalExcel: (companyId: string, year: number, month: number) =>
     api.get('/importaciones/credito-fiscal/excel', { params: { companyId, year, month }, responseType: 'blob' }).then((r) => r.data as Blob),
   clientes: () => api.get<ImportacionCliente[]>('/importaciones/clientes').then((r) => r.data),
+  config: {
+    get: (companyId: string) =>
+      api.get<{ config: ImportacionEmpresaConfig | null; catalogoCuentas: CuentaCatalogo[] }>('/importaciones/config', { params: { companyId } }).then((r) => r.data),
+    save: (payload: ImportacionConfigPayload) =>
+      api.put<ImportacionEmpresaConfig>('/importaciones/config', payload).then((r) => r.data),
+  },
   extraer: (file: File) => {
     const fd = new FormData();
     fd.append('file', file);
