@@ -33,7 +33,8 @@ export interface ImportacionPdf {
   tcContable?: number | null; tcAduanero?: number | null;
   notas?: string | null;
 }
-interface AsientoInformePdf { fecha: string | null; glosa: string; definitivo: boolean; balanceado: boolean; lineas: { cuenta: string; debe: bigint; haber: bigint }[] }
+interface AsientoRefPdf { documento: string; pagina?: string | null; regla: string }
+interface AsientoInformePdf { fecha: string | null; glosa: string; definitivo: boolean; balanceado: boolean; referencias?: AsientoRefPdf[]; lineas: { cuenta: string; monedaOrig?: string | null; montoOrig?: number | null; debe: bigint; haber: bigint }[] }
 interface EmpresaPdf { razonSocial: string; rut: string | null }
 interface ArticuloPdf { nro: number; codigo: string | null; descripcion: string; cantidad: number; precioUnit: number; total: bigint }
 interface FacturaPdf { proveedor: string | null; numero: string | null; fecha: Date | null; moneda: string; incoterm: string | null; fob: bigint; flete: bigint; seguro: bigint; cif: bigint; total: bigint; articulos: ArticuloPdf[] }
@@ -59,6 +60,8 @@ export interface InformeInput {
   documentos: DocumentoPdf[];
   docExtracciones?: DocExtraccionPdf[];
   asientos?: AsientoInformePdf[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  costeoDetalle?: any; // CosteoHistorico serializado (anticipos, gastos, conciliaciones)
 }
 
 const REGIMEN: Record<ImportacionRegimen, string> = {
@@ -84,7 +87,10 @@ export function costeoFilename(imp: ImportacionPdf): string {
 export function generateInformePDF(input: InformeInput): Promise<Buffer> {
   const { empresa, imp, plan, facturas, liquidaciones, transferencias, documentos } = input;
   const asientos = input.asientos ?? [];
-  const pendiente = imp.costeoEstado === 'PENDIENTE';
+  const det = input.costeoDetalle ?? null;
+  const pendiente = imp.costeoEstado === 'PENDIENTE' || imp.costeoEstado === 'PROVISIONAL';
+  const nMoney = (s: string | number | null | undefined, m = '$') => `${m} ${(Number(s ?? 0) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const meMoney = (v: number | null | undefined, m: string) => `${sym(m)} ${(Number(v ?? 0)).toLocaleString('es-UY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const docExtracciones = input.docExtracciones ?? [];
   const exDua = docExtracciones.find((e) => e.tipo === 'DUA');
   const exServicios = docExtracciones.filter((e) => e.tipo === 'FACTURA_SERVICIOS_UY');
@@ -262,23 +268,25 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
       total2('FOB', money(imp.fob)); total2('Flete', money(imp.flete)); total2('Seguro', money(imp.seguro)); total2('CIF', money(imp.cif), true);
     }
 
-    // ── 3. Pagos al exterior ──
-    heading('Pagos al exterior');
-    if (transferencias.length) {
+    // ── 3. Costo de adquisición histórico (anticipos al proveedor) ──
+    heading('Costo de adquisición histórico (anticipos al proveedor)');
+    const anticipos: Array<{ fecha: string | null; referencia: string | null; moneda: string; monto: number; comision: number; tcUsado: number | null; montoUYU: string; comisionUYU: string; provisional: boolean }> = det?.anticipos ?? [];
+    if (anticipos.length) {
       tabla(
-        [{ w: 70, title: 'Ref.' }, { w: 70, title: 'Fecha' }, { w: 95, title: 'Importe', align: 'right' }, { w: 80, title: 'Comisión', align: 'right' }, { w: 90, title: 'Debitado', align: 'right' }, { w: W - 405, title: 'Respaldo' }],
-        transferencias.map((t) => [t.referencia ?? '—', fdate(t.fecha), money(t.importe, sym(t.moneda)), money(t.comision, sym(t.moneda)), money(t.totalDebitado, sym(t.moneda)), t.nroDocs === 2 ? 'SWIFT + comprobante' : `${t.nroDocs} doc.`]),
+        [{ w: 62, title: 'Fecha' }, { w: 58, title: 'Ref.' }, { w: 80, title: 'Importe ME', align: 'right' }, { w: 58, title: 'TC fiscal', align: 'right' }, { w: 92, title: 'Importe $', align: 'right' }, { w: W - 350, title: 'Origen / regla' }],
+        anticipos.map((a) => [a.fecha ?? '—', a.referencia ?? '—', meMoney(a.monto, a.moneda), `${a.tcUsado ?? '—'}${a.provisional ? '*' : ''}`, nMoney(a.montoUYU), `SWIFT op. ${a.referencia ?? '—'} · TC del día de pago${a.provisional ? ' (provisional)' : ''}`]),
       );
       y += 4;
-      const totPag = transferencias.reduce((s, t) => s + t.importe, 0n);
-      const totCom = transferencias.reduce((s, t) => s + t.comision, 0n);
-      total2('Total transferido al proveedor', money(totPag, 'US$'), true);
-      total2('Comisiones bancarias', money(totCom, 'US$'));
-      if (fac) {
-        const dif = totPag - fac.total;
-        total2('Diferencia contra factura', money(dif < 0n ? -dif : dif, sym(fac.moneda)));
-      }
-    } else { doc.fontSize(9).font('Helvetica').fillColor('#777').text('Sin transferencias registradas.', M + 4, y); y += 14; }
+      total2('Adquisición (CIF) histórica en pesos', nMoney(det?.adquisicionUYU), true);
+      if (det?.saldoNoAnticipado) total2('Saldo no anticipado (al TC de reconocimiento)', `${meMoney(det.saldoNoAnticipado.me, imp.monedaOrigen)} = ${nMoney(det.saldoNoAnticipado.uyu)}`);
+      total2('Comisiones bancarias (gasto, no inventario)', nMoney(det?.comisionesBancariasUYU));
+      nota('La mercadería pagada por adelantado es una partida NO monetaria (NIC 21): cada anticipo se valúa al tipo de cambio fiscal de SU fecha de pago. Las comisiones bancarias son un gasto financiero (no integran el costo). * = cotización provisional (falta la del día).');
+    } else if (transferencias.length) {
+      tabla(
+        [{ w: 70, title: 'Ref.' }, { w: 70, title: 'Fecha' }, { w: 95, title: 'Importe', align: 'right' }, { w: 80, title: 'Comisión', align: 'right' }, { w: W - 315, title: 'Respaldo' }],
+        transferencias.map((t) => [t.referencia ?? '—', fdate(t.fecha), money(t.importe, sym(t.moneda)), money(t.comision, sym(t.moneda)), t.nroDocs === 2 ? 'SWIFT + comprobante' : `${t.nroDocs} doc.`]),
+      );
+    } else { vacio('Sin pagos al proveedor registrados.'); }
 
     // ── 4. Estado de cuenta del proveedor ──
     heading('Estado de cuenta del proveedor');
@@ -433,6 +441,20 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
       doc.fontSize(7.5).font('Helvetica-Oblique').fillColor('#777').text('Costo prorrateado por participación en el FOB de cada artículo.', M + 2, y + 2); y += 14;
     } else { doc.fontSize(9).font('Helvetica').fillColor('#777').text('Sin detalle de artículos (procesá la factura en "Datos extraídos").', M + 4, y); y += 14; }
 
+    // ── Gastos de plaza (desglose contable) ──
+    heading('Gastos de plaza (desglose contable)');
+    const gastosDet: Array<{ documento: string; concepto: string; moneda: string; montoME: number; cotizacion: number; montoUYU: string; incluidoEnCosto: boolean; porCuentaDeTerceros: boolean; tratamiento: string }> = det?.gastos ?? [];
+    if (gastosDet.length) {
+      tabla(
+        [{ w: 86, title: 'Documento' }, { w: W - 406, title: 'Concepto' }, { w: 40, title: 'Mon.' }, { w: 52, title: 'TC', align: 'right' }, { w: 92, title: 'Importe $', align: 'right' }, { w: 136, title: 'Tratamiento' }],
+        gastosDet.map((g) => [g.documento, g.concepto, g.moneda, g.moneda === 'UYU' ? '—' : String(g.cotizacion), g.incluidoEnCosto ? nMoney(g.montoUYU) : '(no suma)', g.tratamiento.length > 60 ? g.tratamiento.slice(0, 57) + '…' : g.tratamiento]),
+      );
+      y += 4;
+      total2('Total gastos de plaza que integran el costo', nMoney(det?.totalGastosUYU), true);
+      total2('IVA de servicios (crédito fiscal)', nMoney(det?.ivaGastosUYU));
+      nota('Se incluyen solo los gastos facturados AL IMPORTADOR. Los pagos por cuenta de terceros (TCU re-facturado por el despachante) se cuentan una sola vez; la factura del terminal emitida al despachante y el "no facturable" (tributos del DUA) NO se suman como gasto.');
+    } else { vacio('Sin gastos de plaza desglosados (procesá los documentos).'); }
+
     // ── 7. Tratamiento fiscal (IVA y anticipos, separados) ──
     heading('Tratamiento fiscal (IVA y anticipos)');
     const sumTrib = (...ts: TributoImportacionTipo[]) => imp.tributos.filter((t) => ts.includes(t.tipo)).reduce((s, t) => s + t.monto, 0n);
@@ -450,23 +472,24 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     total2('Tributos no recuperables (integran el costo)', money(noRec > 0n ? noRec : 0n));
     doc.fontSize(7.5).font('Helvetica-Oblique').fillColor('#777').text('El IVA importación, el IVA de servicios y los anticipos de IVA/IRAE no integran el costo (son crédito fiscal / pagos a cuenta).', M + 2, y + 2); y += 14;
 
-    // ── 7. Asientos contables (SEPARADOS por hecho económico) ──
-    heading('Asientos contables');
+    // ── 7. Asientos contables CRONOLÓGICOS (en pesos, con moneda original y refs) ──
+    heading('Asientos contables cronológicos');
     if (asientos.length) {
       for (const a of asientos) {
-        subheading(`${fdate(a.fecha ? new Date(`${a.fecha}T00:00:00Z`) : null)} · ${a.glosa}${a.definitivo ? '' : '  (provisorio — costeo pendiente)'}`);
+        subheading(`${fdate(a.fecha ? new Date(`${a.fecha}T00:00:00Z`) : null)} · ${a.glosa}${a.definitivo ? '' : '  (PROVISORIO)'}`);
         tabla(
-          [{ w: W - 220, title: 'Cuenta' }, { w: 110, title: 'Debe', align: 'right' }, { w: 110, title: 'Haber', align: 'right' }],
-          a.lineas.map((l) => [l.cuenta, l.debe !== 0n ? n2(l.debe) : '', l.haber !== 0n ? n2(l.haber) : '']),
+          [{ w: W - 300, title: 'Cuenta' }, { w: 80, title: 'Moneda orig.', align: 'right' }, { w: 110, title: 'Debe $', align: 'right' }, { w: 110, title: 'Haber $', align: 'right' }],
+          a.lineas.map((l) => [l.cuenta, l.montoOrig != null && l.monedaOrig ? meMoney(l.montoOrig, l.monedaOrig) : '', l.debe !== 0n ? n2(l.debe) : '', l.haber !== 0n ? n2(l.haber) : '']),
         );
         const d = a.lineas.reduce((s, l) => s + l.debe, 0n);
         const h = a.lineas.reduce((s, l) => s + l.haber, 0n);
         total2('Totales del asiento', `$ ${n2(d)}      $ ${n2(h)}`, true);
         if (!a.balanceado) { doc.fontSize(8).fillColor('#c00').text('! El asiento no balancea.', M + 4, y); y += 12; }
-        y += 4;
+        for (const rf of (a.referencias ?? [])) doc.fontSize(7).font('Helvetica-Oblique').fillColor('#888').text(`Origen: ${rf.documento}${rf.pagina ? ` (${rf.pagina})` : ''} — ${rf.regla}`, M + 6, y, { width: W - 10 }), y += Math.max(9, doc.heightOfString(`Origen: ${rf.documento} — ${rf.regla}`, { width: W - 10 }));
+        y += 5;
       }
-      nota('Asientos separados por hecho económico (anticipos a cuenta, reconocimiento de la compra, tributos, gastos del despachante, pagos), con su fecha y contrapartida. Los anticipos de IVA/IRAE van en asiento propio y NO integran el costo de la mercadería.');
-    } else { vacio('Sin asientos (costeo incompleto).'); }
+      nota('Asientos en orden cronológico por su fecha real; importes en pesos con la moneda original a la vista. Cada uno cita el documento y la regla aplicada. El importe del proveedor del exterior no se divide entre cuentas sin respaldo documental.');
+    } else { vacio('Sin asientos (costeo incompleto — procesá los documentos).'); }
 
     // ── 8. Conciliación ──
     heading('Conciliación');
@@ -505,6 +528,12 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     } else if (documentos.every((d) => (d.tipo ?? '') !== 'DUA')) {
       check('DUA definitivo', false, 'no se adjuntó el DUA oficial (expediente preliminar).');
     }
+    // Conciliaciones del costeo histórico (unidades, anticipos vs CIF, despachante).
+    const conc = det?.conciliacion;
+    if (conc?.unidades) check(`Unidades DUA (${conc.unidades.dua ?? '—'}) vs factura (${conc.unidades.factura})`, !!conc.unidades.ok, conc.unidades.nota);
+    if (conc?.anticiposVsCif) check('Anticipos vs CIF', Math.abs(conc.anticiposVsCif.difME) <= 1, conc.anticiposVsCif.nota);
+    if (conc?.tributos) check('Tributos DUA vs pago SPE', !!conc.tributos.ok, `${nMoney(conc.tributos.dua)} vs ${nMoney(conc.tributos.spe)} (incluye Tasa Escáner $563)`);
+    if (conc?.despachante) check('Cuenta del despachante', (conc.despachante.saldo ?? 0) >= 0 ? true : false, `cargos ${nMoney(conc.despachante.totalCargos)} · pagos ${nMoney(conc.despachante.totalPagos)} → ${conc.despachante.nota}`);
 
     // ── Packing list / detalle logístico ──
     heading('Packing list y detalle logístico');

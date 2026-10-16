@@ -1065,10 +1065,13 @@ model Importacion {
   // Estado del costeo documental: OK (completo y conciliado) | PENDIENTE (falta
   // cotización contable o datos; el costo no se distribuye y los asientos
   // definitivos quedan bloqueados). Null = costeo manual clásico.
-  costeoEstado     String? // OK | PENDIENTE
+  costeoEstado     String? // OK | PROVISIONAL | PENDIENTE
   costeoMotivo     String? // por qué quedó pendiente (una línea)
   tcContable       Float? // TC contable usado para la adquisición (fuente verificable)
   tcAduanero       Float? // TC aduanero del DUA (solo fiscal/informativo)
+  // Detalle completo del costeo histórico (anticipos, gastos desglosados, asientos
+  // cronológicos, conciliaciones) serializado para el informe y la pantalla.
+  costeoDetalle    Json?
 
   notas     String?
   creadoPor String?

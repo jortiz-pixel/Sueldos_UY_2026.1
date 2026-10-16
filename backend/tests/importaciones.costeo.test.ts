@@ -212,3 +212,156 @@ describe('parsers — identificación saneada', () => {
     expect(sanitizarIdentificador(rec.carpeta)).toBe('105523/2026');
   });
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// COSTEO HISTÓRICO (v2) — adquisición por anticipos, asientos cronológicos,
+// gastos desglosados, conciliaciones. Se prueba con MARPOLOS y con OTRO expediente
+// distinto (EUR, un solo anticipo que NO cubre el CIF) para verificar generalidad.
+// ═════════════════════════════════════════════════════════════════════════════
+import { construirCosteoHistorico, CosteoHistoricoInput } from '../src/services/importaciones.costeo.service';
+
+const et = (k: string) => k;
+
+function marpolos(cot09: number | null, cot10: number | null): CosteoHistoricoInput {
+  return {
+    dua: {
+      nroDua: '002-2026-170135', tipoCambio: 40.266, valorAduanaPesos: 226650.87, importadorRut: '220616930019',
+      importeFacturas: 5628.84, moneda: 'USD',
+      declaranteRut: '217369500013',
+      tributos: [
+        { codigo: '16', nombre: 'Adelanto IVA', monto: 22665 }, { codigo: '15', nombre: 'IVA importación', monto: 49863 },
+        { codigo: '26', nombre: 'Tasa consular', monto: 6800 }, { codigo: '06', nombre: 'TSA', monto: 453 },
+        { codigo: '27', nombre: 'Guía', monto: 380 }, { codigo: '32', nombre: 'Timbre', monto: 270 },
+        { codigo: '05', nombre: 'Extraordinario', monto: 1933 }, { codigo: '33', nombre: 'VUCE', monto: 239 },
+        { codigo: '36', nombre: 'Escáner', monto: 563 },
+      ],
+    } as any,
+    factura: {
+      fob: C(4838.44), flete: C(760.40), seguro: C(30), total: C(5628.84), moneda: 'USD',
+      articulos: [
+        { descripcion: 'A1', codigo: 'A1', cantidad: 200, total: C(2814.42) },
+        { descripcion: 'A2', codigo: 'A2', cantidad: 81, total: C(2814.42) },
+      ],
+    },
+    servicios: [
+      { rutComprador: '220616930019', rutEmisor: '217369500013', moneda: 'UYU', serie: 'A', numero: '0040415', emisor: 'Despachante', honorarios: 5700, gastosOperativos: 2500, iva: 1804, total: 93170, noFacturable: 83166 },
+      { rutComprador: '217369500013', rutEmisor: '214902340010', moneda: 'UYU', serie: 'A', numero: '1921434', emisor: 'TCU', honorarios: null, gastosOperativos: null, iva: null, total: 2286, noFacturable: null }, // facturado a Pacini → excluido
+      { rutComprador: '220616930019', rutEmisor: '217369500013', moneda: 'UYU', serie: 'A', numero: '0040414', emisor: 'Despachante', honorarios: null, gastosOperativos: null, iva: null, total: 2286, noFacturable: null, concepto: 'PAGO CTA. DE TERCEROS - Terminal' },
+    ],
+    anticipos: [
+      { fecha: '2026-06-09', referencia: '058197', moneda: 'USD', monto: 3000, comision: 40, cotizacion: cot09 },
+      { fecha: '2026-06-10', referencia: '075328', moneda: 'USD', monto: 2628.98, comision: 40, cotizacion: cot10 },
+    ],
+    pagoSpeCtms: C(83166), pagoDespachanteCtms: C(96137),
+    fechaReconocimiento: '2026-08-28', cotizacionReconocimiento: 40.266, tcProvisional: 40.266,
+    unidadesPacking: 222, etiqueta: et,
+  };
+}
+
+describe('construirCosteoHistorico — MARPOLOS', () => {
+  it('valúa la adquisición con el TC de CADA anticipo (no el del DUA)', () => {
+    const r = construirCosteoHistorico(marpolos(40.10, 40.20));
+    expect(r.estado).toBe('OK');
+    const esperado = BigInt(Math.round(3000 * 40.10 * 100)) + BigInt(Math.round(2628.98 * 40.20 * 100));
+    expect(r.adquisicionUYU).toBe(esperado);
+    // Comisiones bancarias = gasto (no inventario), a su TC de pago.
+    expect(r.comisionesBancariasUYU).toBe(BigInt(Math.round(40 * 40.10 * 100)) + BigInt(Math.round(40 * 40.20 * 100)));
+  });
+
+  it('queda PROVISIONAL si falta una cotización y usa el TC provisional', () => {
+    const r = construirCosteoHistorico(marpolos(40.10, null));
+    expect(r.estado).toBe('PROVISIONAL');
+    expect(r.motivos.join(' ')).toMatch(/provisional/i);
+    // El asiento del 2do anticipo y el reconocimiento NO son definitivos.
+    const a2 = r.asientos.find((a) => a.fecha === '2026-06-10');
+    expect(a2?.definitivo).toBe(false);
+    expect(r.asientos.find((a) => /Reconocimiento/.test(a.glosa))?.definitivo).toBe(false);
+  });
+
+  it('tributos del DUA exactos; anticipo IVA separado del crédito fiscal', () => {
+    const r = construirCosteoHistorico(marpolos(40.10, 40.20));
+    expect(r.ivaImportacion).toBe(C(49863));
+    expect(r.anticiposFiscales).toBe(C(22665));
+    expect(r.creditoFiscalIva).toBe(C(49863) + r.ivaGastosUYU);
+    expect(r.tributosNoRecuperables).toBe(C(83166) - C(49863) - C(22665));
+  });
+
+  it('gastos desglosados: excluye lo facturado al despachante (dedup terceros)', () => {
+    const r = construirCosteoHistorico(marpolos(40.10, 40.20));
+    const tcu = r.gastos.find((g) => g.documento.includes('1921434'));
+    expect(tcu?.incluidoEnCosto).toBe(false);
+    expect(tcu?.porCuentaDeTerceros).toBe(true);
+    // El reembolso del terminal (A-0040414) SÍ entra una vez.
+    const reemb = r.gastos.find((g) => g.documento.includes('0040414'));
+    expect(reemb?.incluidoEnCosto).toBe(true);
+    // Honorarios y gastos operativos entran; el "no facturable" NO.
+    expect(r.gastos.some((g) => /Honorarios/.test(g.concepto) && g.incluidoEnCosto)).toBe(true);
+    expect(r.gastos.some((g) => /Pagos por cuenta/.test(g.concepto) && !g.incluidoEnCosto)).toBe(true);
+  });
+
+  it('costo de inventario = adquisición + no recuperables + gastos; ítems cuadran', () => {
+    const r = construirCosteoHistorico(marpolos(40.10, 40.20));
+    expect(r.costoInventario).toBe(r.adquisicionUYU + r.tributosNoRecuperables + r.totalGastosUYU);
+    const suma = r.items!.reduce((s, i) => s + i.costo, 0n);
+    expect(suma).toBe(r.costoInventario);
+  });
+
+  it('asientos cronológicos, sin dividir el proveedor del exterior, con referencias', () => {
+    const r = construirCosteoHistorico(marpolos(40.10, 40.20));
+    const fechas = r.asientos.map((a) => a.fecha);
+    expect(fechas).toEqual([...fechas].sort());               // orden cronológico
+    expect(r.asientos.every((a) => a.balanceado)).toBe(true);
+    expect(r.asientos.every((a) => a.referencias.length > 0)).toBe(true); // trazabilidad
+    const rec = r.asientos.find((a) => /Reconocimiento/.test(a.glosa))!;
+    expect(rec.lineas.some((l) => /proveedoresLocales/.test(l.cuenta))).toBe(false); // sin split sin respaldo
+    // El anticipo lleva su moneda original.
+    const a1 = r.asientos.find((a) => a.fecha === '2026-06-09')!;
+    expect(a1.lineas.some((l) => l.monedaOrig === 'USD' && l.montoOrig === 3000)).toBe(true);
+  });
+
+  it('conciliaciones: 281 unidades DUA = factura; anticipos vs CIF; saldo despachante', () => {
+    const inp = marpolos(40.10, 40.20);
+    (inp.dua as any).unidadesComerciales = 281;
+    const r = construirCosteoHistorico(inp);
+    expect(r.conciliacion.unidades.factura).toBe(281);
+    expect(r.conciliacion.unidades.dua).toBe(281);
+    expect(r.conciliacion.unidades.ok).toBe(true);
+    expect(r.conciliacion.anticiposVsCif?.difME).toBeCloseTo(0.14, 2);
+    expect(r.conciliacion.tributos?.ok).toBe(true);
+    // Cuenta del despachante: cargó 95.456 (hon+gastos+reembolso TCU+no facturable+IVA),
+    // pagó 96.137 → saldo $681 a favor del importador (no incluye la agencia de carga).
+    expect(r.conciliacion.despachante?.totalCargos).toBe(C(95456));
+    expect(r.conciliacion.despachante?.saldo).toBe(C(96137) - C(95456));
+  });
+});
+
+describe('construirCosteoHistorico — OTRO expediente (EUR, anticipo parcial)', () => {
+  const otro: CosteoHistoricoInput = {
+    dua: { nroDua: '002-2026-200000', tipoCambio: 45.5, valorAduanaPesos: 455000, importadorRut: '210000000011', importeFacturas: 10000, moneda: 'EUR',
+      tributos: [{ codigo: '15', nombre: 'IVA importación', monto: 90000 }, { codigo: '02', nombre: 'Arancel', monto: 12000 }], unidadesComerciales: 50 } as any,
+    factura: { fob: C(9500), flete: C(400), seguro: C(100), total: C(10000), moneda: 'EUR',
+      articulos: [{ descripcion: 'X', codigo: 'X', cantidad: 50, total: C(10000) }] },
+    servicios: [{ rutComprador: '210000000011', moneda: 'UYU', serie: 'A', numero: '900', emisor: 'Despachante', honorarios: 8000, gastosOperativos: 1000, iva: 1980, total: 100000, noFacturable: 102000 }],
+    anticipos: [{ fecha: '2026-07-01', referencia: 'OP900', moneda: 'EUR', monto: 6000, comision: 50, cotizacion: 45.0 }], // cubre solo 6000 de 10000
+    pagoSpeCtms: C(102000), pagoDespachanteCtms: null,
+    fechaReconocimiento: '2026-08-01', cotizacionReconocimiento: 45.8, tcProvisional: 45.5, unidadesPacking: null, etiqueta: et,
+  };
+
+  it('el saldo no anticipado se valúa al TC de reconocimiento y va a proveedores del exterior', () => {
+    const r = construirCosteoHistorico(otro);
+    expect(r.estado).toBe('OK');
+    expect(r.saldoNoAnticipado?.me).toBeCloseTo(4000, 2);
+    expect(r.saldoNoAnticipado?.uyu).toBe(BigInt(Math.round(4000 * 45.8 * 100)));
+    // adquisición = 6000×45.0 + 4000×45.8
+    expect(r.adquisicionUYU).toBe(BigInt(Math.round(6000 * 45.0 * 100)) + BigInt(Math.round(4000 * 45.8 * 100)));
+    const rec = r.asientos.find((a) => /Reconocimiento/.test(a.glosa))!;
+    expect(rec.lineas.some((l) => /proveedoresExterior/.test(l.cuenta) && l.monedaOrig === 'EUR')).toBe(true);
+  });
+
+  it('las reglas son generales: tributos del DUA, ítems cuadran, unidades concilian', () => {
+    const r = construirCosteoHistorico(otro);
+    expect(r.ivaImportacion).toBe(C(90000));
+    expect(r.items!.reduce((s, i) => s + i.costo, 0n)).toBe(r.costoInventario);
+    expect(r.conciliacion.unidades.ok).toBe(true);
+  });
+});

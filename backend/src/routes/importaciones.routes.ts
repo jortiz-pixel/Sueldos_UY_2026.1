@@ -738,30 +738,24 @@ importacionesRouter.get('/:id/asiento', async (req: Request, res: Response, next
     const imp = await prisma.importacion.findUnique({ where: { id: req.params.id }, include: incluir });
     if (!imp) throw new NotFoundError('Importación');
     await assertCompanyAccess(req, imp.companyId);
-    const [plan, transferencias] = await Promise.all([
-      planDeEmpresa(imp.companyId),
-      prisma.importacionTransferencia.findMany({ where: { importacionId: imp.id } }),
-    ]);
-    const pagoProveedor = transferencias.reduce((s, t) => s + t.importe, 0n);
-    const entrada = asientoInputDesdeImportacion(imp);
-    const fechas = {
-      factura: imp.facturaComercialFecha ? imp.facturaComercialFecha.toISOString().slice(0, 10) : null,
-      dua: imp.duaFecha ? imp.duaFecha.toISOString().slice(0, 10) : null,
-      pagoProveedor: transferencias[0]?.fecha ? transferencias[0].fecha.toISOString().slice(0, 10) : null,
-      pagoDespachante: null,
-    };
-    const asientos = armarAsientosImportacion(entrada, fechas, (k) => etiquetaCuenta(plan, k), { proveedor: pagoProveedor });
-    // Compatibilidad: también el asiento combinado clásico.
+    const plan = await planDeEmpresa(imp.companyId);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const det: any = imp.costeoDetalle ?? null;
+    const asientos = (det?.asientos ?? []).map((a: Record<string, unknown>) => {
+      const lineas = (a.lineas as Array<Record<string, unknown>>).map((l) => ({
+        cuenta: etiquetaCuenta(plan, String(l.cuenta)),
+        monedaOrig: (l.monedaOrig as string) ?? null, montoOrig: (l.montoOrig as number) ?? null,
+        debe: String(l.debe), haber: String(l.haber),
+      }));
+      const totalDebe = lineas.reduce((s: bigint, l) => s + BigInt(l.debe), 0n);
+      const totalHaber = lineas.reduce((s: bigint, l) => s + BigInt(l.haber), 0n);
+      return { fecha: a.fecha ?? null, glosa: a.glosa, definitivo: a.definitivo, balanceado: a.balanceado, referencias: a.referencias ?? [], lineas, totalDebe: totalDebe.toString(), totalHaber: totalHaber.toString() };
+    });
     res.json({
       estado: imp.costeoEstado ?? null,
       motivo: imp.costeoMotivo ?? null,
-      asientos: asientos.map((a) => ({
-        fecha: a.fecha, glosa: a.glosa, balanceado: a.balanceado, definitivo: a.definitivo,
-        lineas: a.lineas.map((l) => ({ cuenta: l.cuenta, debe: l.debe.toString(), haber: l.haber.toString() })),
-        totalDebe: a.lineas.reduce((s, l) => s + l.debe, 0n).toString(),
-        totalHaber: a.lineas.reduce((s, l) => s + l.haber, 0n).toString(),
-      })),
-      combinado: armarAsientoImportacion(imp, plan),
+      asientos,
+      conciliacion: det?.conciliacion ?? null,
     });
   } catch (err) { next(err); }
 });
@@ -783,24 +777,20 @@ importacionesRouter.get('/:id/costeo.pdf', async (req: Request, res: Response, n
       prisma.importacionDocExtraccion.findMany({ where: { importacionId: imp.id }, orderBy: { createdAt: 'asc' } }),
       planDeEmpresa(imp.companyId),
     ]);
-    // Asientos SEPARADOS (anticipos, compra, tributos, gastos, pagos).
-    const pagoProveedorCtms = transferencias.reduce((s, t) => s + t.importe, 0n);
-    const asientosDoc = armarAsientosImportacion(
-      asientoInputDesdeImportacion(imp),
-      {
-        factura: imp.facturaComercialFecha ? imp.facturaComercialFecha.toISOString().slice(0, 10) : null,
-        dua: imp.duaFecha ? imp.duaFecha.toISOString().slice(0, 10) : null,
-        pagoProveedor: transferencias[0]?.fecha ? transferencias[0].fecha.toISOString().slice(0, 10) : null,
-        pagoDespachante: null,
-      },
-      (k) => etiquetaCuenta(plan, k),
-      { proveedor: pagoProveedorCtms },
-    );
+    // Asientos CRONOLÓGICOS del costeo histórico (re-etiquetados con el plan).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const det: any = imp.costeoDetalle ?? null;
+    const asientosDoc = (det?.asientos ?? []).map((a: Record<string, unknown>) => ({
+      fecha: a.fecha ?? null, glosa: String(a.glosa), definitivo: !!a.definitivo, balanceado: !!a.balanceado,
+      referencias: (a.referencias as Array<Record<string, string>>) ?? [],
+      lineas: (a.lineas as Array<Record<string, unknown>>).map((l) => ({ cuenta: etiquetaCuenta(plan, String(l.cuenta)), monedaOrig: (l.monedaOrig as string) ?? null, montoOrig: (l.montoOrig as number) ?? null, debe: BigInt(String(l.debe)), haber: BigInt(String(l.haber)) })),
+    }));
     const pdf = await generateInformePDF({
       empresa: { razonSocial: imp.company.razonSocial, rut: imp.company.rut },
       imp,
       plan,
-      asientos: asientosDoc.map((a) => ({ fecha: a.fecha, glosa: a.glosa, definitivo: a.definitivo, balanceado: a.balanceado, lineas: a.lineas.map((l) => ({ cuenta: l.cuenta, debe: l.debe, haber: l.haber })) })),
+      costeoDetalle: det,
+      asientos: asientosDoc,
       facturas: facturas.map((f) => ({ proveedor: f.proveedor, numero: f.numero, fecha: f.fecha, moneda: f.moneda, incoterm: f.incoterm, fob: f.fob, flete: f.flete, seguro: f.seguro, cif: f.cif, total: f.total, articulos: f.articulos.map((a) => ({ nro: a.nro, codigo: a.codigo, descripcion: a.descripcion, cantidad: a.cantidad, precioUnit: a.precioUnit, total: a.total })) })),
       liquidaciones: liquidaciones.map((l) => ({ carpeta: l.carpeta, fecha: l.fecha, aduana: l.aduana, despachante: l.despachante, transporte: l.transporte, tipoCambio: l.tipoCambio, moneda: l.moneda, kilosBrutos: l.kilosBrutos, kilosNetos: l.kilosNetos, total: l.total, gastosAgenciaExtra: l.gastosAgenciaExtra, conceptos: l.conceptos.map((c) => ({ clave: c.clave, monto: c.monto })) })),
       transferencias: transferencias.map((t) => ({ referencia: t.referencia, fecha: t.fecha, moneda: t.moneda, importe: t.importe, comision: t.comision, totalDebitado: t.totalDebitado, beneficiario: t.beneficiario, nroDocs: t.nroDocs })),

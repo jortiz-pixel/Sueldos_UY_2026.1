@@ -9,7 +9,8 @@ import { TipoDocumentoImportacion, EstadoProcesamientoDoc } from '@prisma/client
 import { prisma } from '../utils/prisma';
 import { storageService } from './storage.service';
 import { textoDelPdf } from './importaciones.pdf-extract.service';
-import { construirCosteoDocumental, sanitizarIdentificador, validarTipoCambio, CosteoDocInput } from './importaciones.costeo.service';
+import { GastoImportacionConcepto } from '@prisma/client';
+import { construirCosteoHistorico, sanitizarIdentificador, validarTipoCambio, CosteoDocInput } from './importaciones.costeo.service';
 import { cotizacionBcu } from './cotizaciones.service';
 import {
   clasificarDocumento, parseFacturaComercial, parseLiquidacionDespachante,
@@ -91,50 +92,87 @@ async function obtenerTcFiscalOperacion(moneda: string, fecha: Date | null, tcDu
   return null;
 }
 
+/** Cotización fiscal del día (loaded CONTABLE → BCU), SIN usar el TC del DUA.
+ *  Para valuar anticipos y servicios en ME a la fecha real de cada pago. */
+async function tcFiscalDia(moneda: string, fecha: Date | null): Promise<number | null> {
+  return obtenerTcFiscalOperacion(moneda, fecha, null);
+}
+
+const bigintReplacer = (_k: string, v: unknown) => (typeof v === 'bigint' ? v.toString() : v);
+
 /**
- * Recalcula el COSTEO del expediente con el MOTOR documental estricto
- * (construirCosteoDocumental): tributos del DUA, adquisición al TC CONTABLE,
- * gastos facturados al importador, y estado OK/PENDIENTE. Si queda PENDIENTE,
- * NO distribuye el costo por artículo y marca el expediente para bloquear los
- * asientos definitivos. Reemplaza tributos/gastos/ítems. Requiere DUA presente.
+ * Recalcula el COSTEO HISTÓRICO del expediente (construirCosteoHistorico):
+ * adquisición valuada por los ANTICIPOS a la cotización fiscal de CADA fecha de
+ * pago (partida no monetaria, NIC 21), tributos del DUA, gastos de plaza
+ * desglosados con dedup por cuenta de terceros, asientos cronológicos con
+ * referencias, y conciliaciones. Si falta una cotización → PROVISIONAL (se usa
+ * el TC del DUA solo como estimación provisional y se bloquea la aprobación).
+ * Guarda el detalle completo en costeoDetalle. Requiere DUA presente.
  */
 async function reconstruirCosteoDesdeExtraccion(importacionId: string): Promise<{ ok: boolean; estado?: string; motivo?: string }> {
   const imp = await prisma.importacion.findUnique({ where: { id: importacionId } });
   if (!imp || imp.estado === 'ANULADA') return { ok: false };
-  const [duaEx, serviciosEx, factura, pagoTrib] = await Promise.all([
+  const [duaEx, serviciosEx, factura, pagoTrib, transferencias, recibos, packingEx] = await Promise.all([
     prisma.importacionDocExtraccion.findFirst({ where: { importacionId, tipo: 'DUA' } }),
     prisma.importacionDocExtraccion.findMany({ where: { importacionId, tipo: 'FACTURA_SERVICIOS_UY' } }),
     prisma.importacionFactura.findFirst({ where: { importacionId }, include: { articulos: { orderBy: { nro: 'asc' } } }, orderBy: { createdAt: 'asc' } }),
     prisma.importacionDocExtraccion.findFirst({ where: { importacionId, tipo: 'PAGO_TRIBUTOS' } }),
+    prisma.importacionTransferencia.findMany({ where: { importacionId }, orderBy: { fecha: 'asc' } }),
+    prisma.importacionDocExtraccion.findMany({ where: { importacionId, tipo: 'RECIBO' } }),
+    prisma.importacionDocExtraccion.findFirst({ where: { importacionId, tipo: 'PACKING_LIST' } }),
   ]);
   if (!duaEx) return { ok: false };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const d: any = duaEx.datos ?? {};
   const moneda: string = imp.monedaOrigen || d.moneda || 'USD';
   const tcAdVal = validarTipoCambio(d.tipoCambio);
-  // Día de la operación: fecha del DUA (numeración/nacionalización); si no, la de la factura.
-  const fechaOp = (d.fechaPago ? new Date(`${d.fechaPago}T00:00:00Z`) : null) ?? factura?.fecha ?? null;
-  // Cotización FISCAL del día de la operación (DUA → cargada → BCU).
-  const tcContable = await obtenerTcFiscalOperacion(moneda, fechaOp, tcAdVal.valor);
+  const duaDate = d.fechaPago ? new Date(`${d.fechaPago}T00:00:00Z`) : (factura?.fecha ?? null);
+  const iso = (dd: Date | null) => (dd ? dd.toISOString().slice(0, 10) : null);
 
-  const input: CosteoDocInput = {
+  // Anticipos al proveedor: cada transferencia a su cotización fiscal del día de pago.
+  const anticipos = await Promise.all(transferencias.map(async (t) => {
+    const cot = await tcFiscalDia(t.moneda, t.fecha);
+    return { fecha: iso(t.fecha), referencia: t.referencia, moneda: t.moneda, monto: Number(t.importe) / 100, comision: Number(t.comision) / 100, cotizacion: cot };
+  }));
+  // Servicios con su fecha y, si están en ME, su cotización.
+  const servicios = await Promise.all(serviciosEx.map(async (s) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sd: any = s.datos ?? {};
+    const esUsd = (sd.moneda ?? '').toUpperCase() === 'USD';
+    const cot = esUsd ? await tcFiscalDia(sd.moneda, s.fecha) : null;
+    const primeraLinea = Array.isArray(sd.lineas) && sd.lineas[0] ? String(sd.lineas[0].descripcion ?? '') : '';
+    return { rutComprador: sd.rutComprador ?? null, rutEmisor: sd.rutEmisor ?? s.rutEmisor ?? null, moneda: sd.moneda ?? null, serie: sd.serie ?? null, numero: sd.numero ?? null, emisor: s.emisor, honorarios: sd.honorarios ?? null, gastosOperativos: sd.gastosOperativos ?? null, iva: sd.iva ?? null, total: sd.total ?? null, noFacturable: sd.noFacturable ?? null, concepto: primeraLinea, fecha: iso(s.fecha), cotizacion: cot };
+  }));
+  // Pago al despachante: recibo emitido por el despachante (RUT declarante).
+  const reciboDesp = recibos.find((rc) => rc.rutEmisor && d.declaranteRut && rc.rutEmisor === d.declaranteRut) ?? recibos[0] ?? null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const unidadesPacking: number | null = (packingEx?.datos as any)?.cantidadTotal ?? null;
+  // Cotización fiscal de la fecha de reconocimiento (día de la operación).
+  const cotReconoc = await obtenerTcFiscalOperacion(moneda, duaDate, tcAdVal.valor);
+
+  const r = construirCosteoHistorico({
     dua: {
       nroDua: d.nroDua ?? null, tipoCambio: d.tipoCambio, valorAduanaPesos: d.valorAduanaPesos ?? null,
-      importadorRut: d.importadorRut ?? null, importeFacturas: d.importeFacturas ?? null, moneda: d.moneda ?? null,
-      tributos: (d.tributos ?? []).map((t: { codigo: string; nombre?: string; monto: number }) => ({ codigo: t.codigo, nombre: t.nombre, monto: t.monto })),
-    },
+      importadorRut: d.importadorRut ?? null, declaranteRut: d.declaranteRut ?? null, unidadesComerciales: d.unidadesComerciales ?? null,
+      importeFacturas: d.importeFacturas ?? null, moneda: d.moneda ?? null,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      tributos: (d.tributos ?? []).map((t: any) => ({ codigo: t.codigo, nombre: t.nombre, monto: t.monto })),
+    } as CosteoDocInput['dua'],
     factura: factura ? {
       fob: factura.fob, flete: factura.flete, seguro: factura.seguro, total: factura.total, moneda: factura.moneda,
       articulos: factura.articulos.map((a) => ({ descripcion: a.descripcion || a.codigo || 'Ítem', codigo: a.codigo, cantidad: a.cantidad || 1, total: a.total })),
     } : null,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    servicios: serviciosEx.map((s) => { const sd: any = s.datos ?? {}; return { rutComprador: sd.rutComprador ?? null, moneda: sd.moneda ?? null, serie: sd.serie ?? null, numero: sd.numero ?? null, emisor: s.emisor, honorarios: sd.honorarios ?? null, gastosOperativos: sd.gastosOperativos ?? null, iva: sd.iva ?? null, total: sd.total ?? null }; }),
+    servicios, anticipos,
     pagoSpeCtms: pagoTrib ? pagoTrib.total : null,
-    tcContable,
-  };
-
-  const r = construirCosteoDocumental(input);
+    pagoDespachanteCtms: reciboDesp ? reciboDesp.total : null,
+    fechaReconocimiento: iso(duaDate), cotizacionReconocimiento: cotReconoc, tcProvisional: tcAdVal.valor,
+    unidadesPacking,
+    etiqueta: (k) => k, // en el informe/asiento se re-etiqueta con el plan de cuentas
+  });
   const ncm: string | null = d.ncm ?? null;
+  // TC representativo para el cabezal (varios si hay anticipos en distintas fechas).
+  const tcRepresentativo = anticipos.length === 1 ? (anticipos[0].cotizacion ?? null) : (cotReconoc ?? null);
+  const costeoDetalle = JSON.parse(JSON.stringify(r, bigintReplacer));
 
   await prisma.$transaction([
     prisma.itemImportacion.deleteMany({ where: { importacionId } }),
@@ -146,24 +184,25 @@ async function reconstruirCosteoDesdeExtraccion(importacionId: string): Promise<
         proveedorExterior: sanitizarIdentificador(d.proveedor) ?? imp.proveedorExterior,
         paisOrigen: d.paisOrigen ?? imp.paisOrigen,
         monedaOrigen: moneda,
-        tipoCambio: tcContable ?? imp.tipoCambio,
-        tcContable: tcContable ?? null,
+        tipoCambio: tcRepresentativo ?? imp.tipoCambio,
+        tcContable: tcRepresentativo,
         tcAduanero: tcAdVal.valor,
         duaNumero: sanitizarIdentificador(d.nroDua) ?? imp.duaNumero,
-        duaFecha: d.fechaPago ? new Date(`${d.fechaPago}T00:00:00Z`) : imp.duaFecha,
+        duaFecha: duaDate ?? imp.duaFecha,
         aduana: d.aduana ?? imp.aduana,
         transporteDoc: d.awb ? `AWB ${d.awb}` : imp.transporteDoc,
         facturaComercialNro: factura?.numero ?? imp.facturaComercialNro,
         facturaComercialFecha: factura?.fecha ?? imp.facturaComercialFecha,
-        fob: r.adquisicionPesos, flete: r.fletePesos, seguro: r.seguroPesos, cif: r.cifContable,
-        totalTributos: r.totalTributos, totalGastos: r.totalGastos,
-        costoMercaderia: r.costoInventario ?? 0n, creditoFiscalIva: r.creditoFiscalIva, anticipos: r.anticipos,
+        // La adquisición (CIF histórico) ya incluye flete/seguro (están dentro del CIF).
+        fob: r.adquisicionUYU, flete: 0n, seguro: 0n, cif: r.adquisicionUYU,
+        totalTributos: r.totalTributos, totalGastos: r.totalGastosUYU,
+        costoMercaderia: r.costoInventario ?? 0n, creditoFiscalIva: r.creditoFiscalIva, anticipos: r.anticiposFiscales,
         costeoEstado: r.estado,
         costeoMotivo: r.motivos.length ? r.motivos.join(' · ') : null,
-        // Ítems: SOLO si el costeo está OK (no se distribuye con datos incompletos).
-        items: { create: (r.items ?? []).map((i) => ({ descripcion: i.descripcion, ncm, cantidad: i.cantidad, fobUnitario: i.cantidad ? i.fobTotal / BigInt(Math.max(1, Math.round(i.cantidad))) : i.fobTotal, fobTotal: i.fobTotal, costoProrrateado: i.costo })) },
+        costeoDetalle,
+        items: { create: (r.items ?? []).map((i) => ({ descripcion: i.descripcion, ncm, cantidad: i.cantidad, fobUnitario: i.cantidad ? i.fobME / BigInt(Math.max(1, Math.round(i.cantidad))) : i.fobME, fobTotal: i.fobME, costoProrrateado: i.costo })) },
         tributos: { create: r.tributos.map((t) => ({ tipo: t.tipo, baseImponible: 0n, tasa: 0, monto: t.monto, recuperable: t.recuperable })) },
-        gastos: { create: r.gastos.map((g) => ({ concepto: g.concepto, descripcion: g.descripcion, monto: g.monto, gravadoIva: g.gravadoIva, ivaGasto: g.ivaGasto })) },
+        gastos: { create: r.gastos.filter((g) => g.incluidoEnCosto).map((g) => ({ concepto: /honorario/i.test(g.concepto) ? GastoImportacionConcepto.HONORARIOS_DESPACHANTE : GastoImportacionConcepto.OTRO, descripcion: `${g.documento}: ${g.concepto}`, monto: g.montoUYU, gravadoIva: g.gravado, ivaGasto: g.ivaUYU })) },
       },
     }),
   ]);

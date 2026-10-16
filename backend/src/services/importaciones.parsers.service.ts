@@ -313,7 +313,7 @@ export interface DuaParsed {
   totalBultos: number | null; pesoBruto: number | null; pesoNeto: number | null; nroItems: number | null;
   valorCif: number | null; valorAduanaPesos: number | null; totalTributos: number | null;
   awb: string | null; ncm: string | null; paisOrigen: string | null; estadoMercaderia: string | null;
-  facturaNro: string | null;
+  facturaNro: string | null; unidadesComerciales: number | null;
   tributos: TributoDua[];
 }
 
@@ -373,6 +373,8 @@ export function parseDUA(texto: string): DuaParsed {
   const estadoMercaderia = b(/\b10\s+(Nuevo)\b/i);
   const valorAduanaPesos = (() => { const v = b(/5\.628,84\s+([\d.]+,\d{2})/) || b(/Valor Aduanas Pesos[\s\S]*?([\d.]+,\d{2})/i); return v ? parseNum(v) : null; })();
   const facturaNro = b(/FACN\s+([\d-]+)/i);
+  // Unidades comerciales (casilla 78): "02 UNIDAD (C/U) 281,000".
+  const unidadesComerciales = (() => { const v = b(/UNIDAD\s*\(C\/U\)\s+([\d.]+),\d{3}/i); return v ? parseNum(v.replace(/\./g, '')) : null; })();
 
   const tributos: TributoDua[] = [];
   for (const { codigo, nombre, re } of DUA_TRIBUTOS) {
@@ -388,7 +390,7 @@ export function parseDUA(texto: string): DuaParsed {
     nroDua, canal: canal ?? null, regimen: regimen ?? null, carpeta: carpeta ?? null, aduana, fechaPago, fechaRegistro,
     importador, importadorRut, declarante, declaranteRut, codDespachante, proveedor,
     moneda, tipoCambio, importeFacturas, totalBultos, pesoBruto, pesoNeto, nroItems,
-    valorCif, valorAduanaPesos, totalTributos, awb, ncm, paisOrigen, estadoMercaderia, facturaNro, tributos,
+    valorCif, valorAduanaPesos, totalTributos, awb, ncm, paisOrigen, estadoMercaderia, facturaNro, unidadesComerciales, tributos,
   };
 }
 
