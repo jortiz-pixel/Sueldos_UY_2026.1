@@ -38,7 +38,7 @@ export default function Layout() {
   const { mode, setMode } = useViewMode();
   const navigate = useNavigate();
   const esStaff = user?.role === 'ADMIN' || user?.role === 'OPERATOR';
-  const cambiarModo = (m: 'sueldos' | 'tareas') => { setMode(m); setOpen(false); navigate('/'); };
+  const cambiarModo = (m: 'sueldos' | 'tareas' | 'importaciones') => { setMode(m); setOpen(false); navigate('/'); };
   const [open, setOpen] = useState(false);
   const { data: appVersion } = useQuery({ queryKey: ['app-version'], queryFn: () => versionApi.get(), staleTime: 5 * 60 * 1000 });
   // Empresa activa: para mostrar "Obras" solo cuando es de construcción.
@@ -74,9 +74,9 @@ export default function Layout() {
         {esStaff && (
           <div className="px-3 pb-2">
             <div className="flex gap-1 bg-white/10 p-1 rounded-lg">
-              {([{ k: 'sueldos', label: 'Sueldos', icon: Landmark }, { k: 'tareas', label: 'Tareas', icon: ClipboardList }] as const).map(({ k, label, icon: Icon }) => (
-                <button key={k} onClick={() => cambiarModo(k)}
-                  className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${mode === k ? 'bg-white text-navy shadow-sm' : 'text-white/70 hover:text-white'}`}>
+              {([{ k: 'sueldos', label: 'Sueldos', icon: Landmark }, { k: 'tareas', label: 'Tareas', icon: ClipboardList }, { k: 'importaciones', label: 'Comex', icon: Ship }] as const).map(({ k, label, icon: Icon }) => (
+                <button key={k} onClick={() => cambiarModo(k)} title={k === 'importaciones' ? 'Importaciones (comercio exterior)' : label}
+                  className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md text-xs font-semibold transition-colors ${mode === k ? 'bg-white text-navy shadow-sm' : 'text-white/70 hover:text-white'}`}>
                   <Icon size={13} /> {label}
                 </button>
               ))}
@@ -87,9 +87,11 @@ export default function Layout() {
         <nav className="flex-1 px-3 py-2 space-y-0.5 overflow-y-auto">
           {navItems.filter((it) => mode === 'tareas'
             ? it.to === '/tareas'
-            : it.to !== '/tareas'
-              && (!it.adminOnly || user?.role === 'ADMIN')
-              && (!it.construccionOnly || esConstruccion)
+            : mode === 'importaciones'
+              ? it.to === '/importaciones'
+              : it.to !== '/tareas' && it.to !== '/importaciones'
+                && (!it.adminOnly || user?.role === 'ADMIN')
+                && (!it.construccionOnly || esConstruccion)
           ).map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}

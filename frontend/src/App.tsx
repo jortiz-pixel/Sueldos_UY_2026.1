@@ -75,7 +75,7 @@ function AppRoutes() {
       <Route path="/portal-empresa" element={<Navigate to="/portal/empresa" replace />} />
 
       <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
-        <Route index element={mode === 'tareas' ? <Navigate to="/tareas" replace /> : <DashboardPage />} />
+        <Route index element={mode === 'tareas' ? <Navigate to="/tareas" replace /> : mode === 'importaciones' ? <Navigate to="/importaciones" replace /> : <DashboardPage />} />
         <Route path="companies" element={<CompaniesPage />} />
         <Route path="concepts" element={<ConceptsPage />} />
         <Route path="contracts" element={<ContractsPage />} />

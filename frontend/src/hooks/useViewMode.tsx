@@ -1,9 +1,10 @@
 import { createContext, useContext, useState, ReactNode } from 'react';
 import { isAgendaHost } from '../utils/host';
 
-// El sistema tiene dos "áreas" sobre el mismo login: SUELDOS y TAREAS (Agenda del
-// estudio). El usuario elige en qué área trabajar; la elección se recuerda.
-export type ViewMode = 'sueldos' | 'tareas';
+// El sistema tiene "áreas" sobre el mismo login: SUELDOS, TAREAS (Agenda del
+// estudio) e IMPORTACIONES (comercio exterior). El usuario elige en qué área
+// trabajar; la elección se recuerda.
+export type ViewMode = 'sueldos' | 'tareas' | 'importaciones';
 
 interface ViewModeCtx {
   mode: ViewMode;
