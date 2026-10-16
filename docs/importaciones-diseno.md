@@ -270,3 +270,22 @@ formatos reales y validados byte a byte contra los 6 PDF de MARPOLOS:
 Falta (siguiente): modelo de datos de extracción + trazabilidad, endpoint de
 procesamiento por documento, pestaña "Datos extraídos" y motor de conciliación,
 y tests automáticos con fixtures de texto (los PDF del cliente no se versionan).
+
+## TABLERO MAESTRO (checklist del usuario, 11 secciones) — avance 16/10/2026
+Leyenda: ✅ hecho · 🟡 parcial · ⬜ falta.
+1. Config empresas/régimen ~80% ✅ multiempresa, régimen, CEDE/formulario, marco, plan de cuentas, políticas, permisos por rol · 🟡 reglas de imputación, revisores/aprobadores.
+2. Documentación y lectura ~55% ✅ carga múltiple, clasificación, copias+dedup, 33 artículos · ⬜ separar docs en un PDF, trazabilidad campo↔página, corrección con historial, documentación faltante.
+3. Expedientes/aduana ~45% ✅ CIF, aduana/régimen/fechas/Incoterm, estados · ⬜ numeración interna, multi-factura/DUA, NCM, certificados, estado recibida.
+4. Proveedores/anticipos/bancos ~30% 🟡 pagos/comisiones extraídos, conciliación validada en motor, cotizaciones · ⬜ maestro proveedores, persistir pagos, saldos, dif. de cambio.
+5. Costos ~55% ✅ CIF+tasas+honorarios, exclusión IVA, prorrateo cuadra · ⬜ criterios peso/volumen/cantidad, reajustes posteriores, presupuesto vs real.
+6. Impuestos ~35% ✅ IVA imp. vs anticipo, crédito fiscal del mes · ⬜ mapeo F2178/F1306 versionado, IVA no deducible, clasificación IRAE, reglas versionadas.
+7. Motor de asientos ~25% ✅ asiento con plan de cuentas + debe=haber · ⬜ asientos A–F, estados+aprobación+reversión, anti-duplicado.
+8. Inventarios ~5% ⬜ módulo completo.
+9. Controles/conciliaciones ~25% 🟡 en motor · ⬜ persistido + pantalla + estados.
+10. Auditoría/aprobación ~45% ✅ seguridad, auditoría, anti-inyección docs · ⬜ estados+historial de la operación, versión de normas, alertas, bloqueo de cierre, reapertura.
+11. Informes/export ~20% ✅ ficha costeo PDF, crédito fiscal Excel · ⬜ Excel asientos/costos, conciliaciones, informe fiscal, PDF expediente, CSV, API/Odoo, panel, versionado.
+
+Camino acordado (MARPOLOS end-to-end primero): (A) persistir la extracción con
+trazabilidad [sec. 2/3/4/5] → (B) conciliación [sec. 9] → (C) asientos A–F +
+estados/aprobación [sec. 7/10] → (D) impuestos F2178 [sec. 6] → (E) exportaciones
++ panel [sec. 11]. Inventarios (sec. 8) es un módulo aparte, posterior.
