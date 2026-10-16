@@ -374,18 +374,27 @@ function FormImportacion({ companyId, inicial, importacion, onClose, onSaved, on
     },
   });
 
-  const autocompletar = useMutation({
-    mutationFn: (file: File) => importacionesApi.extraer(file),
-    onSuccess: (r) => {
+  const [autoLoading, setAutoLoading] = useState(false);
+  const [textoLeido, setTextoLeido] = useState('');
+  async function onAutocompletar(file: File) {
+    setAutoLoading(true); setAvisoAuto(''); setTextoLeido('');
+    try {
+      const r = await importacionesApi.extraer(file);
       if (r.datos) {
         setF((prev) => aplicarExtraido(prev, r.datos!));
-        setAvisoAuto('Datos cargados del archivo. Revisalos antes de guardar.');
+        setAvisoAuto(r.aviso || 'Datos cargados del archivo. Revisalos antes de guardar.');
       } else {
         setAvisoAuto(r.aviso || 'No se pudieron extraer datos del archivo.');
       }
-    },
-    onError: () => setAvisoAuto('No se pudo leer el archivo.'),
-  });
+      if (r.texto) setTextoLeido(r.texto);
+      // Si el PDF/archivo es la fuente de datos de una importación nueva, se adjunta también.
+      if (!importacion && !pendientes.some((x) => x.name === file.name)) setPendientes((p) => [...p, file]);
+    } catch {
+      setAvisoAuto('No se pudo leer el archivo.');
+    } finally {
+      setAutoLoading(false);
+    }
+  }
 
   return (
     <div className="space-y-5 max-w-5xl">
@@ -401,8 +410,8 @@ function FormImportacion({ companyId, inicial, importacion, onClose, onSaved, on
         <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-subtle flex items-center gap-2"><Paperclip size={16} /> Documentos y autocompletado</h2>
         <div className="flex flex-wrap items-center gap-3">
           <label className="btn-secondary cursor-pointer">
-            <Upload size={16} /> {autocompletar.isPending ? 'Leyendo…' : 'Autocompletar desde archivo'}
-            <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) autocompletar.mutate(file); e.target.value = ''; }} />
+            <Upload size={16} /> {autoLoading ? 'Leyendo…' : 'Subir archivo y autocompletar'}
+            <input type="file" accept=".pdf,.xlsx,.xls,.csv" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) onAutocompletar(file); e.target.value = ''; }} />
           </label>
           <button type="button" className="btn-secondary btn-sm" onClick={async () => descargarBlob(await importacionesApi.plantilla(), 'plantilla_importaciones.xlsx')}>
             <Download size={14} /> Plantilla
@@ -415,10 +424,15 @@ function FormImportacion({ companyId, inicial, importacion, onClose, onSaved, on
           )}
         </div>
         <p className="text-xs text-ink-subtle">
-          Subí el <b>Excel/CSV</b> del despachante (o la plantilla) para que se completen los datos automáticamente.
-          Adjuntá la factura, el DUA, el conocimiento de embarque, etc. (PDF o imagen). El PDF del DUA se guarda como adjunto; la lectura automática del DUA se habilita cuando nos pasés una muestra del formato.
+          Subí la <b>factura del proveedor, el comprobante de pago o el DUA en PDF</b> (o un Excel/CSV): el sistema lee el archivo y toma los valores que puede identificar (FOB/total, flete, seguro, IVA, N° de factura/DUA, fecha, moneda). <b>Revisá y completá</b> antes de guardar. En una importación nueva, el archivo subido también queda adjunto.
         </p>
         {avisoAuto && <div className="text-sm text-ink bg-canvas/70 rounded-lg p-2">{avisoAuto}</div>}
+        {textoLeido && (
+          <details className="text-xs text-ink-subtle">
+            <summary className="cursor-pointer select-none">Ver el texto leído del archivo</summary>
+            <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap bg-canvas/70 rounded-lg p-2">{textoLeido}</pre>
+          </details>
+        )}
         {!importacion && pendientes.length > 0 && (
           <ul className="divide-y divide-hairline/60 text-sm">
             {pendientes.map((file, i) => (

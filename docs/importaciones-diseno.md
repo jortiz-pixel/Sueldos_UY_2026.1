@@ -15,8 +15,13 @@ de accesos (anti-IDOR) y la auditoría ya existentes.
 >   importación se pueden adjuntar documentos (se suben al guardar) y
 >   **autocompletar el formulario** subiendo el Excel/CSV del despachante
 >   (endpoint `/extraer`).
-> Pendiente opcional: parser DIRECTO del PDF del DUA / archivo nativo del
-> despachante (sin plantilla), que requiere una muestra real del archivo — §7.
+> - Etapa 3b: lectura de **PDF** (factura del proveedor, pago, DUA) con
+>   extracción de texto (`pdf-parse`) y heurísticas bilingües que toman
+>   FOB/total, flete, seguro, IVA, N° de factura/DUA, fecha y moneda para
+>   autocompletar el formulario (best-effort, se revisa antes de guardar); el
+>   archivo subido queda adjunto.
+> Pendiente: (a) calibrar la lectura de PDF al formato REAL de los documentos
+> del cliente (requiere muestras); (b) OCR para PDF escaneados (sin texto). §7.
 
 ## 1. Decisiones de alcance (acordadas)
 

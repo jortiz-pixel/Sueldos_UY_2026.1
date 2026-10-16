@@ -18,6 +18,7 @@ import { recordAudit } from '../services/audit.service';
 import { calcularCosteo, esTributoRecuperable, armarAsientoImportacion } from '../services/importaciones.service';
 import { generateCosteoPDF, costeoFilename } from '../services/importaciones.pdf.service';
 import { parseImportacionesExcel, buildPlantillaImportaciones } from '../services/importaciones.import.service';
+import { extraerImportacionDesdePdf } from '../services/importaciones.pdf-extract.service';
 
 export const importacionesRouter = Router();
 
@@ -251,8 +252,15 @@ importacionesRouter.post('/extraer', uploadXls.single('file'), async (req: Reque
     const nombre = (req.file.originalname || '').toLowerCase();
     const esHoja = /\.(xlsx|xls|csv)$/.test(nombre)
       || req.file.mimetype.includes('sheet') || req.file.mimetype.includes('excel') || req.file.mimetype.includes('csv');
+    const esPdf = /\.pdf$/.test(nombre) || req.file.mimetype.includes('pdf');
+
+    if (esPdf) {
+      const r = await extraerImportacionDesdePdf(req.file.buffer);
+      res.json({ datos: r.datos, aviso: r.aviso, encontrados: r.encontrados, texto: r.texto });
+      return;
+    }
     if (!esHoja) {
-      res.json({ datos: null, aviso: 'Por ahora solo puedo autocompletar desde Excel/CSV. Adjuntá el PDF y completá los datos a mano, o pasanos una muestra del archivo del despachante para habilitar la lectura automática del DUA.' });
+      res.json({ datos: null, aviso: 'Formato no reconocido. Subí un PDF (factura, DUA, comprobante) o un Excel/CSV.' });
       return;
     }
     const { rows } = parseImportacionesExcel(req.file.buffer);

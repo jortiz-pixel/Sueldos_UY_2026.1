@@ -427,6 +427,8 @@ export interface ImportacionExtraido {
   } | null;
   errores?: string[];
   aviso?: string;
+  encontrados?: string[];
+  texto?: string;
 }
 
 export interface AsientoLinea { cuenta: string; debe: string; haber: string; }
