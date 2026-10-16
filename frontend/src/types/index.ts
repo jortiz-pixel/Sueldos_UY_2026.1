@@ -514,7 +514,8 @@ export interface ImportacionExtraido {
 }
 
 export interface AsientoLinea { cuenta: string; debe: string; haber: string; }
-export interface AsientoImportacion { lineas: AsientoLinea[]; totalDebe: string; totalHaber: string; balanceado: boolean; }
+export interface AsientoImportacionEntry { fecha: string | null; glosa: string; balanceado: boolean; definitivo: boolean; lineas: AsientoLinea[]; totalDebe: string; totalHaber: string; }
+export interface AsientoImportacion { estado: string | null; motivo: string | null; asientos: AsientoImportacionEntry[]; combinado: { lineas: AsientoLinea[]; totalDebe: string; totalHaber: string; balanceado: boolean }; }
 
 export interface CreditoFiscalFila {
   id: string;

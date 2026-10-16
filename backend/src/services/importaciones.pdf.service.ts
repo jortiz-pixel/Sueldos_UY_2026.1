@@ -9,7 +9,6 @@
  */
 import PDFDocument from 'pdfkit';
 import { ImportacionEstado, ImportacionRegimen, TributoImportacionTipo } from '@prisma/client';
-import { armarAsientoImportacion } from './importaciones.service';
 import type { PlanCuentas } from './importaciones.config.service';
 
 export interface ImportacionPdf {
@@ -30,8 +29,11 @@ export interface ImportacionPdf {
   costoMercaderia: bigint; creditoFiscalIva: bigint; anticipos: bigint;
   gastos: { ivaGasto: bigint }[];
   tributos: { tipo: TributoImportacionTipo; monto: bigint }[];
+  costeoEstado?: string | null; costeoMotivo?: string | null;
+  tcContable?: number | null; tcAduanero?: number | null;
   notas?: string | null;
 }
+interface AsientoInformePdf { fecha: string | null; glosa: string; definitivo: boolean; balanceado: boolean; lineas: { cuenta: string; debe: bigint; haber: bigint }[] }
 interface EmpresaPdf { razonSocial: string; rut: string | null }
 interface ArticuloPdf { nro: number; codigo: string | null; descripcion: string; cantidad: number; precioUnit: number; total: bigint }
 interface FacturaPdf { proveedor: string | null; numero: string | null; fecha: Date | null; moneda: string; incoterm: string | null; fob: bigint; flete: bigint; seguro: bigint; cif: bigint; total: bigint; articulos: ArticuloPdf[] }
@@ -56,6 +58,7 @@ export interface InformeInput {
   transferencias: TransferenciaPdf[];
   documentos: DocumentoPdf[];
   docExtracciones?: DocExtraccionPdf[];
+  asientos?: AsientoInformePdf[];
 }
 
 const REGIMEN: Record<ImportacionRegimen, string> = {
@@ -80,6 +83,8 @@ export function costeoFilename(imp: ImportacionPdf): string {
 
 export function generateInformePDF(input: InformeInput): Promise<Buffer> {
   const { empresa, imp, plan, facturas, liquidaciones, transferencias, documentos } = input;
+  const asientos = input.asientos ?? [];
+  const pendiente = imp.costeoEstado === 'PENDIENTE';
   const docExtracciones = input.docExtracciones ?? [];
   const exDua = docExtracciones.find((e) => e.tipo === 'DUA');
   const exServicios = docExtracciones.filter((e) => e.tipo === 'FACTURA_SERVICIOS_UY');
@@ -171,12 +176,12 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     const fac0 = facturas[0];
     const totPagRes = transferencias.reduce((s, t) => s + t.importe, 0n);
     const resumen: Array<[string, string]> = [
-      ['CIF', fac0 ? money(fac0.cif, sym(fac0.moneda)) : money(imp.cif)],
-      ['Costo de la mercadería', money(imp.costoMercaderia)],
+      ['CIF (factura)', fac0 ? money(fac0.cif, sym(fac0.moneda)) : money(imp.cif)],
+      ['Costo del inventario', pendiente ? 'PENDIENTE' : money(imp.costoMercaderia)],
       ['Crédito fiscal IVA', money(imp.creditoFiscalIva)],
       ['Anticipos (pago a cuenta)', money(imp.anticipos)],
       ['Total pagado al proveedor', money(totPagRes, 'US$')],
-      ['Liquidación despachante', liq0 ? money(liq0.total, sym(liq0.moneda)) : '—'],
+      ['TC contable / aduanero', `${imp.tcContable ?? '—'} / ${imp.tcAduanero ?? '—'}`],
     ];
     const boxH = 16 + Math.ceil(resumen.length / 2) * 15 + 8;
     doc.save().rect(M, y, W, boxH).fill('#F3F6FF'); doc.restore();
@@ -187,7 +192,16 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
       col(i, M + 8); col(i + 1, M + 8 + W / 2);
       ry += 15;
     }
-    y += boxH + 14;
+    y += boxH + 10;
+
+    // Aviso si el costeo está PENDIENTE (falta cotización contable, etc.).
+    if (pendiente) {
+      const msg = `COSTEO PENDIENTE — ${imp.costeoMotivo ?? 'faltan datos para completar el costo'}. El costo del inventario no se distribuye y los asientos definitivos quedan bloqueados hasta cargar la cotización contable.`;
+      const h = Math.max(22, doc.heightOfString(msg, { width: W - 16 }) + 10);
+      doc.save().rect(M, y, W, h).fill('#FDECEC'); doc.restore();
+      doc.fontSize(8.5).font('Helvetica-Bold').fillColor('#B42318').text(msg, M + 8, y + 5, { width: W - 16 });
+      y += h + 10;
+    }
 
     // ── 1. Datos generales ──
     heading('Datos generales');
@@ -436,15 +450,23 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     total2('Tributos no recuperables (integran el costo)', money(noRec > 0n ? noRec : 0n));
     doc.fontSize(7.5).font('Helvetica-Oblique').fillColor('#777').text('El IVA importación, el IVA de servicios y los anticipos de IVA/IRAE no integran el costo (son crédito fiscal / pagos a cuenta).', M + 2, y + 2); y += 14;
 
-    // ── 7. Asientos contables ──
+    // ── 7. Asientos contables (SEPARADOS por hecho económico) ──
     heading('Asientos contables');
-    const asiento = armarAsientoImportacion(imp, plan);
-    tabla(
-      [{ w: W - 220, title: 'Cuenta' }, { w: 110, title: 'Debe', align: 'right' }, { w: 110, title: 'Haber', align: 'right' }],
-      asiento.lineas.map((l) => [l.cuenta, l.debe !== '0' ? n2(BigInt(l.debe)) : '', l.haber !== '0' ? n2(BigInt(l.haber)) : '']),
-    );
-    total2('TOTALES', `$ ${n2(BigInt(asiento.totalDebe))}      $ ${n2(BigInt(asiento.totalHaber))}`, true);
-    if (!asiento.balanceado) { doc.fontSize(8).fillColor('#c00').text('⚠ El asiento no balancea.', M + 4, y); y += 12; }
+    if (asientos.length) {
+      for (const a of asientos) {
+        subheading(`${fdate(a.fecha ? new Date(`${a.fecha}T00:00:00Z`) : null)} · ${a.glosa}${a.definitivo ? '' : '  (provisorio — costeo pendiente)'}`);
+        tabla(
+          [{ w: W - 220, title: 'Cuenta' }, { w: 110, title: 'Debe', align: 'right' }, { w: 110, title: 'Haber', align: 'right' }],
+          a.lineas.map((l) => [l.cuenta, l.debe !== 0n ? n2(l.debe) : '', l.haber !== 0n ? n2(l.haber) : '']),
+        );
+        const d = a.lineas.reduce((s, l) => s + l.debe, 0n);
+        const h = a.lineas.reduce((s, l) => s + l.haber, 0n);
+        total2('Totales del asiento', `$ ${n2(d)}      $ ${n2(h)}`, true);
+        if (!a.balanceado) { doc.fontSize(8).fillColor('#c00').text('! El asiento no balancea.', M + 4, y); y += 12; }
+        y += 4;
+      }
+      nota('Asientos separados por hecho económico (anticipos a cuenta, reconocimiento de la compra, tributos, gastos del despachante, pagos), con su fecha y contrapartida. Los anticipos de IVA/IRAE van en asiento propio y NO integran el costo de la mercadería.');
+    } else { vacio('Sin asientos (costeo incompleto).'); }
 
     // ── 8. Conciliación ──
     heading('Conciliación');

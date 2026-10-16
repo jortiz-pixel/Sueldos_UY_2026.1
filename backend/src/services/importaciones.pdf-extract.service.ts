@@ -11,6 +11,7 @@
  */
 import { ImportacionRegimen, TributoImportacionTipo } from '@prisma/client';
 import type { ImportacionImportData } from './importaciones.import.service';
+import { validarTipoCambio, sanitizarIdentificador } from './importaciones.costeo.service';
 
 // pdfjs-dist (build legacy, CommonJS) — robusto con PDFs modernos (xref streams).
 // Se carga con require porque el build legacy no trae tipos en esa ruta.
@@ -211,7 +212,10 @@ export async function extraerImportacionDesdePdf(buffer: Buffer): Promise<PdfExt
   // Moneda y tipo de cambio
   const monedaRaw = valorInicio(lineas, ['moneda']);
   const moneda = monedaRaw ? (detectarMoneda(monedaRaw) || detectarMoneda(limpio)) : detectarMoneda(limpio);
-  const tipoCambio = montoPorRotulo(lineas, ['tipo de cambio', 't.c', 'tc liquidacion', 'arbitraje', 'exchange rate']) ?? 1;
+  // TC con validación estricta: si lo extraído parece un año/fecha/valor inválido,
+  // se descarta (queda 1) en vez de contaminar el costeo.
+  const tcCrudo = montoPorRotulo(lineas, ['tipo de cambio', 't.c', 'tc liquidacion', 'arbitraje', 'exchange rate']);
+  const tipoCambio = validarTipoCambio(tcCrudo).valor ?? 1;
 
   // Fechas
   const facturaComercialFecha = fechaPorRotulo(lineas, ['fecha de factura', 'fecha factura', 'fecha de la factura', 'fecha comprobante']);
@@ -248,20 +252,20 @@ export async function extraerImportacionDesdePdf(buffer: Buffer): Promise<PdfExt
 
   const datos: ImportacionImportData = {
     regimen: ImportacionRegimen.DEFINITIVA,
-    proveedorExterior,
+    proveedorExterior: sanitizarIdentificador(proveedorExterior),
     paisOrigen,
     incoterm,
     monedaOrigen: moneda,
     tipoCambio,
-    duaNumero: carpeta, // la carpeta del despachante identifica la operación mientras no haya DUA
+    duaNumero: sanitizarIdentificador(carpeta), // la carpeta del despachante identifica la operación mientras no haya DUA
     duaFecha,
-    despachante,
+    despachante: sanitizarIdentificador(despachante),
     aduana,
     fechaNacionalizacion: undefined,
     fob, flete, seguro,
     tributos: iva > 0 ? [{ tipo: TributoImportacionTipo.IVA_IMPORTACION, monto: iva }] : [],
     gastos: [],
-    facturaComercialNro,
+    facturaComercialNro: sanitizarIdentificador(facturaComercialNro),
     facturaComercialFecha,
     transporteDoc,
     notas,

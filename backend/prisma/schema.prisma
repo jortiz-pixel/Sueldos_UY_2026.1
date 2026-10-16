@@ -1062,6 +1062,14 @@ model Importacion {
   creditoFiscalIva BigInt @default(0) // IVA importación + IVA de gastos
   anticipos        BigInt @default(0) // anticipo IVA + anticipo IRAE
 
+  // Estado del costeo documental: OK (completo y conciliado) | PENDIENTE (falta
+  // cotización contable o datos; el costo no se distribuye y los asientos
+  // definitivos quedan bloqueados). Null = costeo manual clásico.
+  costeoEstado     String? // OK | PENDIENTE
+  costeoMotivo     String? // por qué quedó pendiente (una línea)
+  tcContable       Float? // TC contable usado para la adquisición (fuente verificable)
+  tcAduanero       Float? // TC aduanero del DUA (solo fiscal/informativo)
+
   notas     String?
   creadoPor String?
   createdAt DateTime @default(now())

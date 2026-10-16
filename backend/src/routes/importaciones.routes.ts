@@ -22,9 +22,10 @@ import { calcularCosteo, esTributoRecuperable, armarAsientoImportacion } from '.
 import { generateInformePDF, costeoFilename } from '../services/importaciones.pdf.service';
 import { parseImportacionesExcel, buildPlantillaImportaciones, ImportacionImportData } from '../services/importaciones.import.service';
 import { extraerImportacionDesdePdf, contarPaginasPdf, textoDelPdf } from '../services/importaciones.pdf-extract.service';
-import { clasificarDocumento, parseFacturaComercial, parseLiquidacionDespachante, parsePagoExterior } from '../services/importaciones.parsers.service';
+import { clasificarDocumento, parseFacturaComercial, parseLiquidacionDespachante, parsePagoExterior, parseDUA } from '../services/importaciones.parsers.service';
 import { procesarExpediente } from '../services/importaciones.procesar.service';
-import { CUENTAS_IMPORTACION, PlanCuentas } from '../services/importaciones.config.service';
+import { validarTipoCambio, sanitizarIdentificador, armarAsientosImportacion, asientoInputDesdeImportacion } from '../services/importaciones.costeo.service';
+import { CUENTAS_IMPORTACION, PlanCuentas, etiquetaCuenta } from '../services/importaciones.config.service';
 import { cotizacionBcu, BCU_MONEDA } from '../services/cotizaciones.service';
 
 export const importacionesRouter = Router();
@@ -78,7 +79,8 @@ const importacionSchema = z.object({
   paisOrigen: z.string().optional().nullable(),
   incoterm: z.string().optional().nullable(),
   monedaOrigen: z.string().optional(),
-  tipoCambio: z.number().positive().optional(),
+  // Validación estricta: nunca un año/fecha/valor fuera de rango como tipo de cambio.
+  tipoCambio: z.number().optional().nullable().refine((v) => v == null || validarTipoCambio(v).valido, { message: 'Tipo de cambio inválido (parece un año, una fecha o un valor fuera de rango).' }),
   facturaComercialNro: z.string().optional().nullable(),
   facturaComercialFecha: fecha,
   duaNumero: z.string().optional().nullable(),
@@ -404,12 +406,33 @@ importacionesRouter.post('/extraer', uploadXls.single('file'), async (req: Reque
         fob: 0, flete: 0, seguro: 0, tributos: [], gastos: [], items: [],
       });
 
+      if (tipo === 'DUA') {
+        // El DUA es la fuente oficial: NO pasa por la heurística genérica (que
+        // confundía años con tipo de cambio). TC validado estrictamente.
+        const u = parseDUA(texto);
+        const mapTrib: Record<string, TributoImportacionTipo> = {
+          '15': TributoImportacionTipo.IVA_IMPORTACION, '16': TributoImportacionTipo.ANTICIPO_IVA,
+          '06': TributoImportacionTipo.TASA_SERVICIOS, '36': TributoImportacionTipo.TASA_SERVICIOS, '05': TributoImportacionTipo.TASA_SERVICIOS,
+          '01': TributoImportacionTipo.RECARGO, '02': TributoImportacionTipo.ARANCEL_TEC,
+        };
+        const tributos = u.tributos.map((t) => ({ tipo: mapTrib[t.codigo] ?? TributoImportacionTipo.OTRO, monto: t.monto }));
+        const tcHint = validarTipoCambio(u.tipoCambio).valor;
+        const datos: ImportacionImportData = {
+          ...vacio(), proveedorExterior: sanitizarIdentificador(u.proveedor), paisOrigen: u.paisOrigen,
+          monedaOrigen: u.moneda ?? 'USD', tipoCambio: tcHint ?? 1,
+          duaNumero: sanitizarIdentificador(u.nroDua), despachante: sanitizarIdentificador(u.declarante), aduana: u.aduana,
+          facturaComercialNro: sanitizarIdentificador(u.facturaNro), transporteDoc: u.awb ? `AWB ${u.awb}` : null,
+          tributos,
+        };
+        res.json({ datos, aviso: `DUA ${u.nroDua ?? '—'} (canal ${u.canal ?? '—'}): proveedor ${u.proveedor ?? '—'}, NCM ${u.ncm ?? '—'}, valor en aduana $${u.valorAduanaPesos ?? '—'}, tributos $${u.totalTributos ?? '—'}. El tipo de cambio contable se resolverá del BCU al procesar.`, encontrados: ['DUA', 'tributos', 'NCM/origen'], texto: texto.slice(0, 4000) });
+        return;
+      }
       if (tipo === 'FACTURA_COMERCIAL') {
         const f = parseFacturaComercial(texto);
         const datos: ImportacionImportData = {
-          ...vacio(), proveedorExterior: f.proveedor, incoterm: f.incoterm, monedaOrigen: f.moneda,
+          ...vacio(), proveedorExterior: sanitizarIdentificador(f.proveedor), incoterm: f.incoterm, monedaOrigen: f.moneda,
           fob: f.fob ?? 0, flete: f.flete, seguro: f.seguro,
-          facturaComercialNro: f.numero, facturaComercialFecha: f.fecha ?? undefined,
+          facturaComercialNro: sanitizarIdentificador(f.numero), facturaComercialFecha: f.fecha ?? undefined,
           items: f.articulos.map((a) => ({ descripcion: `${a.codigo} - ${a.descripcion}`, cantidad: a.cantidad, fobUnitario: a.precioUnit })),
         };
         res.json({ datos, aviso: `Factura: proveedor ${f.proveedor ?? '—'}, ${f.articulos.length} artículos, FOB ${f.fob}, flete ${f.flete}, seguro ${f.seguro}, CIF ${f.cif}.`, encontrados: ['factura', `${f.articulos.length} artículos`, 'FOB/flete/seguro'], texto: texto.slice(0, 4000) });
@@ -431,8 +454,8 @@ importacionesRouter.post('/extraer', uploadXls.single('file'), async (req: Reque
         if (otros > 0) gastos.push({ concepto: GastoImportacionConcepto.OTRO, monto: otros, ivaGasto: 0 });
         if (c.ivaGastos) { if (gastos.length) gastos[0].ivaGasto = c.ivaGastos; else gastos.push({ concepto: GastoImportacionConcepto.OTRO, monto: 0, ivaGasto: c.ivaGastos }); }
         const datos: ImportacionImportData = {
-          ...vacio(), proveedorExterior: l.proveedor, paisOrigen: l.origen, tipoCambio: l.tipoCambio ?? 1,
-          duaNumero: l.carpeta, despachante: l.despachante, aduana: l.aduana, fechaNacionalizacion: l.fecha ?? undefined,
+          ...vacio(), proveedorExterior: sanitizarIdentificador(l.proveedor), paisOrigen: l.origen, tipoCambio: validarTipoCambio(l.tipoCambio).valor ?? 1,
+          duaNumero: sanitizarIdentificador(l.carpeta), despachante: sanitizarIdentificador(l.despachante), aduana: l.aduana, fechaNacionalizacion: l.fecha ?? undefined,
           transporteDoc: l.transporte, tributos, gastos,
           notas: l.gastosAgenciaExtra ? `Gastos de agencia informados aparte: USD ${l.gastosAgenciaExtra}` : null,
         };
@@ -715,8 +738,31 @@ importacionesRouter.get('/:id/asiento', async (req: Request, res: Response, next
     const imp = await prisma.importacion.findUnique({ where: { id: req.params.id }, include: incluir });
     if (!imp) throw new NotFoundError('Importación');
     await assertCompanyAccess(req, imp.companyId);
-    const plan = await planDeEmpresa(imp.companyId);
-    res.json(armarAsientoImportacion(imp, plan));
+    const [plan, transferencias] = await Promise.all([
+      planDeEmpresa(imp.companyId),
+      prisma.importacionTransferencia.findMany({ where: { importacionId: imp.id } }),
+    ]);
+    const pagoProveedor = transferencias.reduce((s, t) => s + t.importe, 0n);
+    const entrada = asientoInputDesdeImportacion(imp);
+    const fechas = {
+      factura: imp.facturaComercialFecha ? imp.facturaComercialFecha.toISOString().slice(0, 10) : null,
+      dua: imp.duaFecha ? imp.duaFecha.toISOString().slice(0, 10) : null,
+      pagoProveedor: transferencias[0]?.fecha ? transferencias[0].fecha.toISOString().slice(0, 10) : null,
+      pagoDespachante: null,
+    };
+    const asientos = armarAsientosImportacion(entrada, fechas, (k) => etiquetaCuenta(plan, k), { proveedor: pagoProveedor });
+    // Compatibilidad: también el asiento combinado clásico.
+    res.json({
+      estado: imp.costeoEstado ?? null,
+      motivo: imp.costeoMotivo ?? null,
+      asientos: asientos.map((a) => ({
+        fecha: a.fecha, glosa: a.glosa, balanceado: a.balanceado, definitivo: a.definitivo,
+        lineas: a.lineas.map((l) => ({ cuenta: l.cuenta, debe: l.debe.toString(), haber: l.haber.toString() })),
+        totalDebe: a.lineas.reduce((s, l) => s + l.debe, 0n).toString(),
+        totalHaber: a.lineas.reduce((s, l) => s + l.haber, 0n).toString(),
+      })),
+      combinado: armarAsientoImportacion(imp, plan),
+    });
   } catch (err) { next(err); }
 });
 
@@ -737,10 +783,24 @@ importacionesRouter.get('/:id/costeo.pdf', async (req: Request, res: Response, n
       prisma.importacionDocExtraccion.findMany({ where: { importacionId: imp.id }, orderBy: { createdAt: 'asc' } }),
       planDeEmpresa(imp.companyId),
     ]);
+    // Asientos SEPARADOS (anticipos, compra, tributos, gastos, pagos).
+    const pagoProveedorCtms = transferencias.reduce((s, t) => s + t.importe, 0n);
+    const asientosDoc = armarAsientosImportacion(
+      asientoInputDesdeImportacion(imp),
+      {
+        factura: imp.facturaComercialFecha ? imp.facturaComercialFecha.toISOString().slice(0, 10) : null,
+        dua: imp.duaFecha ? imp.duaFecha.toISOString().slice(0, 10) : null,
+        pagoProveedor: transferencias[0]?.fecha ? transferencias[0].fecha.toISOString().slice(0, 10) : null,
+        pagoDespachante: null,
+      },
+      (k) => etiquetaCuenta(plan, k),
+      { proveedor: pagoProveedorCtms },
+    );
     const pdf = await generateInformePDF({
       empresa: { razonSocial: imp.company.razonSocial, rut: imp.company.rut },
       imp,
       plan,
+      asientos: asientosDoc.map((a) => ({ fecha: a.fecha, glosa: a.glosa, definitivo: a.definitivo, balanceado: a.balanceado, lineas: a.lineas.map((l) => ({ cuenta: l.cuenta, debe: l.debe, haber: l.haber })) })),
       facturas: facturas.map((f) => ({ proveedor: f.proveedor, numero: f.numero, fecha: f.fecha, moneda: f.moneda, incoterm: f.incoterm, fob: f.fob, flete: f.flete, seguro: f.seguro, cif: f.cif, total: f.total, articulos: f.articulos.map((a) => ({ nro: a.nro, codigo: a.codigo, descripcion: a.descripcion, cantidad: a.cantidad, precioUnit: a.precioUnit, total: a.total })) })),
       liquidaciones: liquidaciones.map((l) => ({ carpeta: l.carpeta, fecha: l.fecha, aduana: l.aduana, despachante: l.despachante, transporte: l.transporte, tipoCambio: l.tipoCambio, moneda: l.moneda, kilosBrutos: l.kilosBrutos, kilosNetos: l.kilosNetos, total: l.total, gastosAgenciaExtra: l.gastosAgenciaExtra, conceptos: l.conceptos.map((c) => ({ clave: c.clave, monto: c.monto })) })),
       transferencias: transferencias.map((t) => ({ referencia: t.referencia, fecha: t.fecha, moneda: t.moneda, importe: t.importe, comision: t.comision, totalDebitado: t.totalDebitado, beneficiario: t.beneficiario, nroDocs: t.nroDocs })),

@@ -684,31 +684,38 @@ function AsientoTabla({ importacionId }: { importacionId: string }) {
   if (isLoading) return <p className="text-xs text-ink-subtle">Cargando asiento…</p>;
   if (!asiento) return null;
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead className="table-header">
-          <tr>
-            <th className="px-3 py-2 text-left">Cuenta</th>
-            <th className="px-3 py-2 text-right">Debe</th>
-            <th className="px-3 py-2 text-right">Haber</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-hairline/60">
-          {asiento.lineas.map((l, i) => (
-            <tr key={i}>
-              <td className="px-3 py-1.5">{l.cuenta}</td>
-              <td className="px-3 py-1.5 text-right figure">{l.debe !== '0' ? fmt(l.debe) : ''}</td>
-              <td className="px-3 py-1.5 text-right figure">{l.haber !== '0' ? fmt(l.haber) : ''}</td>
-            </tr>
-          ))}
-          <tr className="font-bold border-t-2 border-hairline">
-            <td className="px-3 py-1.5">TOTALES</td>
-            <td className="px-3 py-1.5 text-right figure">{fmt(asiento.totalDebe)}</td>
-            <td className="px-3 py-1.5 text-right figure">{fmt(asiento.totalHaber)}</td>
-          </tr>
-        </tbody>
-      </table>
-      {!asiento.balanceado && <p className="text-xs text-bad mt-1">⚠ El asiento no balancea; revisá los importes.</p>}
+    <div className="space-y-4">
+      {asiento.estado === 'PENDIENTE' && (
+        <div className="text-xs text-bad bg-bad-bg border border-bad/30 rounded px-3 py-2">
+          Costeo PENDIENTE: {asiento.motivo || 'faltan datos para completar el costo'}. Los asientos de reconocimiento de la compra y gastos quedan <b>bloqueados</b> hasta cargar la cotización contable.
+        </div>
+      )}
+      {asiento.asientos.length === 0 && <p className="text-xs text-ink-subtle">Sin asientos (procesá los documentos del expediente).</p>}
+      {asiento.asientos.map((a, idx) => (
+        <div key={idx} className="border border-hairline/60 rounded-lg overflow-hidden">
+          <div className="px-3 py-1.5 bg-canvas text-xs font-semibold text-ink flex items-center justify-between">
+            <span>{a.fecha || '—'} · {a.glosa}</span>
+            {!a.definitivo && <span className="text-warn text-[11px] font-normal">provisorio</span>}
+          </div>
+          <table className="w-full text-sm">
+            <tbody className="divide-y divide-hairline/40">
+              {a.lineas.map((l, i) => (
+                <tr key={i}>
+                  <td className="px-3 py-1.5">{l.cuenta}</td>
+                  <td className="px-3 py-1.5 text-right figure w-32">{l.debe !== '0' ? fmt(l.debe) : ''}</td>
+                  <td className="px-3 py-1.5 text-right figure w-32">{l.haber !== '0' ? fmt(l.haber) : ''}</td>
+                </tr>
+              ))}
+              <tr className="font-semibold border-t border-hairline/70 text-xs">
+                <td className="px-3 py-1">Totales</td>
+                <td className="px-3 py-1 text-right figure">{fmt(a.totalDebe)}</td>
+                <td className="px-3 py-1 text-right figure">{fmt(a.totalHaber)}</td>
+              </tr>
+            </tbody>
+          </table>
+          {!a.balanceado && <p className="text-xs text-bad px-3 py-1">⚠ Este asiento no balancea.</p>}
+        </div>
+      ))}
     </div>
   );
 }
