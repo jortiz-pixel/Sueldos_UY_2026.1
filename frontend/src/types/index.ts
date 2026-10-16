@@ -453,7 +453,7 @@ export interface ExtTransferencia {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export interface ExtDocumento { id: string; documentoId: string | null; tipo: string; emisor: string | null; rutEmisor: string | null; serie: string | null; numero: string | null; fecha: string | null; moneda: string | null; total: string; resumen: string | null; confianza: number | null; datos: any; }
 export interface ExtraccionImportacion { facturas: ExtFactura[]; liquidaciones: ExtLiquidacion[]; transferencias: ExtTransferencia[]; docExtracciones: ExtDocumento[]; }
-export interface ProcesarResultado { docsProcesados: number; facturas: number; liquidaciones: number; transferencias: number; dua: number; facturasServicios: number; pagosLocales: number; otros: number; faltantes: string[]; advertencias: string[]; }
+export interface ProcesarResultado { docsProcesados: number; facturas: number; liquidaciones: number; transferencias: number; dua: number; facturasServicios: number; pagosLocales: number; otros: number; costeoActualizado: boolean; faltantes: string[]; advertencias: string[]; }
 
 export interface CuentaCatalogo { clave: string; nombre: string; grupo: string; }
 export interface ImportacionEmpresaConfig {

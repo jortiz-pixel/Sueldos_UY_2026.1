@@ -1255,7 +1255,7 @@ function DatosExtraidosPanel({ importacionId }: { importacionId: string }) {
   });
   const procesar = useMutation({
     mutationFn: () => importacionesApi.procesar(importacionId),
-    onSuccess: (r) => { setResultado(r); qc.invalidateQueries({ queryKey: ['importacion-extraccion', importacionId] }); qc.invalidateQueries({ queryKey: ['importacion-documentos', importacionId] }); },
+    onSuccess: (r) => { setResultado(r); qc.invalidateQueries({ queryKey: ['importacion-extraccion', importacionId] }); qc.invalidateQueries({ queryKey: ['importacion-documentos', importacionId] }); qc.invalidateQueries({ queryKey: ['importaciones'] }); qc.invalidateQueries({ queryKey: ['importacion-asiento', importacionId] }); },
   });
 
   const docExtra = data?.docExtracciones ?? [];
@@ -1275,6 +1275,7 @@ function DatosExtraidosPanel({ importacionId }: { importacionId: string }) {
       {resultado && (
         <div className="text-sm space-y-1">
           <div className="text-ink">Procesados {resultado.docsProcesados} documento(s): {resultado.facturas} factura(s), {resultado.dua} DUA, {resultado.facturasServicios} factura(s) de servicios, {resultado.liquidaciones} liquidación(es), {resultado.transferencias} transferencia(s), {resultado.pagosLocales} pago(s) en plaza, {resultado.otros} otro(s).</div>
+          {resultado.costeoActualizado && <div className="text-xs text-ink bg-ok-bg border border-ok/40 rounded px-2 py-1">✓ Costeo recalculado desde el DUA y la factura (CIF, tributos y gastos oficiales).</div>}
           {resultado.advertencias.map((a, i) => <div key={i} className="text-xs text-ink-muted bg-warn-bg border border-warn/40 rounded px-2 py-1">⚠ {a}</div>)}
           {resultado.faltantes.map((a, i) => <div key={i} className="text-xs text-bad bg-bad-bg border border-bad/30 rounded px-2 py-1">Falta: {a}</div>)}
         </div>

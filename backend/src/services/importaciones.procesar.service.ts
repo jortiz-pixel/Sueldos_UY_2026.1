@@ -5,10 +5,11 @@
  * enlazado a su documento de origen. Idempotente: reprocesar reemplaza la
  * extracción previa del expediente. Ver docs/importaciones-diseno.md (Etapa 1 sub-3).
  */
-import { TipoDocumentoImportacion, EstadoProcesamientoDoc } from '@prisma/client';
+import { TipoDocumentoImportacion, EstadoProcesamientoDoc, TributoImportacionTipo, GastoImportacionConcepto } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { storageService } from './storage.service';
 import { textoDelPdf } from './importaciones.pdf-extract.service';
+import { calcularCosteo, esTributoRecuperable } from './importaciones.service';
 import {
   clasificarDocumento, parseFacturaComercial, parseLiquidacionDespachante,
   parsePagoExterior, consolidarPagos, TipoDoc, PagoParsed,
@@ -45,8 +46,131 @@ export interface ProcesarResultado {
   facturasServicios: number;
   pagosLocales: number;
   otros: number; // packing, recibos, certificado, autorización
+  costeoActualizado: boolean; // true si se recalculó el costeo desde el DUA/factura
   faltantes: string[];
   advertencias: string[];
+}
+
+// Mapeo de los códigos de tributo del DUA a los tipos del costeo.
+const DUA_TRIB_TIPO: Record<string, TributoImportacionTipo> = {
+  '15': TributoImportacionTipo.IVA_IMPORTACION,
+  '16': TributoImportacionTipo.ANTICIPO_IVA,
+  '06': TributoImportacionTipo.TASA_SERVICIOS,
+  '36': TributoImportacionTipo.TASA_SERVICIOS,
+  '05': TributoImportacionTipo.TASA_SERVICIOS,
+  '26': TributoImportacionTipo.OTRO,
+  '27': TributoImportacionTipo.OTRO,
+  '32': TributoImportacionTipo.OTRO,
+  '33': TributoImportacionTipo.OTRO,
+  '01': TributoImportacionTipo.RECARGO,
+  '02': TributoImportacionTipo.ARANCEL_TEC,
+};
+
+/**
+ * Recalcula el COSTEO del expediente a partir de los documentos oficiales ya
+ * extraídos (DUA + factura comercial + e-facturas de servicios), que son la
+ * fuente autorizada. Lleva todo a PESOS con el tipo de cambio del DUA:
+ *   · CIF = Valor en Aduana del DUA (FOB/flete/seguro de la factura × TC).
+ *   · Tributos = los LIQUIDADOS en el DUA (importes exactos, no recalculados).
+ *   · Gastos de plaza = honorarios + gastos operativos (gravados) y los demás
+ *     servicios facturados AL IMPORTADOR (terminal, agencia), sin duplicar los
+ *     tributos (que ya vienen del DUA) ni los servicios facturados al despachante.
+ *   · Ítems = los artículos de la factura (FOB × TC), para la distribución.
+ * Reemplaza tributos/gastos/ítems y actualiza el cabezal. Requiere DUA presente.
+ */
+async function reconstruirCosteoDesdeExtraccion(importacionId: string): Promise<boolean> {
+  const imp = await prisma.importacion.findUnique({ where: { id: importacionId } });
+  if (!imp || imp.estado === 'ANULADA') return false;
+  const [duaEx, serviciosEx, factura] = await Promise.all([
+    prisma.importacionDocExtraccion.findFirst({ where: { importacionId, tipo: 'DUA' } }),
+    prisma.importacionDocExtraccion.findMany({ where: { importacionId, tipo: 'FACTURA_SERVICIOS_UY' } }),
+    prisma.importacionFactura.findFirst({ where: { importacionId }, include: { articulos: { orderBy: { nro: 'asc' } } }, orderBy: { createdAt: 'asc' } }),
+  ]);
+  if (!duaEx) return false;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const d: any = duaEx.datos ?? {};
+  const tc = Number(d.tipoCambio) || imp.tipoCambio || 1;
+  const importadorRut: string | null = d.importadorRut ?? null;
+  const P = (pesos: number | null | undefined): bigint => BigInt(Math.round((pesos ?? 0) * 100)); // pesos → centésimos
+  const usdCtmsAPesos = (ctmsUsd: bigint): bigint => BigInt(Math.round(Number(ctmsUsd) * tc)); // centésimos USD → centésimos pesos
+
+  // CIF en pesos: el valor en Aduana del DUA manda; FOB/flete de la factura×TC y
+  // el seguro absorbe el redondeo para que FOB+flete+seguro = Valor en Aduana.
+  const cifPesos = d.valorAduanaPesos != null ? P(d.valorAduanaPesos) : (factura ? usdCtmsAPesos(factura.fob + factura.flete + factura.seguro) : 0n);
+  const fobPesos = factura ? usdCtmsAPesos(factura.fob) : cifPesos;
+  const fletePesos = factura ? usdCtmsAPesos(factura.flete) : 0n;
+  const seguroPesos = factura ? (cifPesos - fobPesos - fletePesos) : 0n;
+
+  // Tributos: los importes LIQUIDADOS en el DUA (pesos enteros).
+  const tributos: Array<{ tipo: TributoImportacionTipo; baseImponible: bigint; tasa: number; monto: bigint; recuperable: boolean }> =
+    (d.tributos ?? []).map((t: { codigo: string; monto: number }) => {
+      const tipo = DUA_TRIB_TIPO[t.codigo] ?? TributoImportacionTipo.OTRO;
+      return { tipo, baseImponible: 0n, tasa: 0, monto: P(t.monto), recuperable: esTributoRecuperable(tipo) };
+    });
+
+  // Gastos de plaza: solo los facturados AL IMPORTADOR (evita duplicar la factura
+  // del terminal que el despachante re-cobra). El "no facturable" del despachante
+  // = tributos, ya contemplados arriba, por eso NO se suma como gasto.
+  const gastos: Array<{ concepto: GastoImportacionConcepto; descripcion: string; monto: bigint; gravadoIva: boolean; ivaGasto: bigint }> = [];
+  for (const s of serviciosEx) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sd: any = s.datos ?? {};
+    if (importadorRut && sd.rutComprador && sd.rutComprador !== importadorRut) continue; // facturado a un tercero (p. ej. al despachante)
+    const factor = (sd.moneda === 'USD') ? tc : 1;
+    const hon = Number(sd.honorarios) || 0;
+    const gop = Number(sd.gastosOperativos) || 0;
+    if (hon || gop) {
+      const iva = Number(sd.iva) || 0;
+      gastos.push({ concepto: GastoImportacionConcepto.HONORARIOS_DESPACHANTE, descripcion: `Honorarios y gastos del despachante${sd.serie ? ` (${sd.serie}${sd.numero ?? ''})` : ''}`, monto: P((hon + gop) * factor), gravadoIva: true, ivaGasto: P(iva * factor) });
+    } else {
+      const total = Number(sd.total) || 0;
+      if (total > 0) gastos.push({ concepto: GastoImportacionConcepto.OTRO, descripcion: `${s.emisor ?? 'Servicio de plaza'}${sd.serie ? ` (${sd.serie}${sd.numero ?? ''})` : ''}`, monto: P(total * factor), gravadoIva: (Number(sd.iva) || 0) > 0, ivaGasto: P((Number(sd.iva) || 0) * factor) });
+    }
+  }
+
+  // Ítems: artículos de la factura, FOB total en pesos.
+  const items = (factura?.articulos ?? []).map((a) => ({
+    descripcion: a.descripcion || a.codigo || 'Ítem',
+    ncm: d.ncm ?? null,
+    cantidad: a.cantidad || 1,
+    fobUnitario: a.cantidad ? usdCtmsAPesos(a.total) / BigInt(Math.max(1, Math.round(a.cantidad))) : usdCtmsAPesos(a.total),
+    fobTotal: usdCtmsAPesos(a.total),
+  }));
+
+  const costeo = calcularCosteo({
+    fob: fobPesos, flete: fletePesos, seguro: seguroPesos,
+    tributos: tributos.map((t) => ({ tipo: t.tipo, monto: t.monto })),
+    gastos: gastos.map((g) => ({ monto: g.monto, ivaGasto: g.ivaGasto })),
+    items: items.map((i) => ({ fobTotal: i.fobTotal })),
+  });
+
+  await prisma.$transaction([
+    prisma.itemImportacion.deleteMany({ where: { importacionId } }),
+    prisma.tributoImportacion.deleteMany({ where: { importacionId } }),
+    prisma.gastoImportacion.deleteMany({ where: { importacionId } }),
+    prisma.importacion.update({
+      where: { id: importacionId },
+      data: {
+        proveedorExterior: d.proveedor ?? imp.proveedorExterior,
+        paisOrigen: d.paisOrigen ?? imp.paisOrigen,
+        monedaOrigen: d.moneda ?? imp.monedaOrigen,
+        tipoCambio: tc,
+        duaNumero: d.nroDua ?? imp.duaNumero,
+        duaFecha: d.fechaPago ? new Date(`${d.fechaPago}T00:00:00Z`) : imp.duaFecha,
+        aduana: d.aduana ?? imp.aduana,
+        transporteDoc: d.awb ? `AWB ${d.awb}` : imp.transporteDoc,
+        facturaComercialNro: factura?.numero ?? imp.facturaComercialNro,
+        facturaComercialFecha: factura?.fecha ?? imp.facturaComercialFecha,
+        fob: fobPesos, flete: fletePesos, seguro: seguroPesos, cif: costeo.cif,
+        totalTributos: costeo.totalTributos, totalGastos: costeo.totalGastos,
+        costoMercaderia: costeo.costoMercaderia, creditoFiscalIva: costeo.creditoFiscalIva, anticipos: costeo.anticipos,
+        items: { create: items.map((i, idx) => ({ ...i, costoProrrateado: costeo.costosItems[idx] ?? 0n })) },
+        tributos: { create: tributos },
+        gastos: { create: gastos },
+      },
+    }),
+  ]);
+  return true;
 }
 
 export async function procesarExpediente(importacionId: string): Promise<ProcesarResultado> {
@@ -227,8 +351,17 @@ export async function procesarExpediente(importacionId: string): Promise<Procesa
   // Advertencia por SWIFT sin comprobante (o viceversa).
   for (const t of consolidadas) if (t.docs < 2) advertencias.push(`La transferencia ${t.ref ?? '(s/ref)'} tiene un solo respaldo (falta el SWIFT o el comprobante bancario).`);
 
+  // Recalcular el costeo desde los documentos oficiales (DUA + factura + CFE):
+  // CIF, tributos y gastos pasan a reflejar lo realmente declarado/liquidado.
+  let costeoActualizado = false;
+  if (dua > 0) {
+    try { costeoActualizado = await reconstruirCosteoDesdeExtraccion(importacionId); }
+    catch (e) { advertencias.push(`No se pudo recalcular el costeo desde el DUA: ${e instanceof Error ? e.message : 'error'}.`); }
+    if (costeoActualizado) advertencias.push('Costeo recalculado desde el DUA y la factura: CIF, tributos y gastos ahora reflejan los documentos oficiales.');
+  }
+
   return {
     docsProcesados, facturas, liquidaciones, transferencias: consolidadas.length,
-    dua, facturasServicios, pagosLocales, otros, faltantes, advertencias,
+    dua, facturasServicios, pagosLocales, otros, costeoActualizado, faltantes, advertencias,
   };
 }
