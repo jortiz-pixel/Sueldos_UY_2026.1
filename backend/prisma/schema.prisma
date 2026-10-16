@@ -1075,6 +1075,7 @@ model Importacion {
   facturasExtraidas      ImportacionFactura[]
   liquidacionesExtraidas ImportacionLiquidacion[]
   transferencias         ImportacionTransferencia[]
+  docExtracciones        ImportacionDocExtraccion[]
 
   @@index([companyId])
   @@index([estado])
@@ -1350,4 +1351,35 @@ model ImportacionTransferencia {
 
   @@index([importacionId])
   @@map("importacion_transferencias")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EXTRACCIÓN GENÉRICA POR DOCUMENTO (Etapa 1 sub-3b) — guarda el detalle leído de
+// los demás documentos del expediente que NO encajan en factura/liquidación/
+// transferencia: DUA, e-facturas de servicios UY (despachante/terminal/agencia),
+// packing list, pagos locales (tributos SPE, transferencia a la agencia),
+// recibos y certificado de origen. Columnas indexadas para el resumen + `datos`
+// (JSON) con TODO el detalle estructurado, para "detallar todo" en el informe.
+// `total` en centésimos de `moneda`. Ver docs/importaciones-diseno.md.
+// ─────────────────────────────────────────────────────────────────────────────
+model ImportacionDocExtraccion {
+  id            String      @id @default(cuid())
+  importacionId String
+  documentoId   String?
+  tipo          String // DUA | FACTURA_SERVICIOS_UY | PACKING_LIST | PAGO_TRIBUTOS | PAGO_SERVICIOS_LOCAL | RECIBO | CERTIFICADO_ORIGEN | AUTORIZACION | DOC_TRANSPORTE
+  emisor        String?
+  rutEmisor     String?
+  serie         String?
+  numero        String?
+  fecha         DateTime?
+  moneda        String?
+  total         BigInt      @default(0) // centésimos de `moneda`
+  resumen       String? // una línea legible para el listado
+  datos         Json? // detalle completo estructurado (ítems, tributos, pesos, conceptos…)
+  confianza     Float?
+  createdAt     DateTime    @default(now())
+  importacion   Importacion @relation(fields: [importacionId], references: [id], onDelete: Cascade)
+
+  @@index([importacionId])
+  @@map("importacion_doc_extracciones")
 }

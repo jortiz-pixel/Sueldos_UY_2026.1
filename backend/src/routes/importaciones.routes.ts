@@ -729,11 +729,12 @@ importacionesRouter.get('/:id/costeo.pdf', async (req: Request, res: Response, n
     });
     if (!imp) throw new NotFoundError('Importación');
     await assertCompanyAccess(req, imp.companyId);
-    const [facturas, liquidaciones, transferencias, documentos, plan] = await Promise.all([
+    const [facturas, liquidaciones, transferencias, documentos, docExtracciones, plan] = await Promise.all([
       prisma.importacionFactura.findMany({ where: { importacionId: imp.id }, include: { articulos: { orderBy: { nro: 'asc' } } }, orderBy: { createdAt: 'asc' } }),
       prisma.importacionLiquidacion.findMany({ where: { importacionId: imp.id }, include: { conceptos: true }, orderBy: { createdAt: 'asc' } }),
       prisma.importacionTransferencia.findMany({ where: { importacionId: imp.id }, orderBy: { fecha: 'asc' } }),
       prisma.importacionDocumento.findMany({ where: { importacionId: imp.id }, orderBy: { createdAt: 'asc' } }),
+      prisma.importacionDocExtraccion.findMany({ where: { importacionId: imp.id }, orderBy: { createdAt: 'asc' } }),
       planDeEmpresa(imp.companyId),
     ]);
     const pdf = await generateInformePDF({
@@ -744,6 +745,7 @@ importacionesRouter.get('/:id/costeo.pdf', async (req: Request, res: Response, n
       liquidaciones: liquidaciones.map((l) => ({ carpeta: l.carpeta, fecha: l.fecha, aduana: l.aduana, despachante: l.despachante, transporte: l.transporte, tipoCambio: l.tipoCambio, moneda: l.moneda, kilosBrutos: l.kilosBrutos, kilosNetos: l.kilosNetos, total: l.total, gastosAgenciaExtra: l.gastosAgenciaExtra, conceptos: l.conceptos.map((c) => ({ clave: c.clave, monto: c.monto })) })),
       transferencias: transferencias.map((t) => ({ referencia: t.referencia, fecha: t.fecha, moneda: t.moneda, importe: t.importe, comision: t.comision, totalDebitado: t.totalDebitado, beneficiario: t.beneficiario, nroDocs: t.nroDocs })),
       documentos: documentos.map((d) => ({ fileName: d.fileName, tipo: d.tipoConfirmado ?? d.tipoDetectado, paginas: d.paginas, estado: d.estadoProc })),
+      docExtracciones: docExtracciones.map((e) => ({ tipo: e.tipo, emisor: e.emisor, rutEmisor: e.rutEmisor, serie: e.serie, numero: e.numero, fecha: e.fecha, moneda: e.moneda, total: e.total, resumen: e.resumen, datos: e.datos })),
     });
     const nombre = `${costeoFilename(imp)}.pdf`;
     res.setHeader('Content-Type', 'application/pdf');
@@ -770,10 +772,11 @@ importacionesRouter.get('/:id/extraccion', async (req: Request, res: Response, n
     const imp = await prisma.importacion.findUnique({ where: { id: req.params.id } });
     if (!imp) throw new NotFoundError('Importación');
     await assertCompanyAccess(req, imp.companyId);
-    const [facturas, liquidaciones, transferencias] = await Promise.all([
+    const [facturas, liquidaciones, transferencias, docExtracciones] = await Promise.all([
       prisma.importacionFactura.findMany({ where: { importacionId: imp.id }, include: { articulos: { orderBy: { nro: 'asc' } } }, orderBy: { createdAt: 'asc' } }),
       prisma.importacionLiquidacion.findMany({ where: { importacionId: imp.id }, include: { conceptos: true }, orderBy: { createdAt: 'asc' } }),
       prisma.importacionTransferencia.findMany({ where: { importacionId: imp.id }, orderBy: { fecha: 'asc' } }),
+      prisma.importacionDocExtraccion.findMany({ where: { importacionId: imp.id }, orderBy: { createdAt: 'asc' } }),
     ]);
     res.json({
       facturas: facturas.map((f) => ({
@@ -794,6 +797,11 @@ importacionesRouter.get('/:id/extraccion', async (req: Request, res: Response, n
         id: t.id, referencia: t.referencia, fecha: t.fecha ? t.fecha.toISOString().slice(0, 10) : null, moneda: t.moneda,
         importe: t.importe.toString(), comision: t.comision.toString(), totalDebitado: t.totalDebitado.toString(),
         beneficiario: t.beneficiario, nroDocs: t.nroDocs, estadoRevision: t.estadoRevision,
+      })),
+      docExtracciones: docExtracciones.map((e) => ({
+        id: e.id, documentoId: e.documentoId, tipo: e.tipo, emisor: e.emisor, rutEmisor: e.rutEmisor,
+        serie: e.serie, numero: e.numero, fecha: e.fecha ? e.fecha.toISOString().slice(0, 10) : null,
+        moneda: e.moneda, total: e.total.toString(), resumen: e.resumen, confianza: e.confianza, datos: e.datos,
       })),
     });
   } catch (err) { next(err); }

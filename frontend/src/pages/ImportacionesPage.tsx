@@ -1238,6 +1238,12 @@ const LIQ_CONCEPTO_LABEL: Record<string, string> = {
   guiaTransito: 'Guía Tránsito', timbre: 'Timbre', vuce: 'VUCE', escaner: 'Escáner', tcu: 'TCU',
   gastosOperativos: 'Gastos Operativos', honorarios: 'Honorarios', ivaGastos: 'IVA gastos',
 };
+const EXTR_TIPO_LABEL: Record<string, string> = {
+  DUA: 'DUA', FACTURA_SERVICIOS_UY: 'Factura de servicios (CFE)', PACKING_LIST: 'Packing list',
+  PAGO_TRIBUTOS: 'Pago de tributos (SPE)', PAGO_SERVICIOS_LOCAL: 'Transferencia en plaza',
+  RECIBO: 'Recibo', CERTIFICADO_ORIGEN: 'Certificado de origen', AUTORIZACION: 'Autorización Aduana',
+  DOC_TRANSPORTE: 'Conocimiento / AWB',
+};
 const fmtMon = (ctms: string, moneda: string) => `${moneda === 'USD' ? 'US$' : '$'} ${(Number(ctms) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 function DatosExtraidosPanel({ importacionId }: { importacionId: string }) {
@@ -1252,7 +1258,10 @@ function DatosExtraidosPanel({ importacionId }: { importacionId: string }) {
     onSuccess: (r) => { setResultado(r); qc.invalidateQueries({ queryKey: ['importacion-extraccion', importacionId] }); qc.invalidateQueries({ queryKey: ['importacion-documentos', importacionId] }); },
   });
 
-  const vacio = !data || (data.facturas.length === 0 && data.liquidaciones.length === 0 && data.transferencias.length === 0);
+  const docExtra = data?.docExtracciones ?? [];
+  const vacio = !data || (data.facturas.length === 0 && data.liquidaciones.length === 0 && data.transferencias.length === 0 && docExtra.length === 0);
+  const exDua = docExtra.find((e) => e.tipo === 'DUA');
+  const exOtros = docExtra.filter((e) => e.tipo !== 'DUA');
 
   return (
     <div className="card p-5 space-y-4">
@@ -1265,7 +1274,7 @@ function DatosExtraidosPanel({ importacionId }: { importacionId: string }) {
 
       {resultado && (
         <div className="text-sm space-y-1">
-          <div className="text-ink">Procesados {resultado.docsProcesados} documento(s): {resultado.facturas} factura(s), {resultado.liquidaciones} liquidación(es), {resultado.transferencias} transferencia(s).</div>
+          <div className="text-ink">Procesados {resultado.docsProcesados} documento(s): {resultado.facturas} factura(s), {resultado.dua} DUA, {resultado.facturasServicios} factura(s) de servicios, {resultado.liquidaciones} liquidación(es), {resultado.transferencias} transferencia(s), {resultado.pagosLocales} pago(s) en plaza, {resultado.otros} otro(s).</div>
           {resultado.advertencias.map((a, i) => <div key={i} className="text-xs text-ink-muted bg-warn-bg border border-warn/40 rounded px-2 py-1">⚠ {a}</div>)}
           {resultado.faltantes.map((a, i) => <div key={i} className="text-xs text-bad bg-bad-bg border border-bad/30 rounded px-2 py-1">Falta: {a}</div>)}
         </div>
@@ -1316,6 +1325,52 @@ function DatosExtraidosPanel({ importacionId }: { importacionId: string }) {
                   <tbody className="divide-y divide-hairline/40">
                     {data!.transferencias.map((t) => (
                       <tr key={t.id}><td className="px-2 py-1 font-mono">{t.referencia}</td><td className="px-2 py-1">{t.fecha}</td><td className="px-2 py-1 text-right figure">{fmtMon(t.importe, t.moneda)}</td><td className="px-2 py-1 text-right figure">{fmtMon(t.comision, t.moneda)}</td><td className="px-2 py-1 text-right figure">{fmtMon(t.totalDebitado, t.moneda)}</td><td className="px-2 py-1 text-xs">{t.nroDocs === 2 ? 'SWIFT + comprobante' : `${t.nroDocs} doc.`}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {exDua && (
+            <div className="border border-brand-600/30 bg-brand-50/40 rounded-lg p-3">
+              <div className="text-sm font-semibold text-ink">DUA {exDua.datos?.nroDua || exDua.numero || '—'} · Canal {exDua.datos?.canal || '—'}</div>
+              <div className="text-xs text-ink-subtle mb-2">{exDua.datos?.regimen || ''} · Carpeta {exDua.datos?.carpeta || '—'} · {exDua.datos?.aduana || ''} · NCM {exDua.datos?.ncm || '—'} · origen {exDua.datos?.paisOrigen || '—'} · AWB {exDua.datos?.awb || '—'}</div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-1 text-xs mb-2">
+                <div className="flex justify-between border-b border-hairline/30"><span className="text-ink-subtle">Valor CIF</span><span className="figure">{exDua.datos?.moneda || 'US$'} {(exDua.datos?.valorCif ?? 0).toLocaleString('es-UY', { minimumFractionDigits: 2 })}</span></div>
+                <div className="flex justify-between border-b border-hairline/30"><span className="text-ink-subtle">Valor Aduana</span><span className="figure">$ {(exDua.datos?.valorAduanaPesos ?? 0).toLocaleString('es-UY', { minimumFractionDigits: 2 })}</span></div>
+                <div className="flex justify-between border-b border-hairline/30"><span className="text-ink-subtle">Bultos</span><span className="figure">{exDua.datos?.totalBultos ?? '—'}</span></div>
+                <div className="flex justify-between border-b border-hairline/30"><span className="text-ink-subtle">Peso bruto/neto</span><span className="figure">{exDua.datos?.pesoBruto ?? '—'}/{exDua.datos?.pesoNeto ?? '—'} kg</span></div>
+              </div>
+              {Array.isArray(exDua.datos?.tributos) && exDua.datos.tributos.length > 0 && (
+                <details>
+                  <summary className="text-xs text-brand-600 cursor-pointer">{exDua.datos.tributos.length} tributos · total $ {(exDua.datos?.totalTributos ?? 0).toLocaleString('es-UY')}</summary>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-1 text-xs mt-2">
+                    {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                    {exDua.datos.tributos.map((t: any, i: number) => (
+                      <div key={i} className="flex justify-between border-b border-hairline/30"><span className="text-ink-subtle">{t.nombre}</span><span className="figure">$ {Number(t.monto).toLocaleString('es-UY')}</span></div>
+                    ))}
+                  </div>
+                </details>
+              )}
+            </div>
+          )}
+
+          {exOtros.length > 0 && (
+            <div className="border border-hairline/60 rounded-lg p-3">
+              <div className="text-sm font-semibold text-ink mb-2">Otros documentos del expediente</div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead className="table-header"><tr><th className="px-2 py-1 text-left">Tipo</th><th className="px-2 py-1 text-left">Emisor / Comprob.</th><th className="px-2 py-1 text-left">Fecha</th><th className="px-2 py-1 text-right">Importe</th><th className="px-2 py-1 text-left">Detalle</th></tr></thead>
+                  <tbody className="divide-y divide-hairline/40">
+                    {exOtros.map((e) => (
+                      <tr key={e.id}>
+                        <td className="px-2 py-1 text-ink-subtle">{EXTR_TIPO_LABEL[e.tipo] || e.tipo}</td>
+                        <td className="px-2 py-1">{e.emisor || '—'}{e.serie || e.numero ? ` · ${e.serie || ''}${e.numero || ''}` : ''}</td>
+                        <td className="px-2 py-1">{e.fecha || '—'}</td>
+                        <td className="px-2 py-1 text-right figure">{Number(e.total) !== 0 ? fmtMon(e.total, e.moneda || 'UYU') : '—'}</td>
+                        <td className="px-2 py-1 text-ink-muted">{e.resumen || ''}</td>
+                      </tr>
                     ))}
                   </tbody>
                 </table>

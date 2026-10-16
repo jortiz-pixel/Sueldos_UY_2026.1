@@ -38,6 +38,14 @@ interface FacturaPdf { proveedor: string | null; numero: string | null; fecha: D
 interface LiquidacionPdf { carpeta: string | null; fecha: Date | null; aduana: string | null; despachante: string | null; transporte: string | null; tipoCambio: number | null; moneda: string; kilosBrutos: number | null; kilosNetos: number | null; total: bigint; gastosAgenciaExtra: number | null; conceptos: { clave: string; monto: bigint }[] }
 interface TransferenciaPdf { referencia: string | null; fecha: Date | null; moneda: string; importe: bigint; comision: bigint; totalDebitado: bigint; beneficiario: string | null; nroDocs: number }
 interface DocumentoPdf { fileName: string; tipo: string | null; paginas: number | null; estado: string }
+// Extracción genérica (DUA, e-facturas de servicios UY, packing, pagos locales,
+// recibos, certificado de origen). `datos` es el objeto estructurado del parser.
+interface DocExtraccionPdf {
+  tipo: string; emisor: string | null; rutEmisor: string | null; serie: string | null; numero: string | null;
+  fecha: Date | null; moneda: string | null; total: bigint; resumen: string | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  datos: any;
+}
 
 export interface InformeInput {
   empresa: EmpresaPdf;
@@ -47,6 +55,7 @@ export interface InformeInput {
   liquidaciones: LiquidacionPdf[];
   transferencias: TransferenciaPdf[];
   documentos: DocumentoPdf[];
+  docExtracciones?: DocExtraccionPdf[];
 }
 
 const REGIMEN: Record<ImportacionRegimen, string> = {
@@ -71,6 +80,13 @@ export function costeoFilename(imp: ImportacionPdf): string {
 
 export function generateInformePDF(input: InformeInput): Promise<Buffer> {
   const { empresa, imp, plan, facturas, liquidaciones, transferencias, documentos } = input;
+  const docExtracciones = input.docExtracciones ?? [];
+  const exDua = docExtracciones.find((e) => e.tipo === 'DUA');
+  const exServicios = docExtracciones.filter((e) => e.tipo === 'FACTURA_SERVICIOS_UY');
+  const exPagosLocales = docExtracciones.filter((e) => e.tipo === 'PAGO_TRIBUTOS' || e.tipo === 'PAGO_SERVICIOS_LOCAL');
+  const exRecibos = docExtracciones.filter((e) => e.tipo === 'RECIBO');
+  const exPacking = docExtracciones.find((e) => e.tipo === 'PACKING_LIST');
+  const exCert = docExtracciones.find((e) => e.tipo === 'CERTIFICADO_ORIGEN');
   return new Promise((resolve, reject) => {
     const M = 42;
     const doc = new PDFDocument({ size: 'A4', margin: M, bufferPages: true });
@@ -86,13 +102,23 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     let y = M;
 
     const ensure = (h: number) => { if (y + h > bottom()) { doc.addPage(); y = M; } };
+    let secN = 0;
     const heading = (txt: string) => {
+      secN += 1;
       ensure(30);
-      doc.fontSize(12).font('Helvetica-Bold').fillColor('#0B1B3A').text(txt, M, y);
+      doc.fontSize(12).font('Helvetica-Bold').fillColor('#0B1B3A').text(`${secN}. ${txt}`, M, y);
       y += 17;
       doc.moveTo(M, y).lineTo(RIGHT, y).strokeColor('#1E5BFF').lineWidth(0.8).stroke();
       y += 8;
     };
+    // Subtítulo dentro de una sección (sin numeración).
+    const subheading = (txt: string) => {
+      ensure(18);
+      doc.fontSize(9.5).font('Helvetica-Bold').fillColor('#1E5BFF').text(txt, M, y);
+      y += 14;
+    };
+    const nota = (txt: string) => { doc.fontSize(7.5).font('Helvetica-Oblique').fillColor('#777').text(txt, M + 2, y + 2, { width: W }); y += Math.max(12, doc.heightOfString(txt, { width: W })) + 2; };
+    const vacio = (txt: string) => { doc.fontSize(9).font('Helvetica').fillColor('#777').text(txt, M + 4, y); y += 14; };
     const kv = (label: string, val: string) => {
       const h = Math.max(13, doc.heightOfString(val, { width: W - 165 }));
       ensure(h);
@@ -164,7 +190,7 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     y += boxH + 14;
 
     // ── 1. Datos generales ──
-    heading('1. Datos generales');
+    heading('Datos generales');
     kv('Importador', empresa.razonSocial);
     kv('Proveedor del exterior', imp.proveedorExterior ?? '—');
     kv('País de origen', imp.paisOrigen ?? '—');
@@ -178,8 +204,38 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
       if (liq0.kilosBrutos != null || liq0.kilosNetos != null) kv('Peso bruto / neto', `${liq0.kilosBrutos ?? '—'} kg / ${liq0.kilosNetos ?? '—'} kg`);
     }
 
+    // ── Declaración aduanera (DUA) ──
+    heading('Declaración aduanera (DUA)');
+    if (exDua) {
+      const d = exDua.datos ?? {};
+      kv('Nº DUA / Canal', `${d.nroDua ?? '—'}   ·   Canal ${d.canal ?? '—'}`);
+      kv('Régimen / Carpeta', `${d.regimen ?? '—'}   ·   Carpeta ${d.carpeta ?? '—'}`);
+      kv('Aduana', d.aduana ?? '—');
+      kv('Fecha de pago / registro', `${d.fechaPago ?? '—'}   ·   registro ${d.fechaRegistro ?? '—'}`);
+      kv('Importador', `${d.importador ?? '—'}${d.importadorRut ? ` · RUT ${d.importadorRut}` : ''}`);
+      kv('Declarante / Despachante', `${d.declarante ?? '—'}${d.codDespachante ? ` · Cód. ${d.codDespachante}` : ''}${d.declaranteRut ? ` · RUT ${d.declaranteRut}` : ''}`);
+      kv('Proveedor', d.proveedor ?? '—');
+      kv('NCM / Origen / Estado', `${d.ncm ?? '—'}   ·   ${d.paisOrigen ?? '—'}   ·   ${d.estadoMercaderia ?? '—'}`);
+      kv('Factura / AWB', `${d.facturaNro ?? '—'}   ·   AWB ${d.awb ?? '—'}`);
+      kv('Bultos / Peso bruto / neto', `${d.totalBultos ?? '—'} bultos   ·   ${d.pesoBruto ?? '—'} kg / ${d.pesoNeto ?? '—'} kg`);
+      kv('Moneda / Tipo de cambio', `${d.moneda ?? '—'} · ${d.tipoCambio ?? '—'}`);
+      kv('Valor CIF / en Aduana', `${d.moneda ?? 'US$'} ${(d.valorCif ?? 0).toLocaleString('es-UY', { minimumFractionDigits: 2 })}   ·   $ ${(d.valorAduanaPesos ?? 0).toLocaleString('es-UY', { minimumFractionDigits: 2 })}`);
+      y += 2;
+      subheading('Tributos liquidados en el DUA');
+      const trs: Array<{ codigo: string; nombre: string; monto: number }> = d.tributos ?? [];
+      if (trs.length) {
+        tabla(
+          [{ w: 44, title: 'Cód.' }, { w: W - 160, title: 'Tributo' }, { w: 116, title: 'Monto', align: 'right' }],
+          trs.map((t) => [t.codigo, t.nombre, `$ ${t.monto.toLocaleString('es-UY')}`]),
+        );
+        y += 2;
+        total2('Total de tributos del DUA', `$ ${(d.totalTributos ?? 0).toLocaleString('es-UY')}`, true);
+      }
+      nota('Datos tomados de la declaración aduanera oficial (hoja de trabajo del DUA). Los tributos deben coincidir con el pago por SPE y con la liquidación del despachante.');
+    } else { vacio('No se adjuntó el DUA oficial (expediente preliminar).'); }
+
     // ── 2. Valor de importación ── (usa la factura extraída si existe)
-    heading('2. Valor de importación');
+    heading('Valor de importación');
     const fac = facturas[0];
     if (fac) {
       const m = sym(fac.moneda);
@@ -193,7 +249,7 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     }
 
     // ── 3. Pagos al exterior ──
-    heading('3. Pagos al exterior');
+    heading('Pagos al exterior');
     if (transferencias.length) {
       tabla(
         [{ w: 70, title: 'Ref.' }, { w: 70, title: 'Fecha' }, { w: 95, title: 'Importe', align: 'right' }, { w: 80, title: 'Comisión', align: 'right' }, { w: 90, title: 'Debitado', align: 'right' }, { w: W - 405, title: 'Respaldo' }],
@@ -211,7 +267,7 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     } else { doc.fontSize(9).font('Helvetica').fillColor('#777').text('Sin transferencias registradas.', M + 4, y); y += 14; }
 
     // ── 4. Estado de cuenta del proveedor ──
-    heading('4. Estado de cuenta del proveedor');
+    heading('Estado de cuenta del proveedor');
     if (facturas.length || transferencias.length) {
       const monP = sym(facturas[0]?.moneda ?? transferencias[0]?.moneda ?? 'USD');
       kv('Proveedor', imp.proveedorExterior ?? transferencias[0]?.beneficiario ?? '—');
@@ -238,7 +294,7 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     } else { doc.fontSize(9).font('Helvetica').fillColor('#777').text('Sin movimientos del proveedor.', M + 4, y); y += 14; }
 
     // ── 5. Estado de cuenta del despachante ──
-    heading('5. Estado de cuenta del despachante');
+    heading('Estado de cuenta del despachante');
     if (liq0) {
       const monD = sym(liq0.moneda);
       kv('Despachante', liq0.despachante ?? '—');
@@ -250,7 +306,7 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     } else { doc.fontSize(9).font('Helvetica').fillColor('#777').text('Sin liquidación del despachante registrada.', M + 4, y); y += 14; }
 
     // ── 6. Gastos y tributos (liquidación del despachante) ──
-    heading('6. Gastos y tributos (liquidación del despachante)');
+    heading('Gastos y tributos (liquidación del despachante)');
     const liq = liquidaciones[0];
     if (liq) {
       kv('Carpeta / Fecha', `${liq.carpeta ?? '—'} · ${fdate(liq.fecha)}`);
@@ -260,10 +316,81 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
       for (const c of liq.conceptos.filter((x) => x.monto !== 0n)) total2(CONCEPTO_LIQ[c.clave] ?? c.clave, money(c.monto, sym(liq.moneda)));
       total2('Total liquidación', money(liq.total, sym(liq.moneda)), true);
       if (liq.gastosAgenciaExtra) total2('Gastos de agencia (informados aparte)', `US$ ${liq.gastosAgenciaExtra.toLocaleString('es-UY', { minimumFractionDigits: 2 })}`);
-    } else { doc.fontSize(9).font('Helvetica').fillColor('#777').text('Sin liquidación del despachante registrada.', M + 4, y); y += 14; }
+    } else if (exServicios.length) {
+      vacio('Los gastos del despachante se detallan en la sección siguiente (e-factura CFE del despachante).');
+    } else { vacio('Sin liquidación del despachante registrada.'); }
+
+    // ── Facturas de servicios en plaza (CFE uruguayas) ──
+    heading('Facturas de servicios en plaza (CFE)');
+    if (exServicios.length) {
+      tabla(
+        [{ w: W - 300, title: 'Prestador' }, { w: 74, title: 'Comprob.' }, { w: 62, title: 'Fecha' }, { w: 40, title: 'Mon.' }, { w: 84, title: 'Total', align: 'right' }],
+        exServicios.map((e) => [e.emisor ?? e.rutEmisor ?? '—', `${e.serie ?? ''}${e.numero ?? ''}`, fdate(e.fecha), e.moneda ?? '—', money(e.total, sym(e.moneda ?? 'UYU'))]),
+      );
+      y += 4;
+      // Composición de los gastos del despachante (gravados + IVA + no facturable).
+      const hon = exServicios.reduce((s, e) => s + Math.round((e.datos?.honorarios ?? 0) * 100), 0);
+      const gop = exServicios.reduce((s, e) => s + Math.round((e.datos?.gastosOperativos ?? 0) * 100), 0);
+      const ivaS = exServicios.reduce((s, e) => s + Math.round((e.datos?.iva ?? 0) * 100), 0);
+      const noFac = exServicios.reduce((s, e) => s + Math.round((e.datos?.noFacturable ?? 0) * 100), 0);
+      if (hon || gop || ivaS || noFac) {
+        if (hon) total2('Honorarios del despachante (gravado)', money(BigInt(hon)));
+        if (gop) total2('Gastos operativos (gravado)', money(BigInt(gop)));
+        if (ivaS) total2('IVA de servicios (crédito fiscal)', money(BigInt(ivaS)));
+        if (noFac) total2('Pagos por cuenta del importador (tributos / no facturable)', money(BigInt(noFac)));
+      }
+      y += 2;
+      // Detalle línea a línea de cada comprobante.
+      for (const e of exServicios) {
+        const lineas: Array<{ descripcion: string; importe: number; codIva: string | null }> = e.datos?.lineas ?? [];
+        if (!lineas.length) continue;
+        subheading(`${e.emisor ?? 'Prestador'} · ${e.serie ?? ''}${e.numero ?? ''}`);
+        tabla(
+          [{ w: W - 160, title: 'Concepto' }, { w: 44, title: 'IVA' }, { w: 112, title: 'Importe', align: 'right' }],
+          lineas.map((l) => [l.descripcion, l.codIva ?? '', `${sym(e.moneda ?? 'UYU')} ${l.importe.toLocaleString('es-UY', { minimumFractionDigits: 2 })}`]),
+        );
+        y += 3;
+      }
+      nota('Códigos de IVA (DGI): 1 Exento · 2 Tasa mínima · 3 Tasa básica (22%) · 6 No facturable (importes pagados por cuenta del importador: tributos y tasas oficiales).');
+    } else { vacio('Sin facturas de servicios locales registradas.'); }
+
+    // ── Pagos de tributos y servicios en plaza ──
+    heading('Pagos de tributos y servicios en plaza');
+    if (exPagosLocales.length || exRecibos.length) {
+      if (exPagosLocales.length) {
+        tabla(
+          [{ w: W - 300, title: 'Concepto / Beneficiario' }, { w: 62, title: 'Fecha' }, { w: 66, title: 'Banco' }, { w: 72, title: 'Ref.' }, { w: 84, title: 'Importe', align: 'right' }],
+          exPagosLocales.map((e) => {
+            const esTrib = e.tipo === 'PAGO_TRIBUTOS';
+            const concepto = esTrib ? 'Tributos del DUA (SPE)' : `Transferencia a ${e.datos?.beneficiario ?? 'agencia'}`;
+            return [concepto, fdate(e.fecha), e.datos?.banco ?? e.emisor ?? '—', e.datos?.referencia ?? '—', money(e.total, sym(e.moneda ?? 'UYU'))];
+          }),
+        );
+        y += 4;
+        // Detalle de los tributos pagados por SPE (si está).
+        const trib = exPagosLocales.find((e) => e.tipo === 'PAGO_TRIBUTOS');
+        const concs: Array<{ codigo: string; descripcion: string; monto: number }> = trib?.datos?.conceptos ?? [];
+        if (concs.length) {
+          subheading('Detalle del pago de tributos (SPE / Sistarbanc)');
+          tabla(
+            [{ w: 80, title: 'Código' }, { w: W - 200, title: 'Concepto' }, { w: 120, title: 'Monto', align: 'right' }],
+            concs.map((c) => [c.codigo, c.descripcion, `$ ${c.monto.toLocaleString('es-UY')}`]),
+          );
+          y += 2;
+          total2('Total pagado por SPE', money(trib ? trib.total : 0n), true);
+        }
+      }
+      if (exRecibos.length) {
+        subheading('Recibos de respaldo');
+        tabla(
+          [{ w: W - 300, title: 'Emisor' }, { w: 74, title: 'Recibo' }, { w: 62, title: 'Fecha' }, { w: 40, title: 'Mon.' }, { w: 84, title: 'Total', align: 'right' }],
+          exRecibos.map((e) => [e.emisor ?? e.datos?.concepto ?? '—', `${e.serie ?? ''}${e.numero ?? ''}`, fdate(e.fecha), e.moneda ?? '—', money(e.total, sym(e.moneda ?? 'UYU'))]),
+        );
+      }
+    } else { vacio('Sin pagos locales registrados.'); }
 
     // ── 6. Costo del inventario y distribución por artículo ──
-    heading('7. Costo del inventario y distribución por artículo');
+    heading('Costo del inventario y distribución por artículo');
     // Composición del costo (cómo se llega al costo de la mercadería).
     const recup: TributoImportacionTipo[] = [TributoImportacionTipo.IVA_IMPORTACION, TributoImportacionTipo.ANTICIPO_IVA, TributoImportacionTipo.ANTICIPO_IRAE];
     const tribNoRec = imp.tributos.filter((t) => !recup.includes(t.tipo)).reduce((s, t) => s + t.monto, 0n);
@@ -290,7 +417,7 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     } else { doc.fontSize(9).font('Helvetica').fillColor('#777').text('Sin detalle de artículos (procesá la factura en "Datos extraídos").', M + 4, y); y += 14; }
 
     // ── 7. Tratamiento fiscal (IVA y anticipos, separados) ──
-    heading('8. Tratamiento fiscal (IVA y anticipos)');
+    heading('Tratamiento fiscal (IVA y anticipos)');
     const sumTrib = (...ts: TributoImportacionTipo[]) => imp.tributos.filter((t) => ts.includes(t.tipo)).reduce((s, t) => s + t.monto, 0n);
     const ivaImp = sumTrib(TributoImportacionTipo.IVA_IMPORTACION);
     const ivaGastos = imp.gastos.reduce((s, g) => s + g.ivaGasto, 0n);
@@ -307,7 +434,7 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     doc.fontSize(7.5).font('Helvetica-Oblique').fillColor('#777').text('El IVA importación, el IVA de servicios y los anticipos de IVA/IRAE no integran el costo (son crédito fiscal / pagos a cuenta).', M + 2, y + 2); y += 14;
 
     // ── 7. Asientos contables ──
-    heading('9. Asientos contables');
+    heading('Asientos contables');
     const asiento = armarAsientoImportacion(imp, plan);
     tabla(
       [{ w: W - 220, title: 'Cuenta' }, { w: 110, title: 'Debe', align: 'right' }, { w: 110, title: 'Haber', align: 'right' }],
@@ -317,7 +444,7 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     if (!asiento.balanceado) { doc.fontSize(8).fillColor('#c00').text('⚠ El asiento no balancea.', M + 4, y); y += 12; }
 
     // ── 8. Conciliación ──
-    heading('10. Conciliación');
+    heading('Conciliación');
     const check = (label: string, ok: boolean, detalle: string) => {
       ensure(14);
       doc.fontSize(8.5).font('Helvetica-Bold').fillColor(ok ? '#1a7f37' : '#b54708').text(ok ? 'OK' : '!', M + 2, y, { width: 18, lineBreak: false });
@@ -337,10 +464,61 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
       const suma = liq.conceptos.reduce((s, c) => s + c.monto, 0n);
       check('Liquidación: suma de conceptos vs total', suma === liq.total, `${money(suma, sym(liq.moneda))} vs ${money(liq.total, sym(liq.moneda))}`);
     }
-    if (documentos.every((d) => (d.tipo ?? '') !== 'DUA')) check('DUA definitivo', false, 'no se adjuntó el DUA oficial (expediente preliminar).');
+    if (exDua) {
+      // Tributos del DUA vs pago por SPE.
+      const totTribDua = Math.round((exDua.datos?.totalTributos ?? 0) * 100);
+      const pagoSpe = exPagosLocales.find((e) => e.tipo === 'PAGO_TRIBUTOS');
+      if (pagoSpe) {
+        const dif = Math.abs(totTribDua - Number(pagoSpe.total));
+        check('Tributos del DUA vs pago SPE', dif <= 100, `DUA $ ${(exDua.datos?.totalTributos ?? 0).toLocaleString('es-UY')} vs SPE ${money(pagoSpe.total)}`);
+      }
+      // Importe de factura del DUA vs factura comercial.
+      if (fac && exDua.datos?.importeFacturas != null) {
+        const difF = Math.abs(Math.round(exDua.datos.importeFacturas * 100) - Number(fac.total));
+        check('Factura del DUA vs factura comercial', difF <= 100, `DUA ${sym(exDua.datos.moneda ?? 'USD')} ${exDua.datos.importeFacturas.toLocaleString('es-UY', { minimumFractionDigits: 2 })} vs factura ${money(fac.total, sym(fac.moneda))}`);
+      }
+    } else if (documentos.every((d) => (d.tipo ?? '') !== 'DUA')) {
+      check('DUA definitivo', false, 'no se adjuntó el DUA oficial (expediente preliminar).');
+    }
+
+    // ── Packing list / detalle logístico ──
+    heading('Packing list y detalle logístico');
+    if (exPacking) {
+      const p = exPacking.datos ?? {};
+      kv('Mercadería / NCM', `${imp.proveedorExterior ? '' : ''}NCM ${p.ncm ?? exDua?.datos?.ncm ?? '—'}`);
+      kv('Condición de venta', p.condicionVenta ?? imp.incoterm ?? '—');
+      kv('País de origen', p.paisOrigen ?? imp.paisOrigen ?? '—');
+      kv('Banco de ingreso de divisas', p.bancoDivisas ?? '—');
+      kv('Bultos / unidades', `${exDua?.datos?.totalBultos ?? p.totalBultos ?? '—'} bultos · ${p.cantidadTotal ?? '—'} unidades`);
+      kv('Peso bruto / neto (DUA)', `${exDua?.datos?.pesoBruto ?? '—'} kg / ${exDua?.datos?.pesoNeto ?? '—'} kg`);
+      const bultos: Array<{ nro: number; dimensiones: string | null; cantidad: number | null; peso: number | null }> = p.bultos ?? [];
+      if (bultos.length) {
+        y += 2;
+        subheading('Detalle de bultos (packing list)');
+        tabla(
+          [{ w: 40, title: '#', align: 'right' }, { w: W - 260, title: 'Dimensiones' }, { w: 100, title: 'Cantidad', align: 'right' }, { w: 120, title: 'Peso (kg)', align: 'right' }],
+          bultos.map((bb) => [String(bb.nro), bb.dimensiones ?? '—', bb.cantidad != null ? String(bb.cantidad) : '—', bb.peso != null ? bb.peso.toLocaleString('es-UY', { minimumFractionDigits: 2 }) : '—']),
+        );
+      }
+      nota('El packing list es informativo. Los bultos y pesos oficiales son los del DUA (casillas 37/38 y 58/59).');
+    } else { vacio('Sin packing list adjunto.'); }
+
+    // ── Certificado de origen ──
+    heading('Certificado de origen');
+    if (exCert) {
+      const c = exCert.datos ?? {};
+      kv('Nº certificado', c.numero ?? '—');
+      kv('Acuerdo', c.acuerdo ?? '—');
+      kv('Exportador', c.exportador ?? imp.proveedorExterior ?? '—');
+      kv('Importador', c.importador ?? empresa.razonSocial);
+      kv('País de origen', c.paisOrigen ?? imp.paisOrigen ?? '—');
+      kv('Puerto / lugar de embarque', c.puertoEmbarque ?? '—');
+      kv('Factura comercial', `${c.facturaNro ?? '—'}${c.facturaFecha ? ` · ${c.facturaFecha}` : ''}`);
+      nota('Certificado de origen digital (ALADI/VUCE). Acredita el origen Mercosur de la mercadería a los efectos de la preferencia arancelaria.');
+    } else { vacio('Sin certificado de origen adjunto.'); }
 
     // ── 9. Documentación de respaldo ──
-    heading('11. Documentación de respaldo');
+    heading('Documentación de respaldo');
     if (documentos.length) {
       const estadoCorto: Record<string, string> = { PROCESADO: 'Procesado', PENDIENTE: 'Pendiente', PROCESANDO: 'Procesando', ERROR: 'Error', DUPLICADO: 'Duplicado' };
       tabla(
@@ -350,7 +528,7 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     } else { doc.fontSize(9).font('Helvetica').fillColor('#777').text('Sin documentos adjuntos.', M + 4, y); y += 14; }
 
     // ── 12. Estado y aprobación ──
-    heading('12. Estado y aprobación');
+    heading('Estado y aprobación');
     kv('Estado del expediente', imp.estado);
     kv('Observaciones', imp.notas ?? '—');
     // Bloque de firmas.

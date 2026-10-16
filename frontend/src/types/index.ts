@@ -450,8 +450,10 @@ export interface ExtTransferencia {
   id: string; referencia: string | null; fecha: string | null; moneda: string;
   importe: string; comision: string; totalDebitado: string; beneficiario: string | null; nroDocs: number; estadoRevision: string;
 }
-export interface ExtraccionImportacion { facturas: ExtFactura[]; liquidaciones: ExtLiquidacion[]; transferencias: ExtTransferencia[]; }
-export interface ProcesarResultado { docsProcesados: number; facturas: number; liquidaciones: number; transferencias: number; faltantes: string[]; advertencias: string[]; }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export interface ExtDocumento { id: string; documentoId: string | null; tipo: string; emisor: string | null; rutEmisor: string | null; serie: string | null; numero: string | null; fecha: string | null; moneda: string | null; total: string; resumen: string | null; confianza: number | null; datos: any; }
+export interface ExtraccionImportacion { facturas: ExtFactura[]; liquidaciones: ExtLiquidacion[]; transferencias: ExtTransferencia[]; docExtracciones: ExtDocumento[]; }
+export interface ProcesarResultado { docsProcesados: number; facturas: number; liquidaciones: number; transferencias: number; dua: number; facturasServicios: number; pagosLocales: number; otros: number; faltantes: string[]; advertencias: string[]; }
 
 export interface CuentaCatalogo { clave: string; nombre: string; grupo: string; }
 export interface ImportacionEmpresaConfig {
