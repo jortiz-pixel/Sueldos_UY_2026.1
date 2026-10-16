@@ -1,12 +1,20 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Ship, Plus, Trash2, Save, X, Pencil } from 'lucide-react';
+import { Ship, Plus, Trash2, Save, X, Pencil, FileDown, Download, Calculator } from 'lucide-react';
 import { importacionesApi } from '../services/api';
 import { useCompany } from '../hooks/useCompany';
 import {
   Importacion, ImportacionPayload, ImportacionEstado, ImportacionRegimen,
-  TributoTipo, GastoConcepto,
+  TributoTipo, GastoConcepto, MESES,
 } from '../types';
+
+function descargarBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 const ESTADO_LABEL: Record<ImportacionEstado, string> = {
   BORRADOR: 'Borrador', EN_TRAMITE: 'En trámite', NACIONALIZADA: 'Nacionalizada',
@@ -206,6 +214,8 @@ export default function ImportacionesPage() {
         <button className="btn-primary" onClick={() => setEditando('nueva')}><Plus size={16} /> Nueva importación</button>
       </div>
 
+      <CreditoFiscalPanel companyId={activeCompanyId} />
+
       {isLoading ? (
         <div className="card p-6 text-ink-subtle">Cargando…</div>
       ) : lista.length === 0 ? (
@@ -246,6 +256,11 @@ export default function ImportacionesPage() {
                   <td className="px-3 py-2 text-right figure">{fmt(imp.costoMercaderia)}</td>
                   <td className="px-3 py-2 text-right figure">{fmt(imp.creditoFiscalIva)}</td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">
+                    <button
+                      className="p-1.5 rounded hover:bg-canvas text-ink-subtle hover:text-ink"
+                      title="Ficha de costeo (PDF)"
+                      onClick={async () => { const b = await importacionesApi.costeoPdf(imp.id); descargarBlob(b, `costeo_${imp.duaNumero || imp.id}.pdf`); }}
+                    ><FileDown size={15} /></button>
                     <button className="p-1.5 rounded hover:bg-canvas text-ink-subtle hover:text-ink" title="Editar" onClick={() => setEditando(imp)}><Pencil size={15} /></button>
                     <button
                       className="p-1.5 rounded hover:bg-bad-bg text-bad"
@@ -370,6 +385,20 @@ function FormImportacion({ companyId, inicial, importacion, onClose, onSaved, on
         <p className="text-xs text-ink-subtle mt-3">El IVA importación y los anticipos no integran el costo (son crédito fiscal / pagos a cuenta).</p>
       </div>
 
+      {importacion && (
+        <div className="card p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-subtle flex items-center gap-2"><Calculator size={16} /> Asiento contable y ficha</h2>
+            <button
+              className="btn-secondary btn-sm"
+              onClick={async () => { const b = await importacionesApi.costeoPdf(importacion.id); descargarBlob(b, `costeo_${importacion.duaNumero || importacion.id}.pdf`); }}
+            ><FileDown size={14} /> Ficha de costeo (PDF)</button>
+          </div>
+          <AsientoTabla importacionId={importacion.id} />
+          <p className="text-xs text-ink-subtle">El asiento refleja el último guardado. Si editaste importes, guardá primero para verlo actualizado.</p>
+        </div>
+      )}
+
       <div className="flex justify-end gap-2">
         <button className="btn-secondary" onClick={onClose}>Cancelar</button>
         <button className="btn-primary" disabled={guardar.isPending} onClick={() => guardar.mutate()}>
@@ -470,6 +499,130 @@ function LineasItems({ items, onChange }: { items: ItemForm[]; onChange: (i: Ite
               <button className="p-1.5 rounded hover:bg-bad-bg text-bad col-span-1 justify-self-center" onClick={() => del(i)}><Trash2 size={15} /></button>
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AsientoTabla({ importacionId }: { importacionId: string }) {
+  const { data: asiento, isLoading } = useQuery({
+    queryKey: ['importacion-asiento', importacionId],
+    queryFn: () => importacionesApi.asiento(importacionId),
+  });
+  if (isLoading) return <p className="text-xs text-ink-subtle">Cargando asiento…</p>;
+  if (!asiento) return null;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="table-header">
+          <tr>
+            <th className="px-3 py-2 text-left">Cuenta</th>
+            <th className="px-3 py-2 text-right">Debe</th>
+            <th className="px-3 py-2 text-right">Haber</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-hairline/60">
+          {asiento.lineas.map((l, i) => (
+            <tr key={i}>
+              <td className="px-3 py-1.5">{l.cuenta}</td>
+              <td className="px-3 py-1.5 text-right figure">{l.debe !== '0' ? fmt(l.debe) : ''}</td>
+              <td className="px-3 py-1.5 text-right figure">{l.haber !== '0' ? fmt(l.haber) : ''}</td>
+            </tr>
+          ))}
+          <tr className="font-bold border-t-2 border-hairline">
+            <td className="px-3 py-1.5">TOTALES</td>
+            <td className="px-3 py-1.5 text-right figure">{fmt(asiento.totalDebe)}</td>
+            <td className="px-3 py-1.5 text-right figure">{fmt(asiento.totalHaber)}</td>
+          </tr>
+        </tbody>
+      </table>
+      {!asiento.balanceado && <p className="text-xs text-bad mt-1">⚠ El asiento no balancea; revisá los importes.</p>}
+    </div>
+  );
+}
+
+function CreditoFiscalPanel({ companyId }: { companyId: string }) {
+  const hoy = new Date();
+  const [year, setYear] = useState(hoy.getFullYear());
+  const [month, setMonth] = useState(hoy.getMonth() + 1);
+  const [abierto, setAbierto] = useState(false);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['importaciones-credito-fiscal', companyId, year, month],
+    queryFn: () => importacionesApi.creditoFiscal(companyId, year, month),
+    enabled: abierto && !!companyId,
+  });
+
+  return (
+    <div className="card p-4 space-y-3">
+      <button className="flex items-center gap-2 text-sm font-semibold text-ink w-full" onClick={() => setAbierto((v) => !v)}>
+        <Calculator size={16} className="text-brand-600" /> Crédito fiscal del mes (DGI)
+        <span className="text-ink-subtle font-normal">— IVA importación y anticipos de las importaciones nacionalizadas</span>
+      </button>
+      {abierto && (
+        <div className="space-y-3">
+          <div className="flex items-end gap-2 flex-wrap">
+            <div>
+              <label className="form-label">Mes</label>
+              <select className="form-input" value={month} onChange={(e) => setMonth(Number(e.target.value))}>
+                {MESES.slice(1).map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="form-label">Año</label>
+              <input type="number" className="form-input w-28" value={year} onChange={(e) => setYear(Number(e.target.value))} />
+            </div>
+            <button
+              className="btn-secondary"
+              onClick={async () => { const b = await importacionesApi.creditoFiscalExcel(companyId, year, month); descargarBlob(b, `credito_fiscal_${String(month).padStart(2, '0')}${year}.xlsx`); }}
+            ><Download size={15} /> Excel</button>
+          </div>
+
+          {isLoading ? (
+            <p className="text-sm text-ink-subtle">Cargando…</p>
+          ) : !data || data.filas.length === 0 ? (
+            <p className="text-sm text-ink-subtle">Sin importaciones nacionalizadas en {MESES[month]} {year}.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="table-header">
+                  <tr>
+                    <th className="px-2 py-2 text-left">DUA</th>
+                    <th className="px-2 py-2 text-left">Fecha</th>
+                    <th className="px-2 py-2 text-left">Proveedor</th>
+                    <th className="px-2 py-2 text-right">IVA import.</th>
+                    <th className="px-2 py-2 text-right">IVA gastos</th>
+                    <th className="px-2 py-2 text-right">Ant. IVA</th>
+                    <th className="px-2 py-2 text-right">Ant. IRAE</th>
+                    <th className="px-2 py-2 text-right">Crédito fiscal</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-hairline/60">
+                  {data.filas.map((f) => (
+                    <tr key={f.id}>
+                      <td className="px-2 py-1.5 font-mono text-xs">{f.duaNumero || '—'}</td>
+                      <td className="px-2 py-1.5 text-xs">{f.fecha || '—'}</td>
+                      <td className="px-2 py-1.5">{f.proveedor || '—'}</td>
+                      <td className="px-2 py-1.5 text-right figure">{fmt(f.ivaImportacion)}</td>
+                      <td className="px-2 py-1.5 text-right figure">{fmt(f.ivaGastos)}</td>
+                      <td className="px-2 py-1.5 text-right figure">{fmt(f.anticipoIva)}</td>
+                      <td className="px-2 py-1.5 text-right figure">{fmt(f.anticipoIrae)}</td>
+                      <td className="px-2 py-1.5 text-right figure font-semibold">{fmt(f.creditoFiscalIva)}</td>
+                    </tr>
+                  ))}
+                  <tr className="font-bold border-t-2 border-hairline">
+                    <td className="px-2 py-1.5" colSpan={3}>TOTALES</td>
+                    <td className="px-2 py-1.5 text-right figure">{fmt(data.totales.ivaImportacion)}</td>
+                    <td className="px-2 py-1.5 text-right figure">{fmt(data.totales.ivaGastos)}</td>
+                    <td className="px-2 py-1.5 text-right figure">{fmt(data.totales.anticipoIva)}</td>
+                    <td className="px-2 py-1.5 text-right figure">{fmt(data.totales.anticipoIrae)}</td>
+                    <td className="px-2 py-1.5 text-right figure">{fmt(data.totales.creditoFiscalIva)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </div>

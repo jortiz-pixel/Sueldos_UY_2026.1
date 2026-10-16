@@ -1,5 +1,5 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
-import { AuthResponse, User, Company, Employee, PayrollPeriod, Liquidation, NominaItem, PayrollParameters, TipoAporte, TipoContribuyente, GrupoActividad, Contrato, Concepto, Obra, Importacion, ImportacionPayload, ImportacionEstado } from '../types';
+import { AuthResponse, User, Company, Employee, PayrollPeriod, Liquidation, NominaItem, PayrollParameters, TipoAporte, TipoContribuyente, GrupoActividad, Contrato, Concepto, Obra, Importacion, ImportacionPayload, ImportacionEstado, AsientoImportacion, CreditoFiscalReporte } from '../types';
 
 const BASE_URL = import.meta.env.VITE_API_URL || '';
 
@@ -810,6 +810,12 @@ export const importacionesApi = {
   estado: (id: string, estado: ImportacionEstado) =>
     api.patch<Importacion>(`/importaciones/${id}/estado`, { estado }).then((r) => r.data),
   remove: (id: string) => api.delete(`/importaciones/${id}`).then((r) => r.data),
+  asiento: (id: string) => api.get<AsientoImportacion>(`/importaciones/${id}/asiento`).then((r) => r.data),
+  costeoPdf: (id: string) => api.get(`/importaciones/${id}/costeo.pdf`, { responseType: 'blob' }).then((r) => r.data as Blob),
+  creditoFiscal: (companyId: string, year: number, month: number) =>
+    api.get<CreditoFiscalReporte>('/importaciones/credito-fiscal', { params: { companyId, year, month } }).then((r) => r.data),
+  creditoFiscalExcel: (companyId: string, year: number, month: number) =>
+    api.get('/importaciones/credito-fiscal/excel', { params: { companyId, year, month }, responseType: 'blob' }).then((r) => r.data as Blob),
 };
 
 export default api;

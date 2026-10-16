@@ -12,6 +12,7 @@
  */
 import { TributoImportacionTipo } from '@prisma/client';
 import { divRoundHalfUp } from '../utils/money';
+import { LineaAsiento } from './pagos.service';
 
 /** Tributos recuperables (crédito fiscal / pago a cuenta): no integran el costo. */
 export function esTributoRecuperable(tipo: TributoImportacionTipo): boolean {
@@ -101,4 +102,49 @@ export function calcularCosteo(input: CosteoInput): CosteoResultado {
   }
 
   return { cif, totalTributos, totalGastos, costoMercaderia, creditoFiscalIva, anticipos, costosItems };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ASIENTO CONTABLE de una importación (plan de cuentas estándar; adaptable).
+//   DEBE:  Mercaderías (costo) · IVA compras (crédito fiscal) · Anticipos
+//   HABER: Proveedor del exterior (FOB) · Flete y seguro · Aduana/DGI (tributos)
+//          · Despachante (gastos + su IVA)
+// Balancea por construcción: Σ débitos = Σ créditos.
+// ─────────────────────────────────────────────────────────────────────────────
+export interface ImpParaAsiento {
+  fob: bigint; flete: bigint; seguro: bigint;
+  totalTributos: bigint; totalGastos: bigint; anticipos: bigint;
+  costoMercaderia: bigint; creditoFiscalIva: bigint;
+  gastos: { ivaGasto: bigint }[];
+}
+
+export function armarAsientoImportacion(imp: ImpParaAsiento): {
+  lineas: LineaAsiento[]; totalDebe: string; totalHaber: string; balanceado: boolean;
+} {
+  const ivaGastos = imp.gastos.reduce((s, g) => s + g.ivaGasto, 0n);
+  const fleteSeguro = imp.flete + imp.seguro;
+  const despachante = imp.totalGastos + ivaGastos;
+
+  const lineas: LineaAsiento[] = [];
+  const push = (cuenta: string, debe: bigint, haber: bigint) => {
+    if (debe !== 0n || haber !== 0n) lineas.push({ cuenta, debe: debe.toString(), haber: haber.toString() });
+  };
+  // Debe
+  push('Mercaderías / Inventario', imp.costoMercaderia, 0n);
+  push('IVA Compras (crédito fiscal)', imp.creditoFiscalIva, 0n);
+  push('Anticipos IVA / IRAE', imp.anticipos, 0n);
+  // Haber
+  push('Proveedores del exterior', 0n, imp.fob);
+  push('Acreedores por flete y seguro', 0n, fleteSeguro);
+  push('Aduana / DGI (tributos a pagar)', 0n, imp.totalTributos);
+  push('Despachante de aduana', 0n, despachante);
+
+  const totalDebe = lineas.reduce((s, l) => s + BigInt(l.debe), 0n);
+  const totalHaber = lineas.reduce((s, l) => s + BigInt(l.haber), 0n);
+  return {
+    lineas,
+    totalDebe: totalDebe.toString(),
+    totalHaber: totalHaber.toString(),
+    balanceado: totalDebe === totalHaber,
+  };
 }

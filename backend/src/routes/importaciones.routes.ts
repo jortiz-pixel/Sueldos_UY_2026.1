@@ -12,8 +12,10 @@ import { prisma } from '../utils/prisma';
 import { authenticate, requireRole } from '../middleware/auth';
 import { assertCompanyAccess } from '../middleware/tenancy';
 import { AppError, NotFoundError } from '../middleware/errorHandler';
+import * as XLSX from 'xlsx';
 import { recordAudit } from '../services/audit.service';
-import { calcularCosteo, esTributoRecuperable } from '../services/importaciones.service';
+import { calcularCosteo, esTributoRecuperable, armarAsientoImportacion } from '../services/importaciones.service';
+import { generateCosteoPDF, costeoFilename } from '../services/importaciones.pdf.service';
 
 export const importacionesRouter = Router();
 
@@ -216,6 +218,90 @@ importacionesRouter.get('/', async (req: Request, res: Response, next: NextFunct
   } catch (err) { next(err); }
 });
 
+// ── GET /credito-fiscal — reporte de crédito fiscal del mes (DGI) ────────────
+// IVA importación + IVA de gastos (crédito fiscal) y anticipos (pagos a cuenta)
+// de las importaciones NACIONALIZADAS/CERRADAS del mes (por fecha de
+// nacionalización, o de DUA si falta). DEBE declararse ANTES de GET /:id.
+async function reporteCreditoFiscal(companyId: string, year: number, month: number) {
+  const imps = await prisma.importacion.findMany({
+    where: { companyId, estado: { in: [ImportacionEstado.NACIONALIZADA, ImportacionEstado.CERRADA] } },
+    include: { tributos: true, gastos: true },
+  });
+  const filas = imps
+    .map((imp) => {
+      const fechaEf = imp.fechaNacionalizacion ?? imp.duaFecha;
+      return { imp, fechaEf };
+    })
+    .filter(({ fechaEf }) => fechaEf && fechaEf.getUTCFullYear() === year && fechaEf.getUTCMonth() + 1 === month)
+    .map(({ imp, fechaEf }) => {
+      const ivaImportacion = imp.tributos.filter((t) => t.tipo === TributoImportacionTipo.IVA_IMPORTACION).reduce((s, t) => s + t.monto, 0n);
+      const anticipoIva = imp.tributos.filter((t) => t.tipo === TributoImportacionTipo.ANTICIPO_IVA).reduce((s, t) => s + t.monto, 0n);
+      const anticipoIrae = imp.tributos.filter((t) => t.tipo === TributoImportacionTipo.ANTICIPO_IRAE).reduce((s, t) => s + t.monto, 0n);
+      const ivaGastos = imp.gastos.reduce((s, g) => s + g.ivaGasto, 0n);
+      return {
+        id: imp.id,
+        duaNumero: imp.duaNumero,
+        fecha: fechaEf ? fechaEf.toISOString().slice(0, 10) : null,
+        proveedor: imp.proveedorExterior,
+        ivaImportacion: ivaImportacion.toString(),
+        ivaGastos: ivaGastos.toString(),
+        anticipoIva: anticipoIva.toString(),
+        anticipoIrae: anticipoIrae.toString(),
+        creditoFiscalIva: imp.creditoFiscalIva.toString(),
+        anticipos: imp.anticipos.toString(),
+      };
+    });
+
+  const sum = (k: 'ivaImportacion' | 'ivaGastos' | 'anticipoIva' | 'anticipoIrae' | 'creditoFiscalIva' | 'anticipos') =>
+    filas.reduce((s, f) => s + BigInt(f[k]), 0n).toString();
+  const totales = {
+    ivaImportacion: sum('ivaImportacion'), ivaGastos: sum('ivaGastos'),
+    anticipoIva: sum('anticipoIva'), anticipoIrae: sum('anticipoIrae'),
+    creditoFiscalIva: sum('creditoFiscalIva'), anticipos: sum('anticipos'),
+  };
+  return { filas, totales };
+}
+
+importacionesRouter.get('/credito-fiscal', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const companyId = (req.query.companyId as string) || req.user!.companyId;
+    const year = Number(req.query.year);
+    const month = Number(req.query.month);
+    if (!companyId) throw new AppError(400, 'companyId requerido');
+    if (!year || !month) throw new AppError(400, 'year y month requeridos');
+    await assertCompanyAccess(req, companyId);
+    res.json(await reporteCreditoFiscal(companyId, year, month));
+  } catch (err) { next(err); }
+});
+
+importacionesRouter.get('/credito-fiscal/excel', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const companyId = (req.query.companyId as string) || req.user!.companyId;
+    const year = Number(req.query.year);
+    const month = Number(req.query.month);
+    if (!companyId) throw new AppError(400, 'companyId requerido');
+    if (!year || !month) throw new AppError(400, 'year y month requeridos');
+    await assertCompanyAccess(req, companyId);
+    const { filas, totales } = await reporteCreditoFiscal(companyId, year, month);
+    const p = (v: string) => Number(BigInt(v)) / 100;
+    const aoa: (string | number)[][] = [
+      [`Crédito fiscal de importaciones — ${String(month).padStart(2, '0')}/${year}`],
+      [],
+      ['DUA', 'Fecha', 'Proveedor', 'IVA importación', 'IVA gastos', 'Anticipo IVA', 'Anticipo IRAE', 'Crédito fiscal total', 'Anticipos'],
+      ...filas.map((f) => [f.duaNumero ?? '', f.fecha ?? '', f.proveedor ?? '', p(f.ivaImportacion), p(f.ivaGastos), p(f.anticipoIva), p(f.anticipoIrae), p(f.creditoFiscalIva), p(f.anticipos)]),
+      ['TOTALES', '', '', p(totales.ivaImportacion), p(totales.ivaGastos), p(totales.anticipoIva), p(totales.anticipoIrae), p(totales.creditoFiscalIva), p(totales.anticipos)],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{ wch: 16 }, { wch: 12 }, { wch: 26 }, { wch: 15 }, { wch: 13 }, { wch: 13 }, { wch: 13 }, { wch: 18 }, { wch: 13 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Crédito fiscal');
+    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="credito_fiscal_importaciones_${String(month).padStart(2, '0')}${year}.xlsx"`);
+    res.send(buf);
+  } catch (err) { next(err); }
+});
+
 // ── GET /:id — detalle ───────────────────────────────────────────────────────
 importacionesRouter.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -223,6 +309,33 @@ importacionesRouter.get('/:id', async (req: Request, res: Response, next: NextFu
     if (!imp) throw new NotFoundError('Importación');
     await assertCompanyAccess(req, imp.companyId);
     res.json(serializar(imp));
+  } catch (err) { next(err); }
+});
+
+// ── GET /:id/asiento — asiento contable de la importación (JSON) ─────────────
+importacionesRouter.get('/:id/asiento', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const imp = await prisma.importacion.findUnique({ where: { id: req.params.id }, include: incluir });
+    if (!imp) throw new NotFoundError('Importación');
+    await assertCompanyAccess(req, imp.companyId);
+    res.json(armarAsientoImportacion(imp));
+  } catch (err) { next(err); }
+});
+
+// ── GET /:id/costeo.pdf — ficha de costeo (PDF) ──────────────────────────────
+importacionesRouter.get('/:id/costeo.pdf', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const imp = await prisma.importacion.findUnique({
+      where: { id: req.params.id },
+      include: { ...incluir, company: true },
+    });
+    if (!imp) throw new NotFoundError('Importación');
+    await assertCompanyAccess(req, imp.companyId);
+    const pdf = await generateCosteoPDF(imp, { razonSocial: imp.company.razonSocial, rut: imp.company.rut });
+    const nombre = `${costeoFilename(imp)}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${nombre}"`);
+    res.send(pdf);
   } catch (err) { next(err); }
 });
 

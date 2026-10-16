@@ -398,6 +398,29 @@ export interface Importacion {
   gastos: ImportacionGasto[];
 }
 
+export interface AsientoLinea { cuenta: string; debe: string; haber: string; }
+export interface AsientoImportacion { lineas: AsientoLinea[]; totalDebe: string; totalHaber: string; balanceado: boolean; }
+
+export interface CreditoFiscalFila {
+  id: string;
+  duaNumero: string | null;
+  fecha: string | null;
+  proveedor: string | null;
+  ivaImportacion: string;
+  ivaGastos: string;
+  anticipoIva: string;
+  anticipoIrae: string;
+  creditoFiscalIva: string;
+  anticipos: string;
+}
+export interface CreditoFiscalReporte {
+  filas: CreditoFiscalFila[];
+  totales: {
+    ivaImportacion: string; ivaGastos: string; anticipoIva: string;
+    anticipoIrae: string; creditoFiscalIva: string; anticipos: string;
+  };
+}
+
 // Payload de alta/edición: los montos van en PESOS (number); el backend convierte.
 export interface ImportacionPayload {
   companyId: string;
