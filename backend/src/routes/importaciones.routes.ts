@@ -242,6 +242,26 @@ importacionesRouter.get('/clientes', async (req: Request, res: Response, next: N
   } catch (err) { next(err); }
 });
 
+// ── POST /extraer — leer un archivo y devolver los datos (sin crear nada) ────
+// Para autocompletar el formulario de alta. Hoy lee Excel/CSV; el PDF del DUA
+// se adjunta pero todavía no se extrae (requiere una muestra del formato real).
+importacionesRouter.post('/extraer', uploadXls.single('file'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.file) throw new AppError(400, 'Archivo requerido (campo "file")');
+    const nombre = (req.file.originalname || '').toLowerCase();
+    const esHoja = /\.(xlsx|xls|csv)$/.test(nombre)
+      || req.file.mimetype.includes('sheet') || req.file.mimetype.includes('excel') || req.file.mimetype.includes('csv');
+    if (!esHoja) {
+      res.json({ datos: null, aviso: 'Por ahora solo puedo autocompletar desde Excel/CSV. Adjuntá el PDF y completá los datos a mano, o pasanos una muestra del archivo del despachante para habilitar la lectura automática del DUA.' });
+      return;
+    }
+    const { rows } = parseImportacionesExcel(req.file.buffer);
+    const first = rows[0];
+    if (!first) { res.json({ datos: null, aviso: 'El archivo no tiene filas de datos.' }); return; }
+    res.json({ datos: first.datos, errores: first.errores });
+  } catch (err) { next(err); }
+});
+
 // ── GET /plantilla — Excel de ejemplo para importar ──────────────────────────
 importacionesRouter.get('/plantilla', (_req: Request, res: Response) => {
   const buf = buildPlantillaImportaciones();

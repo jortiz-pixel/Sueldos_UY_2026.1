@@ -11,9 +11,12 @@ de accesos (anti-IDOR) y la auditoría ya existentes.
 >   Excel) y asiento contable por importación.
 > - Etapa 3: adjuntos por importación (factura, DUA, BL, etc.) e importador que
 >   genera el registro desde una **plantilla Excel** (descargable) con auto-mapeo
->   de columnas → previsualización → alta en borrador.
-> Pendiente opcional: parser DIRECTO del archivo nativo del despachante (sin
-> plantilla), que requiere una muestra real del archivo — ver §7.
+>   de columnas → previsualización → alta en borrador. En el ALTA de una
+>   importación se pueden adjuntar documentos (se suben al guardar) y
+>   **autocompletar el formulario** subiendo el Excel/CSV del despachante
+>   (endpoint `/extraer`).
+> Pendiente opcional: parser DIRECTO del PDF del DUA / archivo nativo del
+> despachante (sin plantilla), que requiere una muestra real del archivo — §7.
 
 ## 1. Decisiones de alcance (acordadas)
 

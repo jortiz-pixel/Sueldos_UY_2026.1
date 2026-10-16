@@ -5,7 +5,7 @@ import { importacionesApi, attachmentApi, Attachment } from '../services/api';
 import { useCompany } from '../hooks/useCompany';
 import {
   Importacion, ImportacionPayload, ImportacionEstado, ImportacionRegimen,
-  TributoTipo, GastoConcepto, MESES,
+  TributoTipo, GastoConcepto, MESES, ImportacionExtraido,
 } from '../types';
 
 function descargarBlob(blob: Blob, filename: string) {
@@ -159,6 +159,27 @@ function aPayload(companyId: string, f: FormState): ImportacionPayload {
     })),
     tributos: f.tributos.map((t) => ({ tipo: t.tipo, tasa: t.tasa, monto: t.monto })),
     gastos: f.gastos.map((g) => ({ concepto: g.concepto, descripcion: g.descripcion.trim() || null, monto: g.monto, gravadoIva: g.gravadoIva, ivaGasto: g.ivaGasto })),
+  };
+}
+
+// Vuelca los datos extraídos de un archivo en el formulario (para revisar y guardar).
+function aplicarExtraido(prev: FormState, d: NonNullable<ImportacionExtraido['datos']>): FormState {
+  return {
+    ...prev,
+    regimen: d.regimen ?? prev.regimen,
+    proveedorExterior: d.proveedorExterior ?? prev.proveedorExterior,
+    paisOrigen: d.paisOrigen ?? prev.paisOrigen,
+    incoterm: d.incoterm ?? prev.incoterm,
+    monedaOrigen: d.monedaOrigen || prev.monedaOrigen,
+    tipoCambio: d.tipoCambio || prev.tipoCambio,
+    duaNumero: d.duaNumero ?? prev.duaNumero,
+    duaFecha: d.duaFecha ?? prev.duaFecha,
+    despachante: d.despachante ?? prev.despachante,
+    aduana: d.aduana ?? prev.aduana,
+    fechaNacionalizacion: d.fechaNacionalizacion ?? prev.fechaNacionalizacion,
+    fob: d.fob, flete: d.flete, seguro: d.seguro,
+    tributos: d.tributos.map((t) => ({ tipo: t.tipo, tasa: 0, monto: t.monto })),
+    gastos: d.gastos.map((g) => ({ concepto: g.concepto, descripcion: '', monto: g.monto, gravadoIva: g.ivaGasto > 0, ivaGasto: g.ivaGasto })),
   };
 }
 
@@ -324,17 +345,46 @@ function FormImportacion({ companyId, inicial, importacion, onClose, onSaved, on
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setF((p) => ({ ...p, [k]: v }));
   const costeo = costeoVivo(f);
   const money = (n: number) => '$ ' + n.toLocaleString('es-UY', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // Documentos a adjuntar al crear una importación nueva (se suben al guardar).
+  const [pendientes, setPendientes] = useState<File[]>([]);
+  const [avisoAuto, setAvisoAuto] = useState('');
 
   const guardar = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       const payload = aPayload(companyId, f);
-      return importacion ? importacionesApi.update(importacion.id, payload) : importacionesApi.create(payload);
+      const saved = importacion ? await importacionesApi.update(importacion.id, payload) : await importacionesApi.create(payload);
+      // Adjuntar los documentos cargados en el alta a la importación recién creada.
+      if (!importacion && pendientes.length) {
+        for (const file of pendientes) {
+          const fd = new FormData();
+          fd.append('file', file);
+          fd.append('companyId', companyId);
+          fd.append('ownerType', 'IMPORTACION');
+          fd.append('ownerId', saved.id);
+          fd.append('tipo', 'OTRO');
+          await attachmentApi.upload(fd);
+        }
+      }
+      return saved;
     },
     onSuccess: onSaved,
     onError: (e: unknown) => {
       const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error;
       onError(msg || 'No se pudo guardar la importación.');
     },
+  });
+
+  const autocompletar = useMutation({
+    mutationFn: (file: File) => importacionesApi.extraer(file),
+    onSuccess: (r) => {
+      if (r.datos) {
+        setF((prev) => aplicarExtraido(prev, r.datos!));
+        setAvisoAuto('Datos cargados del archivo. Revisalos antes de guardar.');
+      } else {
+        setAvisoAuto(r.aviso || 'No se pudieron extraer datos del archivo.');
+      }
+    },
+    onError: () => setAvisoAuto('No se pudo leer el archivo.'),
   });
 
   return (
@@ -345,6 +395,42 @@ function FormImportacion({ companyId, inicial, importacion, onClose, onSaved, on
       </div>
 
       {error && <div className="p-3 bg-bad-bg border border-bad/30 rounded-lg text-sm text-bad">{error}</div>}
+
+      {/* Adjuntar documentos y autocompletar */}
+      <div className="card p-5 space-y-3 border-t-4 border-t-brand-600">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-subtle flex items-center gap-2"><Paperclip size={16} /> Documentos y autocompletado</h2>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="btn-secondary cursor-pointer">
+            <Upload size={16} /> {autocompletar.isPending ? 'Leyendo…' : 'Autocompletar desde archivo'}
+            <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) autocompletar.mutate(file); e.target.value = ''; }} />
+          </label>
+          <button type="button" className="btn-secondary btn-sm" onClick={async () => descargarBlob(await importacionesApi.plantilla(), 'plantilla_importaciones.xlsx')}>
+            <Download size={14} /> Plantilla
+          </button>
+          {!importacion && (
+            <label className="btn-secondary cursor-pointer">
+              <Paperclip size={16} /> Adjuntar documento
+              <input type="file" accept=".pdf,image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) setPendientes((p) => [...p, file]); e.target.value = ''; }} />
+            </label>
+          )}
+        </div>
+        <p className="text-xs text-ink-subtle">
+          Subí el <b>Excel/CSV</b> del despachante (o la plantilla) para que se completen los datos automáticamente.
+          Adjuntá la factura, el DUA, el conocimiento de embarque, etc. (PDF o imagen). El PDF del DUA se guarda como adjunto; la lectura automática del DUA se habilita cuando nos pasés una muestra del formato.
+        </p>
+        {avisoAuto && <div className="text-sm text-ink bg-canvas/70 rounded-lg p-2">{avisoAuto}</div>}
+        {!importacion && pendientes.length > 0 && (
+          <ul className="divide-y divide-hairline/60 text-sm">
+            {pendientes.map((file, i) => (
+              <li key={i} className="flex items-center justify-between py-1.5">
+                <span className="inline-flex items-center gap-1 text-ink"><Paperclip size={13} /> {file.name}</span>
+                <button type="button" className="text-bad hover:underline" onClick={() => setPendientes((p) => p.filter((_, idx) => idx !== i))}><Trash2 size={14} /></button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {!importacion && <p className="text-xs text-ink-subtle">Los documentos se adjuntan al guardar la importación.</p>}
+      </div>
 
       {/* Operación comercial */}
       <div className="card p-5 space-y-3">

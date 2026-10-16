@@ -406,6 +406,29 @@ export interface ImportacionCliente {
   active: boolean;
 }
 
+export interface ImportacionExtraido {
+  datos: {
+    regimen: ImportacionRegimen;
+    proveedorExterior: string | null;
+    paisOrigen: string | null;
+    incoterm: string | null;
+    monedaOrigen: string;
+    tipoCambio: number;
+    duaNumero: string | null;
+    duaFecha?: string;
+    despachante: string | null;
+    aduana: string | null;
+    fechaNacionalizacion?: string;
+    fob: number;
+    flete: number;
+    seguro: number;
+    tributos: Array<{ tipo: TributoTipo; monto: number }>;
+    gastos: Array<{ concepto: GastoConcepto; monto: number; ivaGasto: number }>;
+  } | null;
+  errores?: string[];
+  aviso?: string;
+}
+
 export interface AsientoLinea { cuenta: string; debe: string; haber: string; }
 export interface AsientoImportacion { lineas: AsientoLinea[]; totalDebe: string; totalHaber: string; balanceado: boolean; }
 
