@@ -361,7 +361,9 @@ export interface CosteoHistorico {
   estado: 'OK' | 'PROVISIONAL';
   motivos: string[];
   anticipos: Array<AnticipoProveedor & { montoUYU: bigint; comisionUYU: bigint; provisional: boolean; tcUsado: number | null }>;
-  adquisicionUYU: bigint;
+  adquisicionUYU: bigint;               // costo de la MERCADERÍA (CIF), sin el exceso pagado
+  anticiposPagadosUYU: bigint;          // total efectivamente girado al proveedor (anticipos)
+  excesoPagado: { me: number; uyu: bigint } | null; // pagado de más sobre el CIF (crédito, NO capitalizado)
   saldoNoAnticipado: { me: number; uyu: bigint } | null;
   comisionesBancariasUYU: bigint;
   tributos: TributoCosteo[]; totalTributos: bigint; tributosNoRecuperables: bigint; ivaImportacion: bigint; anticiposFiscales: bigint;
@@ -369,6 +371,15 @@ export interface CosteoHistorico {
   costoInventario: bigint | null;
   items: Array<{ descripcion: string; cantidad: number; fobME: bigint; costo: bigint }> | null;
   asientos: AsientoHist[];
+  // Verificación automática de consistencia (PASO 6): todas las igualdades deben dar 0.
+  consistencia: {
+    costoInventario: bigint | null;
+    sumaCostoArticulos: bigint;          // Σ costo de los ítems
+    movimientosMercaderia: bigint;       // Σ (debe − haber) en la cuenta Mercaderías de los asientos
+    adquisicionContable: bigint;         // adquisición usada para el costeo
+    adquisicionAsiento: bigint;          // adquisición usada en el asiento de incorporación
+    difArticulos: bigint; difAsientos: bigint; difAdquisicion: bigint; ok: boolean;
+  };
   conciliacion: {
     despachante: { cargos: Array<{ concepto: string; monto: bigint }>; totalCargos: bigint; pagos: Array<{ concepto: string; monto: bigint }>; totalPagos: bigint; saldo: bigint; nota: string } | null;
     tributos: { dua: bigint; spe: bigint; ok: boolean; detalle: Array<{ codigo: string; nombre: string; monto: bigint }> } | null;
@@ -418,22 +429,33 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
     const tcUsado = tc ?? null;
     return { ...a, tcUsado, provisional, montoUYU: tc ? cents(a.monto, tc) : 0n, comisionUYU: tc ? cents(a.comision, tc) : 0n };
   });
-  const adquisicionAnticipos = anticiposCalc.reduce((s, a) => s + a.montoUYU, 0n);
+  const anticiposPagadosUYU = anticiposCalc.reduce((s, a) => s + a.montoUYU, 0n); // total girado al proveedor
   const comisionesBancariasUYU = anticiposCalc.reduce((s, a) => s + a.comisionUYU, 0n);
 
-  // Saldo no anticipado (si los anticipos no cubren el CIF): se valúa al TC de reconocimiento.
+  // La MERCADERÍA se reconoce por el CIF de la factura (no por lo pagado): el
+  // exceso pagado sobre el CIF NO se capitaliza (queda como crédito con el
+  // proveedor). Si los anticipos no cubren el CIF, el saldo va al TC de
+  // reconocimiento. Sin diferencias ocultas: la mercadería cubierta por anticipos
+  // = pagado − exceso (el exceso es la cola del último anticipo).
   const cifME = factura ? Number(factura.total) / 100 : 0;
   const anticiposME = anticipos.reduce((s, a) => s + a.monto, 0);
   const difME = Math.round((anticiposME - cifME) * 100) / 100;
+  let excesoPagado: { me: number; uyu: bigint } | null = null;
   let saldoNoAnticipado: { me: number; uyu: bigint } | null = null;
-  let adquisicionUYU = adquisicionAnticipos;
-  if (cifME - anticiposME > 0.01) {
+  let mercaderiaAnticiposUYU = anticiposPagadosUYU;
+  if (anticiposME - cifME > 0.005 && anticiposCalc.length) {
+    const excesoMe = Math.round((anticiposME - cifME) * 100) / 100;
+    const ultTc = anticiposCalc[anticiposCalc.length - 1].tcUsado ?? 0;
+    const excUYU = cents(excesoMe, ultTc);
+    excesoPagado = { me: excesoMe, uyu: excUYU };
+    mercaderiaAnticiposUYU = anticiposPagadosUYU - excUYU; // CIF cubierto por anticipos
+  } else if (cifME - anticiposME > 0.005) {
     const saldoMe = Math.round((cifME - anticiposME) * 100) / 100;
     const tcR = validarTipoCambio(cotizacionReconocimiento).valor ?? validarTipoCambio(tcProvisional).valor;
     if (!validarTipoCambio(cotizacionReconocimiento).valido) { provisionalCosto = true; motivos.push('Falta la cotización fiscal de la fecha de reconocimiento para el saldo no anticipado (provisional).'); }
     saldoNoAnticipado = { me: saldoMe, uyu: tcR ? cents(saldoMe, tcR) : 0n };
-    adquisicionUYU += saldoNoAnticipado.uyu;
   }
+  const adquisicionUYU = mercaderiaAnticiposUYU + (saldoNoAnticipado?.uyu ?? 0n);
 
   // ── Gastos de plaza (desglosados, con dedup por cuenta de terceros) ──
   const importadorRut = dua?.importadorRut ?? null;
@@ -513,11 +535,11 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
   if (costoInventario != null) {
     const lineasRec: LineaAsientoHist[] = [
       { cuenta: et('mercaderiasImportadas'), debe: adquisicionUYU, haber: 0n },
-      { cuenta: et('anticiposProveedores'), debe: 0n, haber: adquisicionAnticipos },
+      { cuenta: et('anticiposProveedores'), debe: 0n, haber: mercaderiaAnticiposUYU },
     ];
     if (saldoNoAnticipado) lineasRec.push({ cuenta: et('proveedoresExterior'), monedaOrig: factura?.moneda, montoOrig: saldoNoAnticipado.me, debe: 0n, haber: saldoNoAnticipado.uyu });
     mk(fechaReconocimiento, 'Reconocimiento de la mercadería (incorporación al inventario y aplicación de anticipos)', lineasRec,
-      [{ documento: `Factura comercial`, regla: 'Inventario al costo de adquisición histórico (anticipos a su TC de pago); el saldo no anticipado al TC de reconocimiento. No se divide el importe del proveedor del exterior.' }], estado === 'OK');
+      [{ documento: `Factura comercial`, regla: 'Inventario al CIF de la factura valuado por los anticipos (TC de cada pago); el exceso pagado NO se capitaliza (crédito con el proveedor); el saldo no anticipado al TC de reconocimiento. No se divide el importe del proveedor del exterior.' }], estado === 'OK');
   }
   // Tributos del DUA + anticipos fiscales (28/08).
   if (totalTributos > 0n) {
@@ -564,7 +586,7 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
     })() : null,
     tributos: (dua && pagoSpeCtms != null) ? { dua: totalTributos, spe: pagoSpeCtms, ok: (totalTributos - pagoSpeCtms < 0n ? pagoSpeCtms - totalTributos : totalTributos - pagoSpeCtms) <= 100n, detalle: tributos.map((t) => ({ codigo: t.codigo, nombre: (dua.tributos.find((x) => x.codigo === t.codigo)?.nombre) ?? t.codigo, monto: t.monto })) } : null,
     unidades: { dua: dua ? null : null, factura: factura ? factura.articulos.reduce((s, a) => s + (a.cantidad || 0), 0) : 0, packing: unidadesPacking, ok: false, nota: '' },
-    anticiposVsCif: factura ? { anticiposME, cifME, difME, nota: Math.abs(difME) <= 1 ? `Los anticipos (${anticiposME.toFixed(2)}) cubren el CIF (${cifME.toFixed(2)}); diferencia ${difME.toFixed(2)} inmaterial.` : `Diferencia de ${difME.toFixed(2)} entre anticipos y CIF: revisar saldo con el proveedor.` } : null,
+    anticiposVsCif: factura ? { anticiposME, cifME, difME, nota: difME > 0 ? `Pagado de más ${difME.toFixed(2)} ${factura.moneda} sobre el CIF: NO se capitaliza (queda como crédito con el proveedor).` : (difME < 0 ? `Falta anticipar ${(-difME).toFixed(2)} ${factura.moneda}: el saldo se valúa al TC de reconocimiento.` : `Los anticipos cubren exactamente el CIF (${cifME.toFixed(2)} ${factura.moneda}).`) } : null,
   };
   // Unidades DUA (viene como número en el DUA).
   const duaUnidades = (dua as unknown as { unidadesComerciales?: number })?.unidadesComerciales ?? null;
@@ -574,11 +596,34 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
     ? (conc.unidades.ok ? `Las ${duaUnidades} unidades del DUA coinciden con las cantidades de la factura.` : `DUA ${duaUnidades} vs factura ${conc.unidades.factura}: revisar.`)
     : `Factura: ${conc.unidades.factura} unidades (el packing list describe bultos, no unidades).`;
 
+  // ── Verificación automática de consistencia (PASO 6) ──
+  // Todas las cifras salen de ESTE motor (única fuente): costo de inventario,
+  // costos por artículo y asientos. Se comprueban las tres igualdades SUMANDO los
+  // asientos realmente generados (no se asume: se verifica).
+  const CLAVE_MERC = 'mercaderiasImportadas';
+  const movimientosMercaderia = asientos.reduce((s, a) => s + a.lineas.filter((l) => l.cuenta === CLAVE_MERC).reduce((ss, l) => ss + l.debe - l.haber, 0n), 0n);
+  const sumaCostoArticulos = (items ?? []).reduce((s, i) => s + i.costo, 0n);
+  const recAsiento = asientos.find((a) => /Reconocimiento/.test(a.glosa));
+  const adquisicionAsiento = recAsiento ? recAsiento.lineas.filter((l) => l.cuenta === CLAVE_MERC).reduce((s, l) => s + l.debe - l.haber, 0n) : 0n;
+  const ci = costoInventario ?? 0n;
+  const difArticulos = ci - sumaCostoArticulos;
+  const difAsientos = ci - movimientosMercaderia;
+  const difAdquisicion = adquisicionUYU - adquisicionAsiento;
+  const consistencia = {
+    costoInventario, sumaCostoArticulos, movimientosMercaderia, adquisicionContable: adquisicionUYU,
+    adquisicionAsiento, difArticulos, difAsientos, difAdquisicion,
+    ok: costoInventario != null && difArticulos === 0n && difAsientos === 0n && difAdquisicion === 0n,
+  };
+  if (costoInventario != null && !consistencia.ok) {
+    motivos.push(`Inconsistencia interna: costo de inventario $${(Number(ci) / 100).toLocaleString('es-UY')} vs artículos (dif ${Number(difArticulos) / 100}) / asientos (dif ${Number(difAsientos) / 100}) / adquisición (dif ${Number(difAdquisicion) / 100}).`);
+  }
+
   return {
-    estado, motivos: [...new Set(motivos)],
-    anticipos: anticiposCalc, adquisicionUYU, saldoNoAnticipado, comisionesBancariasUYU,
+    estado: (costoInventario != null && !consistencia.ok) ? 'PROVISIONAL' : estado,
+    motivos: [...new Set(motivos)],
+    anticipos: anticiposCalc, adquisicionUYU, anticiposPagadosUYU, excesoPagado, saldoNoAnticipado, comisionesBancariasUYU,
     tributos, totalTributos, tributosNoRecuperables, ivaImportacion, anticiposFiscales,
     gastos, totalGastosUYU, ivaGastosUYU, creditoFiscalIva,
-    costoInventario, items, asientos, conciliacion: conc,
+    costoInventario, items, asientos, consistencia, conciliacion: conc,
   };
 }

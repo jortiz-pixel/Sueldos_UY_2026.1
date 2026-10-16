@@ -262,8 +262,11 @@ describe('construirCosteoHistorico — MARPOLOS', () => {
   it('valúa la adquisición con el TC de CADA anticipo (no el del DUA)', () => {
     const r = construirCosteoHistorico(marpolos(40.10, 40.20));
     expect(r.estado).toBe('OK');
-    const esperado = BigInt(Math.round(3000 * 40.10 * 100)) + BigInt(Math.round(2628.98 * 40.20 * 100));
-    expect(r.adquisicionUYU).toBe(esperado);
+    // Lo PAGADO al proveedor = cada anticipo a su TC de día de pago.
+    const pagado = BigInt(Math.round(3000 * 40.10 * 100)) + BigInt(Math.round(2628.98 * 40.20 * 100));
+    expect(r.anticiposPagadosUYU).toBe(pagado);
+    // La adquisición (mercadería) = pagado menos el exceso sobre el CIF.
+    expect(r.adquisicionUYU).toBe(pagado - r.excesoPagado!.uyu);
     // Comisiones bancarias = gasto (no inventario), a su TC de pago.
     expect(r.comisionesBancariasUYU).toBe(BigInt(Math.round(40 * 40.10 * 100)) + BigInt(Math.round(40 * 40.20 * 100)));
   });
@@ -363,5 +366,59 @@ describe('construirCosteoHistorico — OTRO expediente (EUR, anticipo parcial)',
     expect(r.ivaImportacion).toBe(C(90000));
     expect(r.items!.reduce((s, i) => s + i.costo, 0n)).toBe(r.costoInventario);
     expect(r.conciliacion.unidades.ok).toBe(true);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CONSISTENCIA: una única fuente de costo; las tres igualdades deben cerrar, y el
+// exceso pagado (USD 0,14) NO se capitaliza. (PASO 4 y PASO 6)
+// ═════════════════════════════════════════════════════════════════════════════
+describe('construirCosteoHistorico — consistencia e importe en exceso', () => {
+  it('NO capitaliza el exceso pagado sobre el CIF (USD 0,14)', () => {
+    const r = construirCosteoHistorico(marpolos(40.10, 40.20));
+    expect(r.excesoPagado?.me).toBeCloseTo(0.14, 2);
+    expect(r.excesoPagado?.uyu).toBe(BigInt(Math.round(0.14 * 40.20 * 100)));
+    // adquisición (mercadería) = pagado − exceso.
+    expect(r.adquisicionUYU).toBe(r.anticiposPagadosUYU - r.excesoPagado!.uyu);
+    // El exceso NO entra al costo de inventario.
+    expect(r.costoInventario).toBe(r.adquisicionUYU + r.tributosNoRecuperables + r.totalGastosUYU);
+  });
+
+  it('cumple las TRES igualdades (costo = artículos = asientos; adquisición = asiento)', () => {
+    const r = construirCosteoHistorico(marpolos(40.10, 40.20));
+    expect(r.consistencia.ok).toBe(true);
+    expect(r.consistencia.difArticulos).toBe(0n);
+    expect(r.consistencia.difAsientos).toBe(0n);
+    expect(r.consistencia.difAdquisicion).toBe(0n);
+    // Verificación explícita de cada igualdad.
+    expect(r.consistencia.sumaCostoArticulos).toBe(r.costoInventario);
+    expect(r.consistencia.movimientosMercaderia).toBe(r.costoInventario);
+    expect(r.consistencia.adquisicionAsiento).toBe(r.adquisicionUYU);
+  });
+
+  it('el asiento de reconocimiento NO deja la diferencia dentro de la mercadería', () => {
+    const r = construirCosteoHistorico(marpolos(40.10, 40.20));
+    const rec = r.asientos.find((a) => /Reconocimiento/.test(a.glosa))!;
+    const debeMerc = rec.lineas.filter((l) => /mercaderiasImportadas/.test(l.cuenta)).reduce((s, l) => s + l.debe, 0n);
+    const haberAnt = rec.lineas.filter((l) => /anticiposProveedores/.test(l.cuenta)).reduce((s, l) => s + l.haber, 0n);
+    expect(debeMerc).toBe(r.adquisicionUYU);              // mercadería = CIF
+    expect(debeMerc).toBe(haberAnt);                       // anticipos aplicados = CIF (el exceso queda como crédito)
+    expect(r.anticiposPagadosUYU - haberAnt).toBe(r.excesoPagado!.uyu); // el crédito remanente = exceso
+    expect(rec.balanceado).toBe(true);
+  });
+
+  it('consistencia general: también cierra en el expediente EUR con anticipo parcial', () => {
+    const otro: CosteoHistoricoInput = {
+      dua: { nroDua: '1', tipoCambio: 45.5, valorAduanaPesos: 455000, importadorRut: '21', declaranteRut: '99', importeFacturas: 10000, moneda: 'EUR', tributos: [{ codigo: '15', nombre: 'IVA', monto: 90000 }], unidadesComerciales: 50 } as any,
+      factura: { fob: C(9500), flete: C(400), seguro: C(100), total: C(10000), moneda: 'EUR', articulos: [{ descripcion: 'X', codigo: 'X', cantidad: 30, total: C(6000) }, { descripcion: 'Y', codigo: 'Y', cantidad: 20, total: C(4000) }] },
+      servicios: [{ rutComprador: '21', rutEmisor: '99', moneda: 'UYU', serie: 'A', numero: '900', emisor: 'Despachante', honorarios: 8000, gastosOperativos: 1000, iva: 1980, total: 100000, noFacturable: 0 }],
+      anticipos: [{ fecha: '2026-07-01', referencia: 'OP900', moneda: 'EUR', monto: 6000, comision: 50, cotizacion: 45.0 }],
+      pagoSpeCtms: C(90000), pagoDespachanteCtms: null, fechaReconocimiento: '2026-08-01', cotizacionReconocimiento: 45.8, tcProvisional: 45.5, unidadesPacking: null, etiqueta: et,
+    };
+    const r = construirCosteoHistorico(otro);
+    expect(r.excesoPagado).toBeNull();
+    expect(r.consistencia.ok).toBe(true);
+    expect(r.consistencia.movimientosMercaderia).toBe(r.costoInventario);
+    expect(r.consistencia.adquisicionAsiento).toBe(r.adquisicionUYU);
   });
 });

@@ -412,34 +412,40 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     } else { vacio('Sin pagos locales registrados.'); }
 
     // ── 6. Costo del inventario y distribución por artículo ──
+    // ÚNICA FUENTE: el costo, la composición y los ítems salen del motor de costeo
+    // (costeoDetalle). No se recalcula nada acá (así no puede diverger del asiento).
     heading('Costo del inventario y distribución por artículo');
-    // Composición del costo (cómo se llega al costo de la mercadería).
-    const recup: TributoImportacionTipo[] = [TributoImportacionTipo.IVA_IMPORTACION, TributoImportacionTipo.ANTICIPO_IVA, TributoImportacionTipo.ANTICIPO_IRAE];
-    const tribNoRec = imp.tributos.filter((t) => !recup.includes(t.tipo)).reduce((s, t) => s + t.monto, 0n);
-    total2('Adquisición (CIF contable: FOB + flete + seguro)', money(imp.cif));
-    total2('+ Tributos no recuperables', money(tribNoRec));
-    total2('+ Gastos de plaza directamente atribuibles', money(imp.totalGastos));
-    total2('= Costo del inventario', money(imp.costoMercaderia), true);
-    if (exDua && exDua.datos?.valorAduanaPesos != null) {
-      nota(`Valor en Aduana (base fiscal de los tributos): $ ${(exDua.datos.valorAduanaPesos).toLocaleString('es-UY', { minimumFractionDigits: 2 })}. El costo del inventario NO usa ese valor: la adquisición se reconoce al CIF de la factura (${imp.monedaOrigen} ${sym(imp.monedaOrigen)}) convertido a la COTIZACIÓN FISCAL DEL DÍA DE LA OPERACIÓN (TC ${imp.tcContable ?? '—'}), más gastos atribuibles y tributos no recuperables. Los anticipos de IVA/IRAE son pagos a cuenta y NO integran el costo.`);
-    }
+    total2('Adquisición (CIF de la factura, por anticipos)', nMoney(det?.adquisicionUYU ?? imp.cif.toString()));
+    total2('+ Tributos no recuperables', nMoney(det?.tributosNoRecuperables));
+    total2('+ Gastos de plaza directamente atribuibles', nMoney(det?.totalGastosUYU ?? imp.totalGastos.toString()));
+    total2('= Costo del inventario', pendiente ? 'PENDIENTE' : nMoney(det?.costoInventario ?? imp.costoMercaderia.toString()), true);
+    if (det?.excesoPagado) nota(`Se pagó de más ${meMoney(det.excesoPagado.me, imp.monedaOrigen)} (= ${nMoney(det.excesoPagado.uyu)}) sobre el CIF: NO se capitaliza al inventario; queda como crédito con el proveedor.`);
+    if (exDua && exDua.datos?.valorAduanaPesos != null) nota(`Valor en Aduana (base fiscal de los tributos): $ ${(exDua.datos.valorAduanaPesos).toLocaleString('es-UY', { minimumFractionDigits: 2 })}. El costo del inventario NO usa ese valor: la adquisición es el CIF de la factura valuado por los anticipos (TC de cada pago). Los anticipos de IVA/IRAE son pagos a cuenta y NO integran el costo.`);
     y += 4;
-    if (fac && fac.articulos.length) {
-      const sumaFob = fac.articulos.reduce((s, a) => s + a.total, 0n);
-      let acum = 0n;
-      const rows = fac.articulos.map((a, i) => {
-        let costo: bigint;
-        if (sumaFob > 0n && i < fac.articulos.length - 1) { costo = (imp.costoMercaderia * a.total) / sumaFob; acum += costo; }
-        else costo = imp.costoMercaderia - acum;
-        const unit = a.cantidad ? Number(costo) / 100 / a.cantidad : 0;
-        return [String(a.nro), a.codigo ?? '', a.descripcion, String(a.cantidad), money(a.total, sym(fac.moneda)), '$ ' + n2(costo), unit.toLocaleString('es-UY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })];
-      });
+    const itemsDet: Array<{ descripcion: string; cantidad: number; fobME: string; costo: string }> = det?.items ?? [];
+    if (itemsDet.length) {
       tabla(
-        [{ w: 22, title: '#' }, { w: 62, title: 'Código' }, { w: W - 320, title: 'Descripción' }, { w: 34, title: 'Cant.', align: 'right' }, { w: 72, title: 'FOB', align: 'right' }, { w: 74, title: 'Costo', align: 'right' }, { w: 56, title: 'C. unit.', align: 'right' }],
-        rows,
+        [{ w: 24, title: '#' }, { w: W - 300, title: 'Descripción' }, { w: 44, title: 'Cant.', align: 'right' }, { w: 86, title: 'FOB', align: 'right' }, { w: 78, title: 'Costo $', align: 'right' }, { w: 68, title: 'C. unit. $', align: 'right' }],
+        itemsDet.map((i, idx) => [String(idx + 1), i.descripcion, String(i.cantidad), money(BigInt(i.fobME), sym(imp.monedaOrigen)), n2(BigInt(i.costo)), (i.cantidad ? Number(i.costo) / 100 / i.cantidad : 0).toLocaleString('es-UY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })]),
       );
-      doc.fontSize(7.5).font('Helvetica-Oblique').fillColor('#777').text('Costo prorrateado por participación en el FOB de cada artículo.', M + 2, y + 2); y += 14;
+      // Verificación: la suma de los costos por artículo cuadra con el costo total.
+      const sumaArt = itemsDet.reduce((s, i) => s + BigInt(i.costo), 0n);
+      const dif = (det?.costoInventario != null ? BigInt(det.costoInventario) : 0n) - sumaArt;
+      doc.fontSize(7.5).font('Helvetica-Oblique').fillColor(dif === 0n ? '#1a7f37' : '#c00').text(`Suma de costos por artículo: $ ${n2(sumaArt)} ${dif === 0n ? '= costo del inventario (OK)' : `(¡diferencia $ ${n2(dif)}!)`}.`, M + 2, y + 2); y += 14;
+    } else if (fac && fac.articulos.length) {
+      doc.fontSize(9).font('Helvetica').fillColor('#777').text('Costo por artículo PENDIENTE (falta completar el costo del inventario).', M + 4, y); y += 14;
     } else { doc.fontSize(9).font('Helvetica').fillColor('#777').text('Sin detalle de artículos (procesá la factura en "Datos extraídos").', M + 4, y); y += 14; }
+
+    // Verificación automática de consistencia (PASO 6).
+    const cons = det?.consistencia;
+    if (cons) {
+      subheading('Verificación de consistencia (costo = artículos = asientos)');
+      total2('Costo del inventario', nMoney(cons.costoInventario));
+      total2('Suma de costos por artículo', `${nMoney(cons.sumaCostoArticulos)}   (dif ${nMoney(cons.difArticulos)})`);
+      total2('Movimientos a Mercaderías en los asientos', `${nMoney(cons.movimientosMercaderia)}   (dif ${nMoney(cons.difAsientos)})`);
+      total2('Adquisición contable vs del asiento', `${nMoney(cons.adquisicionContable)} vs ${nMoney(cons.adquisicionAsiento)}   (dif ${nMoney(cons.difAdquisicion)})`);
+      doc.fontSize(8).font('Helvetica-Bold').fillColor(cons.ok ? '#1a7f37' : '#c00').text(cons.ok ? 'OK — las tres igualdades se cumplen (sin diferencias).' : 'INCONSISTENTE — hay diferencias; expediente pendiente de aprobación.', M + 2, y + 2); y += 14;
+    }
 
     // ── Gastos de plaza (desglose contable) ──
     heading('Gastos de plaza (desglose contable)');

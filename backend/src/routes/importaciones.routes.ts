@@ -756,6 +756,7 @@ importacionesRouter.get('/:id/asiento', async (req: Request, res: Response, next
       motivo: imp.costeoMotivo ?? null,
       asientos,
       conciliacion: det?.conciliacion ?? null,
+      consistencia: det?.consistencia ?? null,
     });
   } catch (err) { next(err); }
 });
