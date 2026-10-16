@@ -222,6 +222,26 @@ importacionesRouter.get('/', async (req: Request, res: Response, next: NextFunct
   } catch (err) { next(err); }
 });
 
+// ── GET /clientes — TODAS las empresas del estudio (Sueldos + solo-Tareas) ───
+// Importaciones es un módulo interno del estudio (como la Agenda): el operador
+// puede registrar importaciones para cualquier cliente, sea de Sueldos o creado
+// solo para Tareas. Por eso lista todas las empresas activas. DEBE declararse
+// antes de GET /:id.
+importacionesRouter.get('/clientes', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const incluirInactivas = req.query.incluirInactivas === 'true';
+    const empresas = await prisma.company.findMany({
+      where: incluirInactivas ? {} : { active: true },
+      orderBy: { razonSocial: 'asc' },
+      select: { id: true, razonSocial: true, nombreFantasia: true, soloTareas: true, active: true },
+    });
+    res.json(empresas.map((e) => ({
+      companyId: e.id, razonSocial: e.razonSocial, nombreFantasia: e.nombreFantasia,
+      soloTareas: e.soloTareas, active: e.active,
+    })));
+  } catch (err) { next(err); }
+});
+
 // ── GET /plantilla — Excel de ejemplo para importar ──────────────────────────
 importacionesRouter.get('/plantilla', (_req: Request, res: Response) => {
   const buf = buildPlantillaImportaciones();

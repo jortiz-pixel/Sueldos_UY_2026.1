@@ -398,6 +398,14 @@ export interface Importacion {
   gastos: ImportacionGasto[];
 }
 
+export interface ImportacionCliente {
+  companyId: string;
+  razonSocial: string;
+  nombreFantasia?: string | null;
+  soloTareas: boolean;
+  active: boolean;
+}
+
 export interface AsientoLinea { cuenta: string; debe: string; haber: string; }
 export interface AsientoImportacion { lineas: AsientoLinea[]; totalDebe: string; totalHaber: string; balanceado: boolean; }
 

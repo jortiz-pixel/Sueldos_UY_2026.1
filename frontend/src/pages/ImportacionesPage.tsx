@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Ship, Plus, Trash2, Save, X, Pencil, FileDown, Download, Calculator, Paperclip, Upload, FileSpreadsheet, CheckCircle, AlertCircle } from 'lucide-react';
 import { importacionesApi, attachmentApi, Attachment } from '../services/api';
@@ -163,19 +163,37 @@ function aPayload(companyId: string, f: FormState): ImportacionPayload {
 }
 
 export default function ImportacionesPage() {
-  const { activeCompanyId, companies } = useCompany();
-  const empresa = companies.find((c) => c.companyId === activeCompanyId);
+  const { activeCompanyId } = useCompany();
   const qc = useQueryClient();
   const [editando, setEditando] = useState<Importacion | null | 'nueva'>(null);
   const [error, setError] = useState('');
+  const [companyId, setCompanyId] = useState<string>(() => localStorage.getItem('importacionesCompanyId') || '');
 
-  const { data: lista = [], isLoading } = useQuery({
-    queryKey: ['importaciones', activeCompanyId],
-    queryFn: () => importacionesApi.list(activeCompanyId),
-    enabled: !!activeCompanyId,
+  // Empresas: TODAS las del estudio (Sueldos + solo-Tareas), no solo las de Sueldos.
+  const { data: clientes = [] } = useQuery({
+    queryKey: ['importaciones-clientes'],
+    queryFn: () => importacionesApi.clientes(),
   });
 
-  const invalidar = () => qc.invalidateQueries({ queryKey: ['importaciones', activeCompanyId] });
+  // Empresa por defecto: la guardada; si no, la activa del selector de Sueldos; si no, la primera.
+  useEffect(() => {
+    if (!clientes.length) return;
+    if (!clientes.some((c) => c.companyId === companyId)) {
+      const fallback = clientes.some((c) => c.companyId === activeCompanyId) ? activeCompanyId : clientes[0].companyId;
+      setCompanyId(fallback);
+    }
+  }, [clientes, companyId, activeCompanyId]);
+
+  const elegirEmpresa = (id: string) => { setCompanyId(id); localStorage.setItem('importacionesCompanyId', id); };
+  const empresa = clientes.find((c) => c.companyId === companyId);
+
+  const { data: lista = [], isLoading } = useQuery({
+    queryKey: ['importaciones', companyId],
+    queryFn: () => importacionesApi.list(companyId),
+    enabled: !!companyId,
+  });
+
+  const invalidar = () => qc.invalidateQueries({ queryKey: ['importaciones', companyId] });
 
   const estadoMutation = useMutation({
     mutationFn: ({ id, estado }: { id: string; estado: ImportacionEstado }) => importacionesApi.estado(id, estado),
@@ -186,14 +204,14 @@ export default function ImportacionesPage() {
     onSuccess: invalidar,
   });
 
-  if (!activeCompanyId) {
-    return <div className="card p-6 text-ink-subtle">Elegí una empresa en el selector de arriba para ver sus importaciones.</div>;
+  if (!companyId) {
+    return <div className="card p-6 text-ink-subtle">No hay empresas disponibles para importaciones.</div>;
   }
 
   if (editando) {
     return (
       <FormImportacion
-        companyId={activeCompanyId}
+        companyId={companyId}
         inicial={editando === 'nueva' ? formVacio() : desdeImportacion(editando)}
         importacion={editando === 'nueva' ? null : editando}
         onClose={() => { setEditando(null); setError(''); }}
@@ -209,14 +227,27 @@ export default function ImportacionesPage() {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-ink flex items-center gap-2"><Ship size={22} className="text-brand-600" /> Importaciones</h1>
-          <p className="text-ink-subtle text-sm">Operaciones de comercio exterior de <b>{empresa?.nombreFantasia || empresa?.razonSocial || '—'}</b>. Costeo, crédito fiscal y seguimiento del trámite.</p>
+          <p className="text-ink-subtle text-sm">Operaciones de comercio exterior. Costeo, crédito fiscal y seguimiento del trámite.</p>
         </div>
         <button className="btn-primary" onClick={() => setEditando('nueva')}><Plus size={16} /> Nueva importación</button>
       </div>
 
-      <CreditoFiscalPanel companyId={activeCompanyId} />
+      {/* Selector de empresa: TODAS las del estudio (Sueldos + solo-Tareas). */}
+      <div className="card p-4">
+        <label className="form-label">Empresa</label>
+        <select className="form-input w-full md:w-96" value={companyId} onChange={(e) => elegirEmpresa(e.target.value)}>
+          {clientes.map((c) => (
+            <option key={c.companyId} value={c.companyId}>
+              {c.nombreFantasia || c.razonSocial}{c.soloTareas ? ' · (Tareas)' : ''}{!c.active ? ' · inactiva' : ''}
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-ink-subtle mt-1">Incluye las empresas de Sueldos y las creadas solo para Tareas. Trabajás sobre <b>{empresa?.nombreFantasia || empresa?.razonSocial || '—'}</b>.</p>
+      </div>
 
-      <ImportadorPanel companyId={activeCompanyId} onImported={invalidar} />
+      <CreditoFiscalPanel companyId={companyId} />
+
+      <ImportadorPanel companyId={companyId} onImported={invalidar} />
 
       {isLoading ? (
         <div className="card p-6 text-ink-subtle">Cargando…</div>

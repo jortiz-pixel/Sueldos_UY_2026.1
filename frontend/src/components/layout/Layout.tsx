@@ -146,6 +146,8 @@ export default function Layout() {
             <Building2 size={16} className="text-brand-600 hidden sm:block shrink-0" />
             {mode === 'tareas' ? (
               <span className="text-ink font-semibold text-sm truncate">Agenda del estudio</span>
+            ) : mode === 'importaciones' ? (
+              <span className="text-ink font-semibold text-sm truncate">Importaciones — comercio exterior</span>
             ) : companies.length > 0 ? (
               <select
                 value={activeCompanyId}
