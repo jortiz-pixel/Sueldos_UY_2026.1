@@ -255,3 +255,18 @@ MARPOLOS. Varias dependen de completar la extracción de Etapa 1 (transferencias
   Toma automática del **BCU** por web service SOAP oficial (validado: USD/EUR,
   TCC/TCV) y carga manual; no se inventan cotizaciones (si el BCU no tiene dato,
   avisa y se carga a mano). Pantalla "Cotizaciones" en el módulo.
+
+## Etapa 1 sub-3 (extracción) — parsers validados contra MARPOLOS
+
+Parsers deterministas (`importaciones.parsers.service.ts`) calibrados a los
+formatos reales y validados byte a byte contra los 6 PDF de MARPOLOS:
+- Factura AFIP Exporta Simple: cabezal + 33 artículos + FOB/flete/seguro/CIF
+  (ignora las copias ORIGINAL/DUPLICADO/TRIPLICADO; reconstruye descripciones
+  partidas — ítem 0025). Σ artículos + flete + seguro = CIF 5.628,84 ✓
+- Liquidación despachante: todos los conceptos (IVA imp. 49.843, IVA ant.
+  22.656, IVA gastos 1.804, total 96.137, Gastos Agencia USD 155 aparte) ✓
+- Pagos Itaú/SWIFT: dedup por referencia (SWIFT + comprobante = 1 transferencia);
+  2 transferencias, comisiones 80, total al proveedor 5.628,98, diferencia 0,14 ✓
+Falta (siguiente): modelo de datos de extracción + trazabilidad, endpoint de
+procesamiento por documento, pestaña "Datos extraídos" y motor de conciliación,
+y tests automáticos con fixtures de texto (los PDF del cliente no se versionan).
