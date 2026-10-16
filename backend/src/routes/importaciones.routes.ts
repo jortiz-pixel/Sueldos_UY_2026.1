@@ -19,7 +19,7 @@ import { AppError, NotFoundError } from '../middleware/errorHandler';
 import * as XLSX from 'xlsx';
 import { recordAudit } from '../services/audit.service';
 import { calcularCosteo, esTributoRecuperable, armarAsientoImportacion } from '../services/importaciones.service';
-import { generateCosteoPDF, costeoFilename } from '../services/importaciones.pdf.service';
+import { generateInformePDF, costeoFilename } from '../services/importaciones.pdf.service';
 import { parseImportacionesExcel, buildPlantillaImportaciones, ImportacionImportData } from '../services/importaciones.import.service';
 import { extraerImportacionDesdePdf, contarPaginasPdf, textoDelPdf } from '../services/importaciones.pdf-extract.service';
 import { clasificarDocumento, parseFacturaComercial, parseLiquidacionDespachante, parsePagoExterior } from '../services/importaciones.parsers.service';
@@ -720,17 +720,31 @@ importacionesRouter.get('/:id/asiento', async (req: Request, res: Response, next
   } catch (err) { next(err); }
 });
 
-// ── GET /:id/costeo.pdf — ficha de costeo (PDF) ──────────────────────────────
+// ── GET /:id/costeo.pdf — INFORME completo del expediente (PDF) ──────────────
 importacionesRouter.get('/:id/costeo.pdf', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const imp = await prisma.importacion.findUnique({
       where: { id: req.params.id },
-      include: { ...incluir, company: true },
+      include: { gastos: true, company: true },
     });
     if (!imp) throw new NotFoundError('Importación');
     await assertCompanyAccess(req, imp.companyId);
-    const plan = await planDeEmpresa(imp.companyId);
-    const pdf = await generateCosteoPDF(imp, { razonSocial: imp.company.razonSocial, rut: imp.company.rut }, plan);
+    const [facturas, liquidaciones, transferencias, documentos, plan] = await Promise.all([
+      prisma.importacionFactura.findMany({ where: { importacionId: imp.id }, include: { articulos: { orderBy: { nro: 'asc' } } }, orderBy: { createdAt: 'asc' } }),
+      prisma.importacionLiquidacion.findMany({ where: { importacionId: imp.id }, include: { conceptos: true }, orderBy: { createdAt: 'asc' } }),
+      prisma.importacionTransferencia.findMany({ where: { importacionId: imp.id }, orderBy: { fecha: 'asc' } }),
+      prisma.importacionDocumento.findMany({ where: { importacionId: imp.id }, orderBy: { createdAt: 'asc' } }),
+      planDeEmpresa(imp.companyId),
+    ]);
+    const pdf = await generateInformePDF({
+      empresa: { razonSocial: imp.company.razonSocial, rut: imp.company.rut },
+      imp,
+      plan,
+      facturas: facturas.map((f) => ({ proveedor: f.proveedor, numero: f.numero, fecha: f.fecha, moneda: f.moneda, incoterm: f.incoterm, fob: f.fob, flete: f.flete, seguro: f.seguro, cif: f.cif, total: f.total, articulos: f.articulos.map((a) => ({ nro: a.nro, codigo: a.codigo, descripcion: a.descripcion, cantidad: a.cantidad, precioUnit: a.precioUnit, total: a.total })) })),
+      liquidaciones: liquidaciones.map((l) => ({ carpeta: l.carpeta, fecha: l.fecha, aduana: l.aduana, despachante: l.despachante, transporte: l.transporte, tipoCambio: l.tipoCambio, moneda: l.moneda, total: l.total, gastosAgenciaExtra: l.gastosAgenciaExtra, conceptos: l.conceptos.map((c) => ({ clave: c.clave, monto: c.monto })) })),
+      transferencias: transferencias.map((t) => ({ referencia: t.referencia, fecha: t.fecha, moneda: t.moneda, importe: t.importe, comision: t.comision, totalDebitado: t.totalDebitado, beneficiario: t.beneficiario, nroDocs: t.nroDocs })),
+      documentos: documentos.map((d) => ({ fileName: d.fileName, tipo: d.tipoConfirmado ?? d.tipoDetectado, paginas: d.paginas, estado: d.estadoProc })),
+    });
     const nombre = `${costeoFilename(imp)}.pdf`;
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${nombre}"`);
