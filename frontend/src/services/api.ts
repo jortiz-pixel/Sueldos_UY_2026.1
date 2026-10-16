@@ -1,5 +1,5 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
-import { AuthResponse, User, Company, Employee, PayrollPeriod, Liquidation, NominaItem, PayrollParameters, TipoAporte, TipoContribuyente, GrupoActividad, Contrato, Concepto, Obra } from '../types';
+import { AuthResponse, User, Company, Employee, PayrollPeriod, Liquidation, NominaItem, PayrollParameters, TipoAporte, TipoContribuyente, GrupoActividad, Contrato, Concepto, Obra, Importacion, ImportacionPayload, ImportacionEstado } from '../types';
 
 const BASE_URL = import.meta.env.VITE_API_URL || '';
 
@@ -800,5 +800,16 @@ export interface CostoPersonalReport {
   }>;
   totales: { haberes: string; liquido: string; patronales: string; provisiones: string; costoTotal: string } | null;
 }
+
+export const importacionesApi = {
+  list: (companyId: string, incluirAnuladas = false) =>
+    api.get<Importacion[]>('/importaciones', { params: { companyId, incluirAnuladas } }).then((r) => r.data),
+  get: (id: string) => api.get<Importacion>(`/importaciones/${id}`).then((r) => r.data),
+  create: (data: ImportacionPayload) => api.post<Importacion>('/importaciones', data).then((r) => r.data),
+  update: (id: string, data: ImportacionPayload) => api.put<Importacion>(`/importaciones/${id}`, data).then((r) => r.data),
+  estado: (id: string, estado: ImportacionEstado) =>
+    api.patch<Importacion>(`/importaciones/${id}/estado`, { estado }).then((r) => r.data),
+  remove: (id: string) => api.delete(`/importaciones/${id}`).then((r) => r.data),
+};
 
 export default api;

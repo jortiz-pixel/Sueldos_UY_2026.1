@@ -322,3 +322,108 @@ export const MESES = [
   '', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
 ];
+
+// ── Importaciones (comercio exterior) ────────────────────────────────────────
+export type ImportacionEstado = 'BORRADOR' | 'EN_TRAMITE' | 'NACIONALIZADA' | 'CERRADA' | 'ANULADA';
+export type ImportacionRegimen = 'DEFINITIVA' | 'ADMISION_TEMPORARIA' | 'DEPOSITO' | 'TRANSITO' | 'ZONA_FRANCA';
+export type TributoTipo =
+  | 'ARANCEL_TEC' | 'TASA_SERVICIOS' | 'IMESI' | 'IVA_IMPORTACION'
+  | 'ANTICIPO_IVA' | 'ANTICIPO_IRAE' | 'RECARGO' | 'OTRO';
+export type GastoConcepto =
+  | 'HONORARIOS_DESPACHANTE' | 'DEPOSITO' | 'MOVILIZACION' | 'GASTOS_BANCARIOS'
+  | 'FLETE_INTERNO' | 'SEGURO_LOCAL' | 'OTRO';
+
+// Las cifras de dinero llegan del backend como string de CENTÉSIMOS.
+export interface ImportacionItem {
+  id?: string;
+  descripcion: string;
+  ncm?: string | null;
+  cantidad: number;
+  fobUnitario: string;
+  fobTotal: string;
+  costoProrrateado: string;
+}
+export interface ImportacionTributo {
+  id?: string;
+  tipo: TributoTipo;
+  baseImponible: string;
+  tasa: number;
+  monto: string;
+  recuperable: boolean;
+}
+export interface ImportacionGasto {
+  id?: string;
+  concepto: GastoConcepto;
+  descripcion?: string | null;
+  monto: string;
+  gravadoIva: boolean;
+  ivaGasto: string;
+}
+export interface Importacion {
+  id: string;
+  companyId: string;
+  estado: ImportacionEstado;
+  regimen: ImportacionRegimen;
+  proveedorExterior?: string | null;
+  paisOrigen?: string | null;
+  incoterm?: string | null;
+  monedaOrigen: string;
+  tipoCambio: number;
+  facturaComercialNro?: string | null;
+  facturaComercialFecha?: string | null;
+  duaNumero?: string | null;
+  duaFecha?: string | null;
+  despachante?: string | null;
+  aduana?: string | null;
+  transporteDoc?: string | null;
+  certificadoOrigen: boolean;
+  fechaEmbarque?: string | null;
+  fechaArribo?: string | null;
+  fechaNacionalizacion?: string | null;
+  fob: string;
+  flete: string;
+  seguro: string;
+  cif: string;
+  totalTributos: string;
+  totalGastos: string;
+  costoMercaderia: string;
+  creditoFiscalIva: string;
+  anticipos: string;
+  notas?: string | null;
+  creadoPor?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  items: ImportacionItem[];
+  tributos: ImportacionTributo[];
+  gastos: ImportacionGasto[];
+}
+
+// Payload de alta/edición: los montos van en PESOS (number); el backend convierte.
+export interface ImportacionPayload {
+  companyId: string;
+  estado?: ImportacionEstado;
+  regimen?: ImportacionRegimen;
+  proveedorExterior?: string | null;
+  paisOrigen?: string | null;
+  incoterm?: string | null;
+  monedaOrigen?: string;
+  tipoCambio?: number;
+  facturaComercialNro?: string | null;
+  facturaComercialFecha?: string | null;
+  duaNumero?: string | null;
+  duaFecha?: string | null;
+  despachante?: string | null;
+  aduana?: string | null;
+  transporteDoc?: string | null;
+  certificadoOrigen?: boolean;
+  fechaEmbarque?: string | null;
+  fechaArribo?: string | null;
+  fechaNacionalizacion?: string | null;
+  fob?: number;
+  flete?: number;
+  seguro?: number;
+  notas?: string | null;
+  items?: Array<{ descripcion: string; ncm?: string | null; cantidad?: number; fobUnitario?: number; fobTotal?: number }>;
+  tributos?: Array<{ tipo: TributoTipo; baseImponible?: number; tasa?: number; monto?: number; recuperable?: boolean }>;
+  gastos?: Array<{ concepto: GastoConcepto; descripcion?: string | null; monto?: number; gravadoIva?: boolean; ivaGasto?: number }>;
+}

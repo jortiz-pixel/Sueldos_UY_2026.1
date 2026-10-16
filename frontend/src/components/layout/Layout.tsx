@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, FileText, BarChart2,
-  Settings, LogOut, Building2, Calculator, Briefcase, UserCog, Upload, Menu, X, Landmark, CalendarDays, ListChecks, ShieldCheck, ClipboardList, HardHat,
+  Settings, LogOut, Building2, Calculator, Briefcase, UserCog, Upload, Menu, X, Landmark, CalendarDays, ListChecks, ShieldCheck, ClipboardList, HardHat, Ship,
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useCompany } from '../../hooks/useCompany';
@@ -23,6 +23,7 @@ const navItems = [
   { to: '/concepts', label: 'Conceptos', icon: Calculator },
   { to: '/liquidation', label: 'Liquidaciones', icon: FileText },
   { to: '/nomina', label: 'Nómina BPS', icon: Landmark },
+  { to: '/importaciones', label: 'Importaciones', icon: Ship },
   { to: '/calendario', label: 'Calendario', icon: CalendarDays },
   { to: '/tareas', label: 'Agenda estudio', icon: ClipboardList, staffOnly: true },
   { to: '/reports', label: 'Reportes', icon: BarChart2 },

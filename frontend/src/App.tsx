@@ -23,6 +23,7 @@ import ParametersPage from './pages/ParametersPage';
 import AccessPage from './pages/AccessPage';
 import AuditPage from './pages/AuditPage';
 import ImportPage from './pages/ImportPage';
+import ImportacionesPage from './pages/ImportacionesPage';
 import PortalChooserPage from './pages/portal/PortalChooserPage';
 import PortalLoginPage from './pages/portal/PortalLoginPage';
 import PortalSetPinPage from './pages/portal/PortalSetPinPage';
@@ -86,6 +87,7 @@ function AppRoutes() {
         <Route path="liquidation/:id" element={<LiquidationDetailPage />} />
         <Route path="nomina" element={<NominaPage />} />
         <Route path="obras" element={<ObrasPage />} />
+        <Route path="importaciones" element={<ImportacionesPage />} />
         <Route path="calendario" element={<CalendarioPage />} />
         <Route path="tareas" element={<TareasPage />} />
         <Route path="mes" element={<CentroMesPage />} />

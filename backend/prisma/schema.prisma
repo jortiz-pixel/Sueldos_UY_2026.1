@@ -44,7 +44,7 @@ model SubgrupoActividad {
   numero      Int
   nombre      String
 
-  grupo       GrupoActividad @relation(fields: [grupoNumero], references: [numero])
+  grupo GrupoActividad @relation(fields: [grupoNumero], references: [numero])
 
   @@unique([grupoNumero, numero])
   @@map("subgrupos_actividad")
@@ -114,7 +114,7 @@ model NominaDeclaracion {
   companyId  String
   year       Int
   month      Int
-  tipo       String   // 'N' | 'R'
+  tipo       String // 'N' | 'R'
   filename   String
   montoTotal BigInt   @default(0)
   resumen    Json
@@ -134,7 +134,7 @@ model PeriodExclusion {
   createdBy  String?
   createdAt  DateTime @default(now())
 
-  period     PayrollPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  period PayrollPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
 
   @@unique([periodId, employeeId])
   @@map("period_exclusions")
@@ -154,18 +154,18 @@ model GestoriaConfig {
 }
 
 model Company {
-  id               String   @id @default(cuid())
-  rut              String   @unique
-  razonSocial      String
-  nombreFantasia   String?
-  domicilio        String?
-  localidad        String?
-  departamento     String?
-  telefono         String?
-  email            String?
+  id                 String  @id @default(cuid())
+  rut                String  @unique
+  razonSocial        String
+  nombreFantasia     String?
+  domicilio          String?
+  localidad          String?
+  departamento       String?
+  telefono           String?
+  email              String?
   actividadPrincipal String?
-  grupoActividad   String?
-  bseRate          Int      @default(0)
+  grupoActividad     String?
+  bseRate            Int     @default(0)
 
   numeroBps           String?
   numeroBse           String?
@@ -182,15 +182,15 @@ model Company {
   inicioActividadMtss DateTime?
   fechaInscripcionBps DateTime?
 
-  exoApoJub  Int @default(0)
-  exoFonasa  Int @default(0)
-  exoFrl     Int @default(0)
-  exoCcm     Int @default(0)
+  exoApoJub Int @default(0)
+  exoFonasa Int @default(0)
+  exoFrl    Int @default(0)
+  exoCcm    Int @default(0)
 
   // PIN FOCER: código que FOCER asigna a cada empresa de construcción (Grupo 9 ·
   // Subgrupo 1) para presentar la declaración del Fondo de Cesantía y Retiro
   // (registro 2 del archivo). Vacío en empresas que no son de construcción.
-  focerPin   String?
+  focerPin String?
 
   diaVencimientoBps       Int @default(20)
   diasLicenciaAnio        Int @default(20)
@@ -198,28 +198,29 @@ model Company {
   maxDiasExtras           Int @default(35)
   diasTrabajadosMes       Int @default(30)
 
-  observaciones    String?
+  observaciones String?
 
-  active           Boolean  @default(true)
-  hidden           Boolean  @default(false)
+  active     Boolean  @default(true)
+  hidden     Boolean  @default(false)
   // Cliente creado desde la Agenda del estudio (Tareas): el estudio le hace
   // trabajos que NO son de sueldos. No aparece en el sistema de Sueldos.
-  soloTareas       Boolean  @default(false)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  soloTareas Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  employees        Employee[]
-  contratos        Contrato[]
-  payrollPeriods   PayrollPeriod[]
-  users            User[]
-  laudos           Laudo[]
-  conceptos        Concepto[]
-  auditLogs        AuditLog[]
-  memberships      Membership[]
-  entitlements     Entitlement[]
-  attachments      Attachment[]
-  tareas           Tarea[]
-  obras            Obra[]
+  employees      Employee[]
+  contratos      Contrato[]
+  payrollPeriods PayrollPeriod[]
+  users          User[]
+  laudos         Laudo[]
+  conceptos      Concepto[]
+  auditLogs      AuditLog[]
+  memberships    Membership[]
+  entitlements   Entitlement[]
+  attachments    Attachment[]
+  tareas         Tarea[]
+  obras          Obra[]
+  importaciones  Importacion[]
 
   @@map("companies")
 }
@@ -248,7 +249,7 @@ model Concepto {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  company         Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@unique([companyId, codigo])
   @@map("concepts")
@@ -273,12 +274,12 @@ model User {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  company      Company?  @relation(fields: [companyId], references: [id])
-  refreshTokens RefreshToken[]
-  auditLogs    AuditLog[]
-  memberships        Membership[] @relation("UserMemberships")
-  invitedMemberships Membership[] @relation("MembershipInvitedBy")
-  tareasResponsable  Tarea[]      @relation("TareaResponsable")
+  company            Company?       @relation(fields: [companyId], references: [id])
+  refreshTokens      RefreshToken[]
+  auditLogs          AuditLog[]
+  memberships        Membership[]   @relation("UserMemberships")
+  invitedMemberships Membership[]   @relation("MembershipInvitedBy")
+  tareasResponsable  Tarea[]        @relation("TareaResponsable")
 
   @@map("users")
 }
@@ -326,9 +327,9 @@ model Membership {
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
-  user        User    @relation("UserMemberships", fields: [userId], references: [id], onDelete: Cascade)
-  company     Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  invitedBy   User?   @relation("MembershipInvitedBy", fields: [invitedById], references: [id])
+  user      User    @relation("UserMemberships", fields: [userId], references: [id], onDelete: Cascade)
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  invitedBy User?   @relation("MembershipInvitedBy", fields: [invitedById], references: [id])
 
   @@unique([userId, companyId])
   @@index([companyId])
@@ -349,18 +350,18 @@ enum AttachmentType {
 model Attachment {
   id           String         @id @default(cuid())
   companyId    String
-  ownerType    String         // PERSONA | EMPRESA | CONTRATO | ...
+  ownerType    String // PERSONA | EMPRESA | CONTRATO | ...
   ownerId      String
   tipo         AttachmentType @default(OTRO)
   fileName     String
   mimeType     String
   storageKey   String
   tamano       Int
-  vencimiento  DateTime?      // carné de salud, libreta
+  vencimiento  DateTime? // carné de salud, libreta
   uploadedById String?
   createdAt    DateTime       @default(now())
 
-  company      Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@index([ownerType, ownerId])
   @@index([companyId])
@@ -379,21 +380,21 @@ model Entitlement {
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
 
-  company       Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@unique([companyId, module])
   @@map("entitlements")
 }
 
 model RefreshToken {
-  id        String   @id @default(cuid())
-  token     String   @unique
+  id        String    @id @default(cuid())
+  token     String    @unique
   userId    String
   expiresAt DateTime
   revokedAt DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("refresh_tokens")
 }
@@ -417,63 +418,63 @@ enum SexoBiologico {
 }
 
 model Employee {
-  id               String      @id @default(cuid())
-  companyId        String?
+  id              String         @id @default(cuid())
+  companyId       String?
   // Legajo / número de empleado: único por empresa (cada empresa numera 1,2,3…).
-  employeeNumber   Int?
+  employeeNumber  Int?
   // El CI ya NO es único global: puede repetirse entre empresas (misma persona
   // en varias empresas = una ficha por empresa). Único dentro de cada empresa.
-  ci               String
+  ci              String
   // Nombres desdoblados como los exige la nominada BPS (registro 5):
   // nombre = primer nombre, nombre2 = segundo; ídem apellidos.
-  nombre           String
-  nombre2          String?
-  apellido         String
-  apellido2        String?
-  fechaNacimiento  DateTime?
-  sexo             SexoBiologico?
-  nacionalidad     Int         @default(1)
-  tipoDocumento    String      @default("DO")
-  estadoCivil      EstadoCivil @default(SOLTERO)
-  domicilio        String?
-  localidad        String?
-  departamento     String?
-  email            String?
-  telefono         String?
+  nombre          String
+  nombre2         String?
+  apellido        String
+  apellido2       String?
+  fechaNacimiento DateTime?
+  sexo            SexoBiologico?
+  nacionalidad    Int            @default(1)
+  tipoDocumento   String         @default("DO")
+  estadoCivil     EstadoCivil    @default(SOLTERO)
+  domicilio       String?
+  localidad       String?
+  departamento    String?
+  email           String?
+  telefono        String?
 
-  fechaIngreso     DateTime
-  fechaEgreso      DateTime?
-  cargo            String?
-  categoria        String?
-  nivel            String?
-  salaryType       SalaryType  @default(MENSUAL)
-  salarioNominal   BigInt
-  jornal           BigInt?
+  fechaIngreso   DateTime
+  fechaEgreso    DateTime?
+  cargo          String?
+  categoria      String?
+  nivel          String?
+  salaryType     SalaryType @default(MENSUAL)
+  salarioNominal BigInt
+  jornal         BigInt?
 
-  conyugeACargo    Boolean     @default(false)
-  hijosACargo      Int         @default(0)
-  hijosDiscapacitados Int      @default(0)
+  conyugeACargo       Boolean @default(false)
+  hijosACargo         Int     @default(0)
+  hijosDiscapacitados Int     @default(0)
 
-  irpfMetodo       String      @default("PROYECCION")
-  irpfFicto        BigInt?
+  irpfMetodo String  @default("PROYECCION")
+  irpfFicto  BigInt?
 
-  bpsNumero        String?
-  fondoSolidario   Boolean     @default(false)
-  fonasaFamilia    Boolean     @default(false)
+  bpsNumero      String?
+  fondoSolidario Boolean @default(false)
+  fonasaFamilia  Boolean @default(false)
 
   // Pago de sueldo (planilla de pagos al banco)
-  banco            String?     // ej. BROU, Santander, Itaú
-  bancoSucursal    String?
-  bancoCuenta      String?
-  bancoMoneda      String      @default("UYU")
+  banco         String? // ej. BROU, Santander, Itaú
+  bancoSucursal String?
+  bancoCuenta   String?
+  bancoMoneda   String  @default("UYU")
 
-  observaciones    String?
+  observaciones String?
 
-  active           Boolean     @default(true)
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  company          Company?    @relation(fields: [companyId], references: [id])
+  company          Company?            @relation(fields: [companyId], references: [id])
   contratos        Contrato[]
   liquidations     Liquidation[]
   history          EmployeeHistory[]
@@ -488,44 +489,44 @@ model Employee {
 }
 
 model Contrato {
-  id               String     @id @default(cuid())
-  employeeId       String
-  companyId        String?
-  numero           Int        @default(1)
-  vigenciaDesde    DateTime
-  vigenciaHasta    DateTime?
-  fechaFin         DateTime?
-  fechaIngreso     DateTime
-  tipoContrato     String?
-  cargo            String?
-  sector           String?
-  categoria        String?
-  nivel            String?
-  salaryType       SalaryType @default(MENSUAL)
+  id                    String     @id @default(cuid())
+  employeeId            String
+  companyId             String?
+  numero                Int        @default(1)
+  vigenciaDesde         DateTime
+  vigenciaHasta         DateTime?
+  fechaFin              DateTime?
+  fechaIngreso          DateTime
+  tipoContrato          String?
+  cargo                 String?
+  sector                String?
+  categoria             String?
+  nivel                 String?
+  salaryType            SalaryType @default(MENSUAL)
   // Tipo de remuneración BPS (Tabla 2): 1 Mensual · 2 Jornalero · 3 Destajista ·
   // 4 A comisión · 5 Mixta · 6 Sin remuneración. Es lo que se declara a BPS.
   // salaryType (MENSUAL/JORNALERO) es el motor de cálculo y se deriva de acá
   // (2 → JORNALERO, el resto → MENSUAL).
-  tipoRemuneracion Int        @default(1)
-  cobra            String?
-  salarioNominal   BigInt
-  jornal           BigInt?
-  horasDia         Int?
-  regimenHorario   String?
-  sucursal         String?
+  tipoRemuneracion      Int        @default(1)
+  cobra                 String?
+  salarioNominal        BigInt
+  jornal                BigInt?
+  horasDia              Int?
+  regimenHorario        String?
+  sucursal              String?
   // Cuenta contable / centro de costos al que se imputan los sueldos de este
   // contrato (ej. Producción, Administración, Sucursal Centro).
-  cuentaSueldos    String?
-  moneda           String     @default("UYU")
-  grupoActividadNum Int?
-  subgrupo         String?
-  causalEgresoCod  Int?
+  cuentaSueldos         String?
+  moneda                String     @default("UYU")
+  grupoActividadNum     Int?
+  subgrupo              String?
+  causalEgresoCod       Int?
   // Historia Laboral BPS (pestaña "Otros Datos" de GNS)
-  vinculoFuncional   Int?
+  vinculoFuncional      Int?
   // Titular de empresa unipersonal (vínculo 1): categoría de aportación ficta
   // 1..10 (11/15/20/25/30/36/42/48/54/60 BFC). Define el sueldo ficto.
-  fictoCategoria     Int?
-  seguroSalud        Int?
+  fictoCategoria        Int?
+  seguroSalud           Int?
   // Cómo aporta el TITULAR / socio SIN REMUNERACIÓN (pantalla GNS "Aporta Por"):
   //  null / 'SUELDO' → empleado normal (aporta por su sueldo real).
   //  'MAXIMO_SUELDO' → sin remuneración; aporta por el MAYOR sueldo de los
@@ -534,38 +535,38 @@ model Contrato {
   // Con 'MAXIMO_SUELDO'/'FICTO' el recibo sale sin remuneración (30 días, total 0)
   // y en la nómina se declara el importe como concepto 1. Vale para cualquier
   // vínculo funcional sin remuneración (1 Patrón unipersonal, 122 Director SAS, …).
-  aportaPor          String?
-  computosEspeciales Int?
-  exoneracionAporte  Int?
-  acumulacionLaboral Int?
-  horasSemanales     Int?
+  aportaPor             String?
+  computosEspeciales    Int?
+  exoneracionAporte     Int?
+  acumulacionLaboral    Int?
+  horasSemanales        Int?
   // FOCER (empresas de construcción Grupo 9.1). Se declaran en el registro 4.
   // focerTipo: aportación del trabajador al fondo — 1 = 0,5% · 2 = 5% (default).
-  focerTipo          Int?
+  focerTipo             Int?
   // focerTipoContrato: 1 indefinido · 2 a prueba · 3 a término · 4 suplencia.
-  focerTipoContrato  Int?
+  focerTipoContrato     Int?
   // CONSTRUCCIÓN por aportación CT (registro 6 de la nómina y FOCER):
   //  categoriaCtCod    = código de categoría de construcción (Tabla BPS).
   //  cajaActividad     = caja de actividad (CT).
   //  asignacionFamiliar= corresponde asignación familiar (S/N); null = se deriva
   //                      de si el trabajador tiene hijos a cargo.
-  categoriaCtCod     Int?
-  cajaActividad      Int?
-  asignacionFamiliar Boolean?
+  categoriaCtCod        Int?
+  cajaActividad         Int?
+  asignacionFamiliar    Boolean?
   // Construcción: si el jornal del contrato es valor por DÍA (true → base = días
   // × jornal, valor hora = jornal ÷ 8) o por HORA (false, default = modelo validado).
-  construccionPorJornal Boolean @default(false)
-  observacion      String?
-  activo           Boolean    @default(true)
+  construccionPorJornal Boolean    @default(false)
+  observacion           String?
+  activo                Boolean    @default(true)
   // Obra a la que está asignado el trabajador (empresas de CONSTRUCCIÓN por
   // aportación CT): agrupa a la persona bajo su obra en la nómina.
-  obraId           String?
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
+  obraId                String?
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
 
-  employee         Employee   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  company          Company?   @relation(fields: [companyId], references: [id])
-  obra             Obra?      @relation(fields: [obraId], references: [id])
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  company  Company? @relation(fields: [companyId], references: [id])
+  obra     Obra?    @relation(fields: [obraId], references: [id])
 
   @@index([employeeId, vigenciaDesde])
   @@index([companyId])
@@ -574,50 +575,50 @@ model Contrato {
 }
 
 model EmployeeHistory {
-  id           String   @id @default(cuid())
-  employeeId   String
-  field        String
-  oldValue     String?
-  newValue     String?
-  changedBy    String?
-  reason       String?
-  createdAt    DateTime @default(now())
+  id         String   @id @default(cuid())
+  employeeId String
+  field      String
+  oldValue   String?
+  newValue   String?
+  changedBy  String?
+  reason     String?
+  createdAt  DateTime @default(now())
 
-  employee     Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
   @@map("employee_history")
 }
 
 model PayrollParameter {
-  id             String   @id @default(cuid())
-  key            String
-  value          String
-  description    String?
-  effectiveDate  DateTime
-  expiresDate    DateTime?
-  companyId      String?
-  createdBy      String?
-  createdAt      DateTime @default(now())
+  id            String    @id @default(cuid())
+  key           String
+  value         String
+  description   String?
+  effectiveDate DateTime
+  expiresDate   DateTime?
+  companyId     String?
+  createdBy     String?
+  createdAt     DateTime  @default(now())
 
   @@index([key, effectiveDate])
   @@map("payroll_parameters")
 }
 
 model IrpfBracket {
-  id             String   @id @default(cuid())
-  effectiveDate  DateTime
-  expiresDate    DateTime?
-  fromBpc        Int
-  toBpc          Int?
-  rate           Int
-  createdAt      DateTime @default(now())
+  id            String    @id @default(cuid())
+  effectiveDate DateTime
+  expiresDate   DateTime?
+  fromBpc       Int
+  toBpc         Int?
+  rate          Int
+  createdAt     DateTime  @default(now())
 
   @@index([effectiveDate])
   @@map("irpf_brackets")
 }
 
 model Laudo {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   companyId      String
   grupoActividad String
   subgrupo       String?
@@ -627,10 +628,10 @@ model Laudo {
   salarioMinimo  BigInt
   effectiveDate  DateTime
   expiresDate    DateTime?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  company        Company  @relation(fields: [companyId], references: [id])
+  company Company @relation(fields: [companyId], references: [id])
 
   @@map("laudos")
 }
@@ -641,9 +642,9 @@ model Laudo {
 // centésimos, con vigencia (los laudos cambian por ronda).
 model JornalConstruccion {
   id            String   @id @default(cuid())
-  categoria     String   // igual al desplegable: 'VIII — Oficial Albañil'
-  recuadro      String   // 'INCLUIDOS' | 'NO_INCLUIDOS'
-  valorHora     BigInt   // centésimos por hora
+  categoria     String // igual al desplegable: 'VIII — Oficial Albañil'
+  recuadro      String // 'INCLUIDOS' | 'NO_INCLUIDOS'
+  valorHora     BigInt // centésimos por hora
   effectiveDate DateTime
   createdAt     DateTime @default(now())
 
@@ -657,7 +658,7 @@ model JornalConstruccion {
 model LaudoDocumento {
   id            String   @id @default(cuid())
   effectiveDate DateTime // fecha de vigencia del convenio
-  nombre        String   // ej. "Undécima Ronda"
+  nombre        String // ej. "Undécima Ronda"
   filename      String
   mime          String
   size          Int
@@ -703,45 +704,45 @@ model PayrollPeriod {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
-  company     Company      @relation(fields: [companyId], references: [id])
+  company      Company           @relation(fields: [companyId], references: [id])
   liquidations Liquidation[]
-  exclusions  PeriodExclusion[]
+  exclusions   PeriodExclusion[]
 
   @@unique([companyId, year, month])
   @@map("payroll_periods")
 }
 
 model Liquidation {
-  id              String            @id @default(cuid())
-  periodId        String
-  employeeId      String
-  type            LiquidationType   @default(MENSUAL)
-  status          LiquidationStatus @default(BORRADOR)
+  id         String            @id @default(cuid())
+  periodId   String
+  employeeId String
+  type       LiquidationType   @default(MENSUAL)
+  status     LiquidationStatus @default(BORRADOR)
 
-  year            Int
-  month           Int
-  diasTrabajados  Float             @default(30)
-  diasHabiles     Float             @default(22)
+  year           Int
+  month          Int
+  diasTrabajados Float @default(30)
+  diasHabiles    Float @default(22)
 
-  totalHaberes    BigInt            @default(0)
-  totalDescuentos BigInt            @default(0)
-  totalPatronal   BigInt            @default(0)
-  liquidoPercibir BigInt            @default(0)
+  totalHaberes    BigInt @default(0)
+  totalDescuentos BigInt @default(0)
+  totalPatronal   BigInt @default(0)
+  liquidoPercibir BigInt @default(0)
 
   parametersSnapshot Json?
 
   // Fecha de pago del recibo (la carga el operador; figura en el recibo PDF).
-  fechaPago       DateTime?
-  confirmedAt     DateTime?
-  confirmedBy     String?
-  notes           String?
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
+  fechaPago   DateTime?
+  confirmedAt DateTime?
+  confirmedBy String?
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  period          PayrollPeriod     @relation(fields: [periodId], references: [id])
-  employee        Employee          @relation(fields: [employeeId], references: [id])
-  items           PayrollItem[]
-  adjustments     PayrollAdjustment[]
+  period      PayrollPeriod       @relation(fields: [periodId], references: [id])
+  employee    Employee            @relation(fields: [employeeId], references: [id])
+  items       PayrollItem[]
+  adjustments PayrollAdjustment[]
 
   @@unique([periodId, employeeId, type])
   @@map("liquidations")
@@ -755,92 +756,92 @@ enum ItemType {
 }
 
 model PayrollItem {
-  id             String   @id @default(cuid())
-  liquidationId  String
-  employeeId     String
-  itemType       ItemType
-  concepto       String
-  descripcion    String
-  baseCalculo    BigInt?
-  rate           Int?
-  amount         BigInt
+  id                String   @id @default(cuid())
+  liquidationId     String
+  employeeId        String
+  itemType          ItemType
+  concepto          String
+  descripcion       String
+  baseCalculo       BigInt?
+  rate              Int?
+  amount            BigInt
   calculationDetail Json?
-  createdAt      DateTime @default(now())
+  createdAt         DateTime @default(now())
 
-  liquidation    Liquidation @relation(fields: [liquidationId], references: [id], onDelete: Cascade)
-  employee       Employee    @relation(fields: [employeeId], references: [id])
+  liquidation Liquidation @relation(fields: [liquidationId], references: [id], onDelete: Cascade)
+  employee    Employee    @relation(fields: [employeeId], references: [id])
 
   @@map("payroll_items")
 }
 
 model PayrollAdjustment {
-  id             String   @id @default(cuid())
-  liquidationId  String
-  employeeId     String
-  concepto       String
-  descripcion    String
-  amount         BigInt
-  itemType       ItemType
-  reason         String
-  approvedBy     String?
-  createdBy      String
-  createdAt      DateTime @default(now())
+  id            String   @id @default(cuid())
+  liquidationId String
+  employeeId    String
+  concepto      String
+  descripcion   String
+  amount        BigInt
+  itemType      ItemType
+  reason        String
+  approvedBy    String?
+  createdBy     String
+  createdAt     DateTime @default(now())
 
-  liquidation    Liquidation @relation(fields: [liquidationId], references: [id])
-  employee       Employee    @relation(fields: [employeeId], references: [id])
+  liquidation Liquidation @relation(fields: [liquidationId], references: [id])
+  employee    Employee    @relation(fields: [employeeId], references: [id])
 
   @@map("payroll_adjustments")
 }
 
 model VacationAccrual {
-  id             String   @id @default(cuid())
-  employeeId     String
-  year           Int
+  id               String   @id @default(cuid())
+  employeeId       String
+  year             Int
   diasCorresponden Float
-  diasTomados    Float    @default(0)
-  diasPendientes Float    @default(0)
-  updatedAt      DateTime @updatedAt
-  createdAt      DateTime @default(now())
+  diasTomados      Float    @default(0)
+  diasPendientes   Float    @default(0)
+  updatedAt        DateTime @updatedAt
+  createdAt        DateTime @default(now())
 
-  employee       Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
   @@unique([employeeId, year])
   @@map("vacation_accrual")
 }
 
 model LeaveRequest {
-  id             String   @id @default(cuid())
-  employeeId     String
-  fechaInicio    DateTime
-  fechaFin       DateTime
-  diasHabiles    Int
-  motivo         String?
-  status         String   @default("PENDIENTE")
-  approvedBy     String?
-  liquidacionId  String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id            String   @id @default(cuid())
+  employeeId    String
+  fechaInicio   DateTime
+  fechaFin      DateTime
+  diasHabiles   Int
+  motivo        String?
+  status        String   @default("PENDIENTE")
+  approvedBy    String?
+  liquidacionId String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  employee       Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
   @@map("leave_requests")
 }
 
 model AuditLog {
-  id         String   @id @default(cuid())
-  companyId  String?
-  userId     String?
-  action     String
-  entity     String
-  entityId   String?
-  oldData    Json?
-  newData    Json?
-  ipAddress  String?
-  userAgent  String?
-  createdAt  DateTime @default(now())
+  id        String   @id @default(cuid())
+  companyId String?
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  oldData   Json?
+  newData   Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
 
-  company    Company? @relation(fields: [companyId], references: [id])
-  user       User?    @relation(fields: [userId], references: [id])
+  company Company? @relation(fields: [companyId], references: [id])
+  user    User?    @relation(fields: [userId], references: [id])
 
   @@index([companyId, createdAt])
   @@index([entity, entityId])
@@ -854,7 +855,7 @@ model EmployeePortalCredential {
   id             String    @id @default(cuid())
   ci             String    @unique
   pinHash        String
-  mustSetPin     Boolean   @default(true)   // primer ingreso: forzar cambio de PIN
+  mustSetPin     Boolean   @default(true) // primer ingreso: forzar cambio de PIN
   active         Boolean   @default(true)
   failedAttempts Int       @default(0)
   lockedUntil    DateTime?
@@ -872,7 +873,7 @@ model CompanyPortalCredential {
   id             String    @id @default(cuid())
   companyId      String    @unique
   pinHash        String
-  mustSetPin     Boolean   @default(true)   // primer ingreso: forzar cambio de PIN
+  mustSetPin     Boolean   @default(true) // primer ingreso: forzar cambio de PIN
   active         Boolean   @default(true)
   failedAttempts Int       @default(0)
   lockedUntil    DateTime?
@@ -890,31 +891,31 @@ model CompanyPortalCredential {
 // (cada trabajador se declara en la obra donde trabajó). Se administran desde
 // la sección "Obras" del menú, que aparece solo para empresas de construcción.
 model Obra {
-  id            String    @id @default(cuid())
-  companyId     String
+  id                  String    @id @default(cuid())
+  companyId           String
   // Número de obra en BPS (registro de obra / aporte unificado).
-  numeroObra    String
-  numeroIdentificador String?   // N° Identificador
-  nombre        String          // Nombre de Obra
-  direccion     String?         // Dirección Obra
-  departamento  String?         // Depto.
-  localidad     String?
-  padron        String?
-  fRealizacion  String?         // F. de Realización (1 admin. total · 2 por contrato · 3 menor cuantía)
-  actividadPrincipal String?    // Actividad principal (código, reg. 4 de la nómina CT)
-  estado        String?         // Estado de la obra
-  aportePatronal String?        // Ap. Pat.
-  cajaActividad String?         // Caja Act.
-  nroAutorizacion String?       // N° Aut.
-  fechaInicio   DateTime?       // Inicio Act.
-  fechaFin      DateTime?       // Fin
-  observaciones String?
-  activa        Boolean   @default(true)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  numeroObra          String
+  numeroIdentificador String? // N° Identificador
+  nombre              String // Nombre de Obra
+  direccion           String? // Dirección Obra
+  departamento        String? // Depto.
+  localidad           String?
+  padron              String?
+  fRealizacion        String? // F. de Realización (1 admin. total · 2 por contrato · 3 menor cuantía)
+  actividadPrincipal  String? // Actividad principal (código, reg. 4 de la nómina CT)
+  estado              String? // Estado de la obra
+  aportePatronal      String? // Ap. Pat.
+  cajaActividad       String? // Caja Act.
+  nroAutorizacion     String? // N° Aut.
+  fechaInicio         DateTime? // Inicio Act.
+  fechaFin            DateTime? // Fin
+  observaciones       String?
+  activa              Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
-  company       Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  contratos     Contrato[]
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contratos Contrato[]
 
   @@index([companyId])
   @@map("obras")
@@ -928,27 +929,27 @@ model Obra {
 // es un TareaVencimiento con su estado. Las recurrentes generan sus vencimientos
 // automáticamente. companyId nulo = tarea INTERNA del estudio.
 model Tarea {
-  id            String   @id @default(cuid())
-  titulo        String
-  descripcion   String?
-  categoria     String?              // BPS, DGI, Sueldos, Balances, Interno…
-  companyId     String?              // null = tarea del estudio (interna)
-  responsableId String?
-  tipo          String   @default("RECURRENTE") // PUNTUAL | RECURRENTE
-  recurrencia   String?              // MENSUAL|BIMESTRAL|TRIMESTRAL|SEMESTRAL|ANUAL
-  diaVencimiento Int?                // día del mes (1-31) para recurrentes
-  mesAncla      Int?                 // mes de anclaje del ciclo (1-12); default: creación
-  fechaVencimiento DateTime?         // para PUNTUAL
+  id               String    @id @default(cuid())
+  titulo           String
+  descripcion      String?
+  categoria        String? // BPS, DGI, Sueldos, Balances, Interno…
+  companyId        String? // null = tarea del estudio (interna)
+  responsableId    String?
+  tipo             String    @default("RECURRENTE") // PUNTUAL | RECURRENTE
+  recurrencia      String? // MENSUAL|BIMESTRAL|TRIMESTRAL|SEMESTRAL|ANUAL
+  diaVencimiento   Int? // día del mes (1-31) para recurrentes
+  mesAncla         Int? // mes de anclaje del ciclo (1-12); default: creación
+  fechaVencimiento DateTime? // para PUNTUAL
   // Vencimiento fiscal (pago de impuesto / presentación de DDJJ): estos SÍ se
   // muestran en el calendario. Las tareas comunes solo van en la lista.
-  esVencimiento Boolean  @default(false)
-  activa        Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  esVencimiento    Boolean   @default(false)
+  activa           Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  company       Company? @relation(fields: [companyId], references: [id])
-  responsable   User?    @relation("TareaResponsable", fields: [responsableId], references: [id])
-  vencimientos  TareaVencimiento[]
+  company      Company?           @relation(fields: [companyId], references: [id])
+  responsable  User?              @relation("TareaResponsable", fields: [responsableId], references: [id])
+  vencimientos TareaVencimiento[]
 
   @@index([companyId])
   @@index([activa])
@@ -958,7 +959,7 @@ model Tarea {
 model TareaVencimiento {
   id            String    @id @default(cuid())
   tareaId       String
-  fecha         DateTime                        // fecha de vencimiento
+  fecha         DateTime // fecha de vencimiento
   estado        String    @default("PENDIENTE") // PENDIENTE|COMPLETADA|NO_COMPLETADA|CON_FALTAS
   completadoPor String?
   completadoAt  DateTime?
@@ -966,10 +967,157 @@ model TareaVencimiento {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  tarea         Tarea     @relation(fields: [tareaId], references: [id], onDelete: Cascade)
+  tarea Tarea @relation(fields: [tareaId], references: [id], onDelete: Cascade)
 
   @@unique([tareaId, fecha])
   @@index([fecha])
   @@index([estado])
   @@map("tarea_vencimientos")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// IMPORTACIONES (comercio exterior) — registro de operaciones de importación de
+// mercadería de los clientes del estudio, según normativa uruguaya (DNA/DGI/
+// Mercosur). Módulo aparte del de sueldos; reusa Company (multiempresa),
+// accesos y auditoría. Montos de dinero en CENTÉSIMOS de PESO (BigInt), igual
+// que el resto del sistema; los importes en moneda extranjera se convierten a
+// pesos con el tipo de cambio de la fecha del DUA antes de guardarse. Ver
+// docs/importaciones-diseno.md.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum ImportacionEstado {
+  BORRADOR
+  EN_TRAMITE
+  NACIONALIZADA
+  CERRADA
+  ANULADA
+}
+
+enum ImportacionRegimen {
+  DEFINITIVA
+  ADMISION_TEMPORARIA
+  DEPOSITO
+  TRANSITO
+  ZONA_FRANCA
+}
+
+enum TributoImportacionTipo {
+  ARANCEL_TEC // Arancel / Tarifa Externa Común (Mercosur)
+  TASA_SERVICIOS // Tasa de servicios aduaneros / escáner
+  IMESI // IMESI (bebidas, tabaco, vehículos, combustibles)
+  IVA_IMPORTACION // IVA a la importación (crédito fiscal, recuperable)
+  ANTICIPO_IVA // Anticipo de IVA (pago a cuenta, recuperable)
+  ANTICIPO_IRAE // Anticipo de IRAE (pago a cuenta, recuperable)
+  RECARGO
+  OTRO
+}
+
+enum GastoImportacionConcepto {
+  HONORARIOS_DESPACHANTE
+  DEPOSITO
+  MOVILIZACION
+  GASTOS_BANCARIOS
+  FLETE_INTERNO
+  SEGURO_LOCAL
+  OTRO
+}
+
+model Importacion {
+  id        String             @id @default(cuid())
+  companyId String
+  estado    ImportacionEstado  @default(BORRADOR)
+  regimen   ImportacionRegimen @default(DEFINITIVA)
+
+  // Operación comercial
+  proveedorExterior     String?
+  paisOrigen            String?
+  incoterm              String? // FOB / CIF / CFR / EXW / …
+  monedaOrigen          String    @default("USD")
+  tipoCambio            Float     @default(1) // pesos por unidad de monedaOrigen (fecha del DUA)
+  facturaComercialNro   String?
+  facturaComercialFecha DateTime?
+
+  // Aduana / trámite
+  duaNumero            String?
+  duaFecha             DateTime?
+  despachante          String?
+  aduana               String?
+  transporteDoc        String? // BL / AWB / CRT
+  certificadoOrigen    Boolean   @default(false) // Mercosur: exonera arancel
+  fechaEmbarque        DateTime?
+  fechaArribo          DateTime?
+  fechaNacionalizacion DateTime?
+
+  // CIF (en pesos, centésimos) — fob + flete + seguro
+  fob    BigInt @default(0)
+  flete  BigInt @default(0)
+  seguro BigInt @default(0)
+  cif    BigInt @default(0)
+
+  // Derivados del costeo (en pesos, centésimos) — recalculados en cada guardado
+  totalTributos    BigInt @default(0)
+  totalGastos      BigInt @default(0)
+  costoMercaderia  BigInt @default(0) // cif + tributos no recuperables + gastos
+  creditoFiscalIva BigInt @default(0) // IVA importación + IVA de gastos
+  anticipos        BigInt @default(0) // anticipo IVA + anticipo IRAE
+
+  notas     String?
+  creadoPor String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company  Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  items    ItemImportacion[]
+  tributos TributoImportacion[]
+  gastos   GastoImportacion[]
+
+  @@index([companyId])
+  @@index([estado])
+  @@map("importaciones")
+}
+
+model ItemImportacion {
+  id               String  @id @default(cuid())
+  importacionId    String
+  descripcion      String
+  ncm              String? // Nomenclatura Común del Mercosur (texto libre, informativo)
+  cantidad         Float   @default(1)
+  fobUnitario      BigInt  @default(0) // pesos, centésimos
+  fobTotal         BigInt  @default(0)
+  costoProrrateado BigInt  @default(0) // costoMercaderia prorrateado por participación en el FOB
+
+  importacion Importacion @relation(fields: [importacionId], references: [id], onDelete: Cascade)
+
+  @@index([importacionId])
+  @@map("importacion_items")
+}
+
+model TributoImportacion {
+  id            String                 @id @default(cuid())
+  importacionId String
+  tipo          TributoImportacionTipo
+  baseImponible BigInt                 @default(0) // pesos, centésimos (informativo)
+  tasa          Float                  @default(0) // % informativo
+  monto         BigInt                 @default(0) // pesos, centésimos
+  recuperable   Boolean                @default(false) // IVA imp. y anticipos: no integran el costo
+
+  importacion Importacion @relation(fields: [importacionId], references: [id], onDelete: Cascade)
+
+  @@index([importacionId])
+  @@map("importacion_tributos")
+}
+
+model GastoImportacion {
+  id            String                   @id @default(cuid())
+  importacionId String
+  concepto      GastoImportacionConcepto
+  descripcion   String?
+  monto         BigInt                   @default(0) // pesos, centésimos (neto, sin IVA)
+  gravadoIva    Boolean                  @default(false)
+  ivaGasto      BigInt                   @default(0) // IVA del gasto (crédito fiscal)
+
+  importacion Importacion @relation(fields: [importacionId], references: [id], onDelete: Cascade)
+
+  @@index([importacionId])
+  @@map("importacion_gastos")
 }

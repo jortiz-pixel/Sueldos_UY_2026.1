@@ -5,7 +5,10 @@ estudio, según normativa uruguaya (DNA/Aduana, DGI, Mercosur). Módulo nuevo,
 dominio aparte del de sueldos, pero **reusa** el modelo multiempresa, el control
 de accesos (anti-IDOR) y la auditoría ya existentes.
 
-> Estado: **DISEÑO** (acordado con el usuario, 16/10/2026). Todavía sin código.
+> Estado: **ETAPA 1 IMPLEMENTADA** (16/10/2026) — modelo + carga manual + costeo
+> en vivo + menú "Importaciones". Pendientes: Etapa 2 (salidas: ficha de costeo,
+> crédito fiscal, asiento) y Etapa 3 (importador del archivo del despachante,
+> requiere muestra real — ver §7).
 
 ## 1. Decisiones de alcance (acordadas)
 
