@@ -563,6 +563,7 @@ function FormImportacion({ companyId, inicial, importacion, onClose, onSaved, on
       )}
 
       {importacion && <DocumentosPanel importacionId={importacion.id} />}
+      {importacion && <DatosExtraidosPanel importacionId={importacion.id} />}
       {!importacion && (
         <div className="card p-4 text-sm text-ink-subtle">
           <Paperclip size={14} className="inline mr-1" /> Guardá la importación para gestionar los documentos del expediente (subida múltiple, clasificación y estado).
@@ -1227,6 +1228,103 @@ function CotizacionesView({ onClose }: { onClose: () => void }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+const LIQ_CONCEPTO_LABEL: Record<string, string> = {
+  imaduni: 'Imaduni', recargo: 'Recargo', tasaConsular: 'Tasa Consular', tsa: 'TSA',
+  extraordinario: 'Extraordinario', ivaImportacion: 'IVA Importación', ivaAnticipado: 'IVA Anticipado',
+  guiaTransito: 'Guía Tránsito', timbre: 'Timbre', vuce: 'VUCE', escaner: 'Escáner', tcu: 'TCU',
+  gastosOperativos: 'Gastos Operativos', honorarios: 'Honorarios', ivaGastos: 'IVA gastos',
+};
+const fmtMon = (ctms: string, moneda: string) => `${moneda === 'USD' ? 'US$' : '$'} ${(Number(ctms) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+function DatosExtraidosPanel({ importacionId }: { importacionId: string }) {
+  const qc = useQueryClient();
+  const [resultado, setResultado] = useState<import('../types').ProcesarResultado | null>(null);
+  const { data } = useQuery({
+    queryKey: ['importacion-extraccion', importacionId],
+    queryFn: () => importacionesApi.extraccion(importacionId),
+  });
+  const procesar = useMutation({
+    mutationFn: () => importacionesApi.procesar(importacionId),
+    onSuccess: (r) => { setResultado(r); qc.invalidateQueries({ queryKey: ['importacion-extraccion', importacionId] }); qc.invalidateQueries({ queryKey: ['importacion-documentos', importacionId] }); },
+  });
+
+  const vacio = !data || (data.facturas.length === 0 && data.liquidaciones.length === 0 && data.transferencias.length === 0);
+
+  return (
+    <div className="card p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-subtle flex items-center gap-2"><FileSpreadsheet size={16} /> Datos extraídos de los documentos</h2>
+        <button className="btn-primary btn-sm" disabled={procesar.isPending} onClick={() => procesar.mutate()}>
+          {procesar.isPending ? 'Procesando…' : 'Procesar documentos'}
+        </button>
+      </div>
+
+      {resultado && (
+        <div className="text-sm space-y-1">
+          <div className="text-ink">Procesados {resultado.docsProcesados} documento(s): {resultado.facturas} factura(s), {resultado.liquidaciones} liquidación(es), {resultado.transferencias} transferencia(s).</div>
+          {resultado.advertencias.map((a, i) => <div key={i} className="text-xs text-ink-muted bg-warn-bg border border-warn/40 rounded px-2 py-1">⚠ {a}</div>)}
+          {resultado.faltantes.map((a, i) => <div key={i} className="text-xs text-bad bg-bad-bg border border-bad/30 rounded px-2 py-1">Falta: {a}</div>)}
+        </div>
+      )}
+
+      {vacio ? (
+        <p className="text-sm text-ink-subtle">Todavía no hay datos extraídos. Subí los documentos arriba y tocá <b>Procesar documentos</b>.</p>
+      ) : (
+        <div className="space-y-5">
+          {data!.facturas.map((f) => (
+            <div key={f.id} className="border border-hairline/60 rounded-lg p-3">
+              <div className="text-sm font-semibold text-ink">Factura {f.numero || '—'} · {f.proveedor || '—'}</div>
+              <div className="text-xs text-ink-subtle mb-2">{f.fecha || ''} · {f.moneda} · {f.incoterm || ''} · FOB {fmtMon(f.fob, f.moneda)} · Flete {fmtMon(f.flete, f.moneda)} · Seguro {fmtMon(f.seguro, f.moneda)} · <b>CIF {fmtMon(f.cif, f.moneda)}</b></div>
+              <details>
+                <summary className="text-xs text-brand-600 cursor-pointer">{f.articulos.length} artículos</summary>
+                <div className="overflow-x-auto mt-2">
+                  <table className="w-full text-xs">
+                    <thead className="table-header"><tr><th className="px-2 py-1 text-left">#</th><th className="px-2 py-1 text-left">Código</th><th className="px-2 py-1 text-left">Descripción</th><th className="px-2 py-1 text-right">Cant.</th><th className="px-2 py-1 text-right">P. unit.</th><th className="px-2 py-1 text-right">Total</th></tr></thead>
+                    <tbody className="divide-y divide-hairline/40">
+                      {f.articulos.map((a) => (
+                        <tr key={a.nro}><td className="px-2 py-1 text-ink-subtle">{a.nro}</td><td className="px-2 py-1 font-mono">{a.codigo}</td><td className="px-2 py-1">{a.descripcion}</td><td className="px-2 py-1 text-right figure">{a.cantidad}</td><td className="px-2 py-1 text-right figure">{a.precioUnit}</td><td className="px-2 py-1 text-right figure">{fmtMon(a.total, f.moneda)}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            </div>
+          ))}
+
+          {data!.liquidaciones.map((l) => (
+            <div key={l.id} className="border border-hairline/60 rounded-lg p-3">
+              <div className="text-sm font-semibold text-ink">Liquidación {l.carpeta || '—'} · {l.despachante || ''}</div>
+              <div className="text-xs text-ink-subtle mb-2">{l.fecha || ''} · {l.aduana || ''} · {l.transporte || ''} · TC {l.tipoCambio ?? '—'} · <b>Total {fmtMon(l.total, l.moneda)}</b>{l.gastosAgenciaExtra ? ` · Gastos agencia US$ ${l.gastosAgenciaExtra} (aparte)` : ''}</div>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-1 text-xs">
+                {l.conceptos.filter((c) => Number(c.monto) !== 0).map((c) => (
+                  <div key={c.clave} className="flex justify-between border-b border-hairline/30"><span className="text-ink-subtle">{LIQ_CONCEPTO_LABEL[c.clave] || c.clave}</span><span className="figure">{fmtMon(c.monto, l.moneda)}</span></div>
+                ))}
+              </div>
+            </div>
+          ))}
+
+          {data!.transferencias.length > 0 && (
+            <div className="border border-hairline/60 rounded-lg p-3">
+              <div className="text-sm font-semibold text-ink mb-2">Transferencias al proveedor</div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead className="table-header"><tr><th className="px-2 py-1 text-left">Ref.</th><th className="px-2 py-1 text-left">Fecha</th><th className="px-2 py-1 text-right">Importe</th><th className="px-2 py-1 text-right">Comisión</th><th className="px-2 py-1 text-right">Debitado</th><th className="px-2 py-1 text-left">Respaldo</th></tr></thead>
+                  <tbody className="divide-y divide-hairline/40">
+                    {data!.transferencias.map((t) => (
+                      <tr key={t.id}><td className="px-2 py-1 font-mono">{t.referencia}</td><td className="px-2 py-1">{t.fecha}</td><td className="px-2 py-1 text-right figure">{fmtMon(t.importe, t.moneda)}</td><td className="px-2 py-1 text-right figure">{fmtMon(t.comision, t.moneda)}</td><td className="px-2 py-1 text-right figure">{fmtMon(t.totalDebitado, t.moneda)}</td><td className="px-2 py-1 text-xs">{t.nroDocs === 2 ? 'SWIFT + comprobante' : `${t.nroDocs} doc.`}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      <p className="text-xs text-ink-subtle">Datos leídos automáticamente de los documentos. La edición con historial y la conciliación llegan en la próxima sub-etapa.</p>
     </div>
   );
 }

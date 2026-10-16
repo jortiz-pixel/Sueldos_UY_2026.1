@@ -1067,11 +1067,14 @@ model Importacion {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  company    Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  items      ItemImportacion[]
-  tributos   TributoImportacion[]
-  gastos     GastoImportacion[]
-  documentos ImportacionDocumento[]
+  company                Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  items                  ItemImportacion[]
+  tributos               TributoImportacion[]
+  gastos                 GastoImportacion[]
+  documentos             ImportacionDocumento[]
+  facturasExtraidas      ImportacionFactura[]
+  liquidacionesExtraidas ImportacionLiquidacion[]
+  transferencias         ImportacionTransferencia[]
 
   @@index([companyId])
   @@index([estado])
@@ -1245,4 +1248,104 @@ model Cotizacion {
   @@unique([fecha, monedaOrigen, monedaDestino, tipo])
   @@index([monedaOrigen, fecha])
   @@map("cotizaciones")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EXTRACCIÓN ESTRUCTURADA (Etapa 1 sub-3) — datos leídos de cada documento del
+// expediente, guardados con su documento de origen y estado de revisión.
+// Dinero en centésimos de la MONEDA del documento (BigInt) + campo moneda.
+// precioUnit de artículos es Float (admite >2 decimales). Ver docs.
+// ─────────────────────────────────────────────────────────────────────────────
+model ImportacionFactura {
+  id             String                       @id @default(cuid())
+  importacionId  String
+  documentoId    String?
+  proveedor      String?
+  cuit           String?
+  numero         String?
+  fecha          DateTime?
+  moneda         String                       @default("USD")
+  incoterm       String?
+  fob            BigInt                       @default(0)
+  flete          BigInt                       @default(0)
+  seguro         BigInt                       @default(0)
+  cif            BigInt                       @default(0)
+  total          BigInt                       @default(0)
+  confianza      Float?
+  estadoRevision String                       @default("PENDIENTE") // PENDIENTE | REVISADO
+  createdAt      DateTime                     @default(now())
+  importacion    Importacion                  @relation(fields: [importacionId], references: [id], onDelete: Cascade)
+  articulos      ImportacionFacturaArticulo[]
+
+  @@index([importacionId])
+  @@map("importacion_facturas")
+}
+
+model ImportacionFacturaArticulo {
+  id          String             @id @default(cuid())
+  facturaId   String
+  nro         Int
+  codigo      String?
+  descripcion String
+  cantidad    Float              @default(0)
+  precioUnit  Float              @default(0)
+  total       BigInt             @default(0)
+  factura     ImportacionFactura @relation(fields: [facturaId], references: [id], onDelete: Cascade)
+
+  @@index([facturaId])
+  @@map("importacion_factura_articulos")
+}
+
+model ImportacionLiquidacion {
+  id                 String                           @id @default(cuid())
+  importacionId      String
+  documentoId        String?
+  despachante        String?
+  carpeta            String?
+  fecha              DateTime?
+  aduana             String?
+  origen             String?
+  transporte         String?
+  cif                BigInt                           @default(0)
+  tipoCambio         Float?
+  moneda             String                           @default("UYU")
+  total              BigInt                           @default(0)
+  gastosAgenciaExtra Float? // informado aparte, en moneda extranjera
+  estadoRevision     String                           @default("PENDIENTE")
+  createdAt          DateTime                         @default(now())
+  importacion        Importacion                      @relation(fields: [importacionId], references: [id], onDelete: Cascade)
+  conceptos          ImportacionLiquidacionConcepto[]
+
+  @@index([importacionId])
+  @@map("importacion_liquidaciones")
+}
+
+model ImportacionLiquidacionConcepto {
+  id            String                 @id @default(cuid())
+  liquidacionId String
+  clave         String
+  monto         BigInt                 @default(0)
+  liquidacion   ImportacionLiquidacion @relation(fields: [liquidacionId], references: [id], onDelete: Cascade)
+
+  @@index([liquidacionId])
+  @@map("importacion_liquidacion_conceptos")
+}
+
+model ImportacionTransferencia {
+  id             String      @id @default(cuid())
+  importacionId  String
+  referencia     String?
+  fecha          DateTime?
+  moneda         String      @default("USD")
+  importe        BigInt      @default(0) // al proveedor
+  comision       BigInt      @default(0)
+  totalDebitado  BigInt      @default(0)
+  beneficiario   String?
+  nroDocs        Int         @default(1) // cuántos documentos respaldan (SWIFT + comprobante)
+  estadoRevision String      @default("PENDIENTE")
+  createdAt      DateTime    @default(now())
+  importacion    Importacion @relation(fields: [importacionId], references: [id], onDelete: Cascade)
+
+  @@index([importacionId])
+  @@map("importacion_transferencias")
 }

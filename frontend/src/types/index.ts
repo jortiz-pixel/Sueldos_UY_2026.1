@@ -433,6 +433,26 @@ export interface Cotizacion {
   confirmadoPor: string | null;
 }
 
+export interface ExtArticulo { nro: number; codigo: string | null; descripcion: string; cantidad: number; precioUnit: number; total: string; }
+export interface ExtFactura {
+  id: string; documentoId: string | null; proveedor: string | null; cuit: string | null; numero: string | null;
+  fecha: string | null; moneda: string; incoterm: string | null;
+  fob: string; flete: string; seguro: string; cif: string; total: string; estadoRevision: string;
+  articulos: ExtArticulo[];
+}
+export interface ExtLiquidacion {
+  id: string; despachante: string | null; carpeta: string | null; fecha: string | null; aduana: string | null;
+  origen: string | null; transporte: string | null; cif: string; tipoCambio: number | null; moneda: string;
+  total: string; gastosAgenciaExtra: number | null; estadoRevision: string;
+  conceptos: Array<{ clave: string; monto: string }>;
+}
+export interface ExtTransferencia {
+  id: string; referencia: string | null; fecha: string | null; moneda: string;
+  importe: string; comision: string; totalDebitado: string; beneficiario: string | null; nroDocs: number; estadoRevision: string;
+}
+export interface ExtraccionImportacion { facturas: ExtFactura[]; liquidaciones: ExtLiquidacion[]; transferencias: ExtTransferencia[]; }
+export interface ProcesarResultado { docsProcesados: number; facturas: number; liquidaciones: number; transferencias: number; faltantes: string[]; advertencias: string[]; }
+
 export interface CuentaCatalogo { clave: string; nombre: string; grupo: string; }
 export interface ImportacionEmpresaConfig {
   iraeRegimen?: string | null;

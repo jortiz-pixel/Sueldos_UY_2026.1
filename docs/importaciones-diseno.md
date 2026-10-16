@@ -289,3 +289,16 @@ Camino acordado (MARPOLOS end-to-end primero): (A) persistir la extracción con
 trazabilidad [sec. 2/3/4/5] → (B) conciliación [sec. 9] → (C) asientos A–F +
 estados/aprobación [sec. 7/10] → (D) impuestos F2178 [sec. 6] → (E) exportaciones
 + panel [sec. 11]. Inventarios (sec. 8) es un módulo aparte, posterior.
+
+## (A) Persistir extracción — HECHO (parte 1)
+Modelos nuevos: importacion_facturas (+artículos), importacion_liquidaciones
+(+conceptos), importacion_transferencias. Endpoint POST /:id/procesar lee cada
+documento del expediente (storage → texto → clasifica → parser), guarda la
+extracción estructurada (factura+33 artículos, liquidación+conceptos,
+transferencias con dedup SWIFT↔comprobante), marca estado/tipo de cada
+documento y reporta documentación faltante (DUA pendiente, etc.). GET
+/:id/extraccion devuelve todo. Pantalla "Datos extraídos" con botón "Procesar
+documentos" y vistas de factura/artículos, liquidación/conceptos y
+transferencias. Enlace a documento de origen por entidad (trazabilidad a nivel
+documento). Pendiente: edición con historial del valor original + trazabilidad
+por campo (página/región) + conciliación (sec. 9).

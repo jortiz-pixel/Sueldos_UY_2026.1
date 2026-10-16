@@ -23,6 +23,7 @@ import { generateCosteoPDF, costeoFilename } from '../services/importaciones.pdf
 import { parseImportacionesExcel, buildPlantillaImportaciones, ImportacionImportData } from '../services/importaciones.import.service';
 import { extraerImportacionDesdePdf, contarPaginasPdf, textoDelPdf } from '../services/importaciones.pdf-extract.service';
 import { clasificarDocumento, parseFacturaComercial, parseLiquidacionDespachante, parsePagoExterior } from '../services/importaciones.parsers.service';
+import { procesarExpediente } from '../services/importaciones.procesar.service';
 import { CUENTAS_IMPORTACION, PlanCuentas } from '../services/importaciones.config.service';
 import { cotizacionBcu, BCU_MONEDA } from '../services/cotizaciones.service';
 
@@ -734,6 +735,53 @@ importacionesRouter.get('/:id/costeo.pdf', async (req: Request, res: Response, n
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${nombre}"`);
     res.send(pdf);
+  } catch (err) { next(err); }
+});
+
+// ── POST /:id/procesar — lee y extrae TODOS los documentos del expediente ────
+importacionesRouter.post('/:id/procesar', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const imp = await prisma.importacion.findUnique({ where: { id: req.params.id } });
+    if (!imp) throw new NotFoundError('Importación');
+    await assertCompanyAccess(req, imp.companyId);
+    const r = await procesarExpediente(imp.id);
+    await recordAudit({ req, action: 'IMPORTACION_PROCESAR', entity: 'importacion', entityId: imp.id, companyId: imp.companyId, newData: { facturas: r.facturas, liquidaciones: r.liquidaciones, transferencias: r.transferencias } });
+    res.json(r);
+  } catch (err) { next(err); }
+});
+
+// ── GET /:id/extraccion — datos extraídos estructurados del expediente ───────
+importacionesRouter.get('/:id/extraccion', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const imp = await prisma.importacion.findUnique({ where: { id: req.params.id } });
+    if (!imp) throw new NotFoundError('Importación');
+    await assertCompanyAccess(req, imp.companyId);
+    const [facturas, liquidaciones, transferencias] = await Promise.all([
+      prisma.importacionFactura.findMany({ where: { importacionId: imp.id }, include: { articulos: { orderBy: { nro: 'asc' } } }, orderBy: { createdAt: 'asc' } }),
+      prisma.importacionLiquidacion.findMany({ where: { importacionId: imp.id }, include: { conceptos: true }, orderBy: { createdAt: 'asc' } }),
+      prisma.importacionTransferencia.findMany({ where: { importacionId: imp.id }, orderBy: { fecha: 'asc' } }),
+    ]);
+    res.json({
+      facturas: facturas.map((f) => ({
+        id: f.id, documentoId: f.documentoId, proveedor: f.proveedor, cuit: f.cuit, numero: f.numero,
+        fecha: f.fecha ? f.fecha.toISOString().slice(0, 10) : null, moneda: f.moneda, incoterm: f.incoterm,
+        fob: f.fob.toString(), flete: f.flete.toString(), seguro: f.seguro.toString(), cif: f.cif.toString(), total: f.total.toString(),
+        estadoRevision: f.estadoRevision,
+        articulos: f.articulos.map((a) => ({ nro: a.nro, codigo: a.codigo, descripcion: a.descripcion, cantidad: a.cantidad, precioUnit: a.precioUnit, total: a.total.toString() })),
+      })),
+      liquidaciones: liquidaciones.map((l) => ({
+        id: l.id, documentoId: l.documentoId, despachante: l.despachante, carpeta: l.carpeta,
+        fecha: l.fecha ? l.fecha.toISOString().slice(0, 10) : null, aduana: l.aduana, origen: l.origen, transporte: l.transporte,
+        cif: l.cif.toString(), tipoCambio: l.tipoCambio, moneda: l.moneda, total: l.total.toString(), gastosAgenciaExtra: l.gastosAgenciaExtra,
+        estadoRevision: l.estadoRevision,
+        conceptos: l.conceptos.map((c) => ({ clave: c.clave, monto: c.monto.toString() })),
+      })),
+      transferencias: transferencias.map((t) => ({
+        id: t.id, referencia: t.referencia, fecha: t.fecha ? t.fecha.toISOString().slice(0, 10) : null, moneda: t.moneda,
+        importe: t.importe.toString(), comision: t.comision.toString(), totalDebitado: t.totalDebitado.toString(),
+        beneficiario: t.beneficiario, nroDocs: t.nroDocs, estadoRevision: t.estadoRevision,
+      })),
+    });
   } catch (err) { next(err); }
 });
 

@@ -1,5 +1,5 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
-import { AuthResponse, User, Company, Employee, PayrollPeriod, Liquidation, NominaItem, PayrollParameters, TipoAporte, TipoContribuyente, GrupoActividad, Contrato, Concepto, Obra, Importacion, ImportacionPayload, ImportacionEstado, AsientoImportacion, CreditoFiscalReporte, ImportacionImportResult, ImportacionCliente, ImportacionExtraido, ImportacionDocumento, CuentaCatalogo, ImportacionEmpresaConfig, ImportacionConfigPayload, Cotizacion, CotizacionTipo } from '../types';
+import { AuthResponse, User, Company, Employee, PayrollPeriod, Liquidation, NominaItem, PayrollParameters, TipoAporte, TipoContribuyente, GrupoActividad, Contrato, Concepto, Obra, Importacion, ImportacionPayload, ImportacionEstado, AsientoImportacion, CreditoFiscalReporte, ImportacionImportResult, ImportacionCliente, ImportacionExtraido, ImportacionDocumento, CuentaCatalogo, ImportacionEmpresaConfig, ImportacionConfigPayload, Cotizacion, CotizacionTipo, ExtraccionImportacion, ProcesarResultado } from '../types';
 
 const BASE_URL = import.meta.env.VITE_API_URL || '';
 
@@ -820,6 +820,8 @@ export const importacionesApi = {
     download: (docId: string) => api.get(`/importaciones/documentos/${docId}/download`, { responseType: 'blob' }).then((r) => r.data as Blob),
     remove: (docId: string) => api.delete(`/importaciones/documentos/${docId}`).then((r) => r.data),
   },
+  procesar: (id: string) => api.post<ProcesarResultado>(`/importaciones/${id}/procesar`).then((r) => r.data),
+  extraccion: (id: string) => api.get<ExtraccionImportacion>(`/importaciones/${id}/extraccion`).then((r) => r.data),
   asiento: (id: string) => api.get<AsientoImportacion>(`/importaciones/${id}/asiento`).then((r) => r.data),
   costeoPdf: (id: string) => api.get(`/importaciones/${id}/costeo.pdf`, { responseType: 'blob' }).then((r) => r.data as Blob),
   creditoFiscal: (companyId: string, year: number, month: number) =>
