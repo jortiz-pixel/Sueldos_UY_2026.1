@@ -248,3 +248,10 @@ adquisición con clasificación configurable · §12 distribución por artículo
 de conciliación · §15 panel "Contabilidad e impuestos" (5 pestañas) · §17 tests
 MARPOLOS. Varias dependen de completar la extracción de Etapa 1 (transferencias,
 33 artículos, aprobación).
+
+- **HECHO §6** — Motor de cotizaciones: tabla `cotizaciones` global (fecha /
+  moneda / tipo: contable·aduanero·bancario·anticipo·obligación·cierre) con
+  valor + compra/venta + fuente + trazabilidad (fecha de consulta, usuario).
+  Toma automática del **BCU** por web service SOAP oficial (validado: USD/EUR,
+  TCC/TCV) y carga manual; no se inventan cotizaciones (si el BCU no tiene dato,
+  avisa y se carga a mano). Pantalla "Cotizaciones" en el módulo.

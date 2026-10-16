@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Ship, Plus, Trash2, Save, X, Pencil, FileDown, Download, Calculator, Paperclip, Upload, FileSpreadsheet, CheckCircle, AlertCircle, Settings } from 'lucide-react';
+import { Ship, Plus, Trash2, Save, X, Pencil, FileDown, Download, Calculator, Paperclip, Upload, FileSpreadsheet, CheckCircle, AlertCircle, Settings, Coins } from 'lucide-react';
 import { importacionesApi } from '../services/api';
 import { useCompany } from '../hooks/useCompany';
 import {
   Importacion, ImportacionPayload, ImportacionEstado, ImportacionRegimen,
   TributoTipo, GastoConcepto, MESES, ImportacionExtraido, TipoDocImportacion, EstadoProcDoc,
-  ImportacionConfigPayload,
+  ImportacionConfigPayload, CotizacionTipo,
 } from '../types';
 
 function descargarBlob(blob: Blob, filename: string) {
@@ -196,6 +196,7 @@ export default function ImportacionesPage() {
   const qc = useQueryClient();
   const [editando, setEditando] = useState<Importacion | null | 'nueva'>(null);
   const [mostrarConfig, setMostrarConfig] = useState(false);
+  const [mostrarCotizaciones, setMostrarCotizaciones] = useState(false);
   const [error, setError] = useState('');
   const [companyId, setCompanyId] = useState<string>(() => localStorage.getItem('importacionesCompanyId') || '');
 
@@ -242,6 +243,10 @@ export default function ImportacionesPage() {
     return <ConfigEmpresa companyId={companyId} empresaNombre={empresa?.nombreFantasia || empresa?.razonSocial || ''} onClose={() => setMostrarConfig(false)} />;
   }
 
+  if (mostrarCotizaciones) {
+    return <CotizacionesView onClose={() => setMostrarCotizaciones(false)} />;
+  }
+
   if (editando) {
     return (
       <FormImportacion
@@ -263,7 +268,8 @@ export default function ImportacionesPage() {
           <h1 className="text-2xl font-bold text-ink flex items-center gap-2"><Ship size={22} className="text-brand-600" /> Importaciones</h1>
           <p className="text-ink-subtle text-sm">Operaciones de comercio exterior. Costeo, crédito fiscal y seguimiento del trámite.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <button className="btn-secondary" onClick={() => setMostrarCotizaciones(true)}><Coins size={16} /> Cotizaciones</button>
           <button className="btn-secondary" onClick={() => setMostrarConfig(true)}><Settings size={16} /> Configuración</button>
           <button className="btn-primary" onClick={() => setEditando('nueva')}><Plus size={16} /> Nueva importación</button>
         </div>
@@ -1093,6 +1099,117 @@ function ConfigEmpresa({ companyId, empresaNombre, onClose }: { companyId: strin
         <button className="btn-primary" disabled={guardar.isPending} onClick={() => guardar.mutate(form)}>
           <Save size={16} /> {guardar.isPending ? 'Guardando…' : 'Guardar configuración'}
         </button>
+      </div>
+    </div>
+  );
+}
+
+const COTIZ_TIPO_LABEL: Record<CotizacionTipo, string> = {
+  CONTABLE: 'Contable', ADUANERO: 'Aduanero', BANCARIO: 'Bancario',
+  ANTICIPO: 'Anticipos', OBLIGACION: 'Obligaciones', CIERRE: 'Cierre de ejercicio',
+};
+
+function CotizacionesView({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const hoy = new Date().toISOString().slice(0, 10);
+  const [filtroMoneda, setFiltroMoneda] = useState('');
+  const [error, setError] = useState('');
+  // Alta / BCU
+  const [fecha, setFecha] = useState(hoy);
+  const [moneda, setMoneda] = useState('USD');
+  const [tipo, setTipo] = useState<CotizacionTipo>('CONTABLE');
+  const [valor, setValor] = useState<number>(0);
+
+  const { data } = useQuery({
+    queryKey: ['cotizaciones', filtroMoneda],
+    queryFn: () => importacionesApi.cotizaciones.list(filtroMoneda ? { moneda: filtroMoneda } : {}),
+  });
+  const invalidar = () => qc.invalidateQueries({ queryKey: ['cotizaciones'] });
+
+  const manual = useMutation({
+    mutationFn: () => importacionesApi.cotizaciones.manual({ fecha, monedaOrigen: moneda, tipo, valor }),
+    onSuccess: () => { invalidar(); setError(''); },
+    onError: (e: unknown) => setError((e as { response?: { data?: { error?: string } } })?.response?.data?.error || 'No se pudo guardar.'),
+  });
+  const bcu = useMutation({
+    mutationFn: () => importacionesApi.cotizaciones.bcu({ moneda, fecha, tipo }),
+    onSuccess: (c) => { invalidar(); setValor(c.valor); setError(''); },
+    onError: (e: unknown) => setError((e as { response?: { data?: { error?: string } } })?.response?.data?.error || 'El BCU no devolvió cotización.'),
+  });
+  const borrar = useMutation({ mutationFn: (id: string) => importacionesApi.cotizaciones.remove(id), onSuccess: invalidar });
+
+  const monedasBcu = data?.monedasBcu ?? ['USD'];
+
+  return (
+    <div className="space-y-5 max-w-5xl">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-ink flex items-center gap-2"><Coins size={22} className="text-brand-600" /> Cotizaciones</h1>
+        <button className="btn-secondary" onClick={onClose}><X size={16} /> Cerrar</button>
+      </div>
+      <p className="text-ink-subtle text-sm">Tipos de cambio por fecha, moneda y tipo. Podés traerlas del <b>BCU</b> ({monedasBcu.join(', ')}) o cargarlas a mano. Son globales (valen para todas las empresas).</p>
+
+      <div className="card p-5 space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-subtle">Agregar cotización</h2>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 items-end">
+          <div><label className="form-label">Fecha</label><input type="date" className="form-input" value={fecha} onChange={(e) => setFecha(e.target.value)} /></div>
+          <div><label className="form-label">Moneda</label><input className="form-input" value={moneda} onChange={(e) => setMoneda(e.target.value.toUpperCase())} /></div>
+          <div>
+            <label className="form-label">Tipo</label>
+            <select className="form-input" value={tipo} onChange={(e) => setTipo(e.target.value as CotizacionTipo)}>
+              {(Object.keys(COTIZ_TIPO_LABEL) as CotizacionTipo[]).map((t) => <option key={t} value={t}>{COTIZ_TIPO_LABEL[t]}</option>)}
+            </select>
+          </div>
+          <div><label className="form-label">Valor</label><input type="number" step="0.0001" className="form-input" value={valor} onChange={(e) => setValor(Number(e.target.value))} /></div>
+          <div className="flex gap-2">
+            <button className="btn-secondary" disabled={bcu.isPending || !monedasBcu.includes(moneda)} title={monedasBcu.includes(moneda) ? 'Traer del BCU' : 'Moneda sin código BCU'} onClick={() => bcu.mutate()}>
+              {bcu.isPending ? 'BCU…' : 'Traer BCU'}
+            </button>
+            <button className="btn-primary" disabled={manual.isPending || !valor} onClick={() => manual.mutate()}><Save size={15} /></button>
+          </div>
+        </div>
+        {error && <div className="text-sm text-bad bg-bad-bg border border-bad/30 rounded-lg p-2">{error}</div>}
+        <p className="text-xs text-ink-subtle">"Traer BCU" completa el valor (venta) desde el servicio oficial para esa fecha; después guardás. Si el BCU no tiene dato (feriado/fin de semana/fecha futura), cargalo a mano.</p>
+      </div>
+
+      <div className="card p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <label className="form-label mb-0">Filtrar por moneda</label>
+          <input className="form-input w-32" value={filtroMoneda} onChange={(e) => setFiltroMoneda(e.target.value.toUpperCase())} placeholder="Todas" />
+        </div>
+        {!data || data.cotizaciones.length === 0 ? (
+          <p className="text-sm text-ink-subtle">Sin cotizaciones cargadas.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="table-header">
+                <tr>
+                  <th className="px-3 py-2 text-left">Fecha</th>
+                  <th className="px-3 py-2 text-left">Moneda</th>
+                  <th className="px-3 py-2 text-left">Tipo</th>
+                  <th className="px-3 py-2 text-right">Valor</th>
+                  <th className="px-3 py-2 text-right">Compra</th>
+                  <th className="px-3 py-2 text-right">Venta</th>
+                  <th className="px-3 py-2 text-left">Fuente</th>
+                  <th className="px-3 py-2"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-hairline/60">
+                {data.cotizaciones.map((c) => (
+                  <tr key={c.id}>
+                    <td className="px-3 py-1.5">{c.fecha}</td>
+                    <td className="px-3 py-1.5">{c.monedaOrigen}/{c.monedaDestino}</td>
+                    <td className="px-3 py-1.5 text-xs">{COTIZ_TIPO_LABEL[c.tipo]}</td>
+                    <td className="px-3 py-1.5 text-right figure">{c.valor.toLocaleString('es-UY', { minimumFractionDigits: 4 })}</td>
+                    <td className="px-3 py-1.5 text-right figure">{c.compra != null ? c.compra.toLocaleString('es-UY', { minimumFractionDigits: 4 }) : '—'}</td>
+                    <td className="px-3 py-1.5 text-right figure">{c.venta != null ? c.venta.toLocaleString('es-UY', { minimumFractionDigits: 4 }) : '—'}</td>
+                    <td className="px-3 py-1.5"><span className={`text-xs rounded-full px-2 py-0.5 ${c.fuente === 'BCU' ? 'badge-green' : 'badge-gray'}`}>{c.fuente}</span></td>
+                    <td className="px-3 py-1.5 text-right"><button className="text-bad hover:underline" onClick={() => { if (confirm('¿Eliminar esta cotización?')) borrar.mutate(c.id); }}><Trash2 size={14} /></button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

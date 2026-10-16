@@ -1212,3 +1212,37 @@ model ImportacionEmpresaConfig {
 
   @@map("importacion_empresa_config")
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COTIZACIONES (Etapa 2 §6) — tipos de cambio por fecha/moneda/tipo. Globales
+// (una cotización de una fecha vale para todas las empresas). Fuente BCU (toma
+// automática validada) o MANUAL. No se inventan cotizaciones: si no hay dato,
+// no se crea registro. Ver docs/importaciones-diseno.md.
+// ─────────────────────────────────────────────────────────────────────────────
+enum CotizacionTipo {
+  CONTABLE
+  ADUANERO
+  BANCARIO
+  ANTICIPO
+  OBLIGACION
+  CIERRE
+}
+
+model Cotizacion {
+  id            String         @id @default(cuid())
+  fecha         DateTime // fecha de la cotización
+  monedaOrigen  String // ISO/código corto, ej. USD
+  monedaDestino String         @default("UYU")
+  tipo          CotizacionTipo @default(CONTABLE)
+  valor         Float // tipo de cambio a usar
+  compra        Float? // TCC (BCU)
+  venta         Float? // TCV (BCU)
+  fuente        String         @default("MANUAL") // BCU | MANUAL
+  fechaConsulta DateTime       @default(now())
+  confirmadoPor String?
+  createdAt     DateTime       @default(now())
+
+  @@unique([fecha, monedaOrigen, monedaDestino, tipo])
+  @@index([monedaOrigen, fecha])
+  @@map("cotizaciones")
+}

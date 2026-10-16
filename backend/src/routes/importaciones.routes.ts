@@ -9,7 +9,7 @@ import {
   UserRole, Prisma,
   ImportacionEstado, ImportacionRegimen,
   TributoImportacionTipo, GastoImportacionConcepto,
-  EstadoProcesamientoDoc,
+  EstadoProcesamientoDoc, CotizacionTipo,
 } from '@prisma/client';
 import { storageService, safeFileName } from '../services/storage.service';
 import { prisma } from '../utils/prisma';
@@ -23,6 +23,7 @@ import { generateCosteoPDF, costeoFilename } from '../services/importaciones.pdf
 import { parseImportacionesExcel, buildPlantillaImportaciones } from '../services/importaciones.import.service';
 import { extraerImportacionDesdePdf, contarPaginasPdf } from '../services/importaciones.pdf-extract.service';
 import { CUENTAS_IMPORTACION, PlanCuentas } from '../services/importaciones.config.service';
+import { cotizacionBcu, BCU_MONEDA } from '../services/cotizaciones.service';
 
 export const importacionesRouter = Router();
 
@@ -225,6 +226,83 @@ importacionesRouter.get('/', async (req: Request, res: Response, next: NextFunct
       orderBy: [{ duaFecha: 'desc' }, { createdAt: 'desc' }],
     });
     res.json(importaciones.map(serializar));
+  } catch (err) { next(err); }
+});
+
+// ── Cotizaciones (Etapa 2 §6) — tipos de cambio por fecha/moneda/tipo ────────
+function serializarCot(c: {
+  id: string; fecha: Date; monedaOrigen: string; monedaDestino: string; tipo: string;
+  valor: number; compra: number | null; venta: number | null; fuente: string;
+  fechaConsulta: Date; confirmadoPor: string | null;
+}) {
+  return { ...c, fecha: c.fecha.toISOString().slice(0, 10), fechaConsulta: c.fechaConsulta.toISOString() };
+}
+
+// GET /cotizaciones?moneda=&desde=&hasta=&tipo= → lista (global).
+importacionesRouter.get('/cotizaciones', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const moneda = req.query.moneda as string | undefined;
+    const tipo = req.query.tipo as CotizacionTipo | undefined;
+    const desde = req.query.desde as string | undefined;
+    const hasta = req.query.hasta as string | undefined;
+    const where: Prisma.CotizacionWhereInput = {};
+    if (moneda) where.monedaOrigen = moneda.toUpperCase();
+    if (tipo) where.tipo = tipo;
+    if (desde || hasta) where.fecha = { ...(desde ? { gte: new Date(`${desde}T00:00:00Z`) } : {}), ...(hasta ? { lte: new Date(`${hasta}T00:00:00Z`) } : {}) };
+    const cots = await prisma.cotizacion.findMany({ where, orderBy: [{ fecha: 'desc' }, { monedaOrigen: 'asc' }], take: 500 });
+    res.json({ cotizaciones: cots.map(serializarCot), monedasBcu: Object.keys(BCU_MONEDA) });
+  } catch (err) { next(err); }
+});
+
+const cotManualSchema = z.object({
+  fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  monedaOrigen: z.string().min(1),
+  monedaDestino: z.string().optional(),
+  tipo: z.nativeEnum(CotizacionTipo),
+  valor: z.number().positive(),
+  compra: z.number().positive().optional(),
+  venta: z.number().positive().optional(),
+});
+
+// POST /cotizaciones → alta/edición manual (fuente MANUAL).
+importacionesRouter.post('/cotizaciones', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const d = cotManualSchema.parse(req.body);
+    const clave = { fecha: new Date(`${d.fecha}T00:00:00Z`), monedaOrigen: d.monedaOrigen.toUpperCase(), monedaDestino: (d.monedaDestino ?? 'UYU').toUpperCase(), tipo: d.tipo };
+    const cot = await prisma.cotizacion.upsert({
+      where: { fecha_monedaOrigen_monedaDestino_tipo: clave },
+      create: { ...clave, valor: d.valor, compra: d.compra ?? null, venta: d.venta ?? null, fuente: 'MANUAL', confirmadoPor: req.user?.userId ?? null },
+      update: { valor: d.valor, compra: d.compra ?? null, venta: d.venta ?? null, fuente: 'MANUAL', confirmadoPor: req.user?.userId ?? null, fechaConsulta: new Date() },
+    });
+    await recordAudit({ req, action: 'COTIZACION_MANUAL', entity: 'cotizacion', entityId: cot.id, newData: { moneda: cot.monedaOrigen, fecha: d.fecha, valor: d.valor } });
+    res.json(serializarCot(cot));
+  } catch (err) { next(err); }
+});
+
+// POST /cotizaciones/bcu → traer del BCU para {moneda, fecha, tipo} y guardar.
+importacionesRouter.post('/cotizaciones/bcu', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { moneda, fecha, tipo } = z.object({
+      moneda: z.string().min(1), fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), tipo: z.nativeEnum(CotizacionTipo),
+    }).parse(req.body);
+    const dato = await cotizacionBcu(moneda, fecha);
+    if (!dato) throw new AppError(404, `El BCU no tiene cotización de ${moneda.toUpperCase()} para el ${fecha} (feriado, fin de semana, fecha futura o moneda sin código).`);
+    const clave = { fecha: new Date(`${dato.fecha}T00:00:00Z`), monedaOrigen: dato.moneda, monedaDestino: 'UYU', tipo };
+    const cot = await prisma.cotizacion.upsert({
+      where: { fecha_monedaOrigen_monedaDestino_tipo: clave },
+      create: { ...clave, valor: dato.venta, compra: dato.compra, venta: dato.venta, fuente: 'BCU', confirmadoPor: req.user?.userId ?? null },
+      update: { valor: dato.venta, compra: dato.compra, venta: dato.venta, fuente: 'BCU', confirmadoPor: req.user?.userId ?? null, fechaConsulta: new Date() },
+    });
+    await recordAudit({ req, action: 'COTIZACION_BCU', entity: 'cotizacion', entityId: cot.id, newData: { moneda: cot.monedaOrigen, fecha: dato.fecha, valor: dato.venta } });
+    res.json(serializarCot(cot));
+  } catch (err) { next(err); }
+});
+
+// DELETE /cotizaciones/:id
+importacionesRouter.delete('/cotizaciones/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await prisma.cotizacion.delete({ where: { id: req.params.id } });
+    res.json({ message: 'Cotización eliminada' });
   } catch (err) { next(err); }
 });
 

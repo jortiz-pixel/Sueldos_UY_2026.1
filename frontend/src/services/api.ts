@@ -1,5 +1,5 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
-import { AuthResponse, User, Company, Employee, PayrollPeriod, Liquidation, NominaItem, PayrollParameters, TipoAporte, TipoContribuyente, GrupoActividad, Contrato, Concepto, Obra, Importacion, ImportacionPayload, ImportacionEstado, AsientoImportacion, CreditoFiscalReporte, ImportacionImportResult, ImportacionCliente, ImportacionExtraido, ImportacionDocumento, CuentaCatalogo, ImportacionEmpresaConfig, ImportacionConfigPayload } from '../types';
+import { AuthResponse, User, Company, Employee, PayrollPeriod, Liquidation, NominaItem, PayrollParameters, TipoAporte, TipoContribuyente, GrupoActividad, Contrato, Concepto, Obra, Importacion, ImportacionPayload, ImportacionEstado, AsientoImportacion, CreditoFiscalReporte, ImportacionImportResult, ImportacionCliente, ImportacionExtraido, ImportacionDocumento, CuentaCatalogo, ImportacionEmpresaConfig, ImportacionConfigPayload, Cotizacion, CotizacionTipo } from '../types';
 
 const BASE_URL = import.meta.env.VITE_API_URL || '';
 
@@ -832,6 +832,15 @@ export const importacionesApi = {
       api.get<{ config: ImportacionEmpresaConfig | null; catalogoCuentas: CuentaCatalogo[] }>('/importaciones/config', { params: { companyId } }).then((r) => r.data),
     save: (payload: ImportacionConfigPayload) =>
       api.put<ImportacionEmpresaConfig>('/importaciones/config', payload).then((r) => r.data),
+  },
+  cotizaciones: {
+    list: (params: { moneda?: string; tipo?: string; desde?: string; hasta?: string }) =>
+      api.get<{ cotizaciones: Cotizacion[]; monedasBcu: string[] }>('/importaciones/cotizaciones', { params }).then((r) => r.data),
+    manual: (payload: { fecha: string; monedaOrigen: string; monedaDestino?: string; tipo: CotizacionTipo; valor: number; compra?: number; venta?: number }) =>
+      api.post<Cotizacion>('/importaciones/cotizaciones', payload).then((r) => r.data),
+    bcu: (payload: { moneda: string; fecha: string; tipo: CotizacionTipo }) =>
+      api.post<Cotizacion>('/importaciones/cotizaciones/bcu', payload).then((r) => r.data),
+    remove: (id: string) => api.delete(`/importaciones/cotizaciones/${id}`).then((r) => r.data),
   },
   extraer: (file: File) => {
     const fd = new FormData();

@@ -418,6 +418,21 @@ export interface ImportacionDocumento {
   createdAt: string;
 }
 
+export type CotizacionTipo = 'CONTABLE' | 'ADUANERO' | 'BANCARIO' | 'ANTICIPO' | 'OBLIGACION' | 'CIERRE';
+export interface Cotizacion {
+  id: string;
+  fecha: string;
+  monedaOrigen: string;
+  monedaDestino: string;
+  tipo: CotizacionTipo;
+  valor: number;
+  compra: number | null;
+  venta: number | null;
+  fuente: string;
+  fechaConsulta: string;
+  confirmadoPor: string | null;
+}
+
 export interface CuentaCatalogo { clave: string; nombre: string; grupo: string; }
 export interface ImportacionEmpresaConfig {
   iraeRegimen?: string | null;
