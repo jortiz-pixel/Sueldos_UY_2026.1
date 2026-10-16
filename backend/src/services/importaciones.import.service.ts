@@ -24,6 +24,12 @@ export interface ImportacionImportData {
   seguro: number;
   tributos: Array<{ tipo: TributoImportacionTipo; monto: number }>;
   gastos: Array<{ concepto: GastoImportacionConcepto; monto: number; ivaGasto: number }>;
+  // Campos opcionales que puede traer la lectura de PDF (factura del despachante).
+  facturaComercialNro?: string | null;
+  facturaComercialFecha?: string;
+  transporteDoc?: string | null;
+  notas?: string | null;
+  items?: Array<{ descripcion: string }>;
 }
 export interface ImportacionImportRow {
   fila: number;

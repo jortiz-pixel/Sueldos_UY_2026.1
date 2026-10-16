@@ -424,6 +424,11 @@ export interface ImportacionExtraido {
     seguro: number;
     tributos: Array<{ tipo: TributoTipo; monto: number }>;
     gastos: Array<{ concepto: GastoConcepto; monto: number; ivaGasto: number }>;
+    facturaComercialNro?: string | null;
+    facturaComercialFecha?: string;
+    transporteDoc?: string | null;
+    notas?: string | null;
+    items?: Array<{ descripcion: string }>;
   } | null;
   errores?: string[];
   aviso?: string;

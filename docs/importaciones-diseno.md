@@ -15,13 +15,16 @@ de accesos (anti-IDOR) y la auditoría ya existentes.
 >   importación se pueden adjuntar documentos (se suben al guardar) y
 >   **autocompletar el formulario** subiendo el Excel/CSV del despachante
 >   (endpoint `/extraer`).
-> - Etapa 3b: lectura de **PDF** (factura del proveedor, pago, DUA) con
->   extracción de texto (`pdf-parse`) y heurísticas bilingües que toman
->   FOB/total, flete, seguro, IVA, N° de factura/DUA, fecha y moneda para
->   autocompletar el formulario (best-effort, se revisa antes de guardar); el
->   archivo subido queda adjunto.
-> Pendiente: (a) calibrar la lectura de PDF al formato REAL de los documentos
-> del cliente (requiere muestras); (b) OCR para PDF escaneados (sin texto). §7.
+> - Etapa 3b: lectura de **PDF** (factura del despachante, pago, DUA) con
+>   extracción de texto robusta (`pdfjs-dist`, reconstruye líneas por posición)
+>   y heurísticas con el vocabulario de la factura del despachante: toma
+>   proveedor, país, CUIT, N° y fecha de factura, aduana, carpeta, transporte,
+>   mercadería, condición comercial (incoterm), moneda, tipo de cambio y los
+>   importes FOB/flete/seguro/IVA → autocompleta el formulario (best-effort, se
+>   revisa antes de guardar). El archivo subido queda adjunto. Validado contra
+>   el formato de ejemplo del despachante (MARPOLOS/FRATELLI CURRAO).
+> Pendiente: (a) afinar según los PDF reales de cada despachante (layouts en
+> tabla/multicolumna); (b) OCR para PDF escaneados (sin texto). §7.
 
 ## 1. Decisiones de alcance (acordadas)
 

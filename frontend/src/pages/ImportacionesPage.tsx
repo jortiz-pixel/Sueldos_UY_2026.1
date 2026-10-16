@@ -178,8 +178,15 @@ function aplicarExtraido(prev: FormState, d: NonNullable<ImportacionExtraido['da
     aduana: d.aduana ?? prev.aduana,
     fechaNacionalizacion: d.fechaNacionalizacion ?? prev.fechaNacionalizacion,
     fob: d.fob, flete: d.flete, seguro: d.seguro,
+    facturaComercialNro: d.facturaComercialNro ?? prev.facturaComercialNro,
+    facturaComercialFecha: d.facturaComercialFecha ?? prev.facturaComercialFecha,
+    transporteDoc: d.transporteDoc ?? prev.transporteDoc,
+    notas: d.notas ?? prev.notas,
     tributos: d.tributos.map((t) => ({ tipo: t.tipo, tasa: 0, monto: t.monto })),
     gastos: d.gastos.map((g) => ({ concepto: g.concepto, descripcion: '', monto: g.monto, gravadoIva: g.ivaGasto > 0, ivaGasto: g.ivaGasto })),
+    items: (d.items && d.items.length)
+      ? d.items.map((it) => ({ descripcion: it.descripcion, ncm: '', cantidad: 1, fobUnitario: 0 }))
+      : prev.items,
   };
 }
 
