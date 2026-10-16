@@ -20,8 +20,9 @@ import * as XLSX from 'xlsx';
 import { recordAudit } from '../services/audit.service';
 import { calcularCosteo, esTributoRecuperable, armarAsientoImportacion } from '../services/importaciones.service';
 import { generateCosteoPDF, costeoFilename } from '../services/importaciones.pdf.service';
-import { parseImportacionesExcel, buildPlantillaImportaciones } from '../services/importaciones.import.service';
-import { extraerImportacionDesdePdf, contarPaginasPdf } from '../services/importaciones.pdf-extract.service';
+import { parseImportacionesExcel, buildPlantillaImportaciones, ImportacionImportData } from '../services/importaciones.import.service';
+import { extraerImportacionDesdePdf, contarPaginasPdf, textoDelPdf } from '../services/importaciones.pdf-extract.service';
+import { clasificarDocumento, parseFacturaComercial, parseLiquidacionDespachante, parsePagoExterior } from '../services/importaciones.parsers.service';
 import { CUENTAS_IMPORTACION, PlanCuentas } from '../services/importaciones.config.service';
 import { cotizacionBcu, BCU_MONEDA } from '../services/cotizaciones.service';
 
@@ -394,6 +395,59 @@ importacionesRouter.post('/extraer', uploadXls.single('file'), async (req: Reque
     const esPdf = /\.pdf$/.test(nombre) || req.file.mimetype.includes('pdf');
 
     if (esPdf) {
+      const texto = await textoDelPdf(req.file.buffer);
+      const { tipo } = clasificarDocumento(texto);
+      const vacio = (): ImportacionImportData => ({
+        regimen: ImportacionRegimen.DEFINITIVA, proveedorExterior: null, paisOrigen: null, incoterm: null,
+        monedaOrigen: 'USD', tipoCambio: 1, duaNumero: null, despachante: null, aduana: null,
+        fob: 0, flete: 0, seguro: 0, tributos: [], gastos: [], items: [],
+      });
+
+      if (tipo === 'FACTURA_COMERCIAL') {
+        const f = parseFacturaComercial(texto);
+        const datos: ImportacionImportData = {
+          ...vacio(), proveedorExterior: f.proveedor, incoterm: f.incoterm, monedaOrigen: f.moneda,
+          fob: f.fob ?? 0, flete: f.flete, seguro: f.seguro,
+          facturaComercialNro: f.numero, facturaComercialFecha: f.fecha ?? undefined,
+          items: f.articulos.map((a) => ({ descripcion: `${a.codigo} - ${a.descripcion}`, cantidad: a.cantidad, fobUnitario: a.precioUnit })),
+        };
+        res.json({ datos, aviso: `Factura: proveedor ${f.proveedor ?? '—'}, ${f.articulos.length} artículos, FOB ${f.fob}, flete ${f.flete}, seguro ${f.seguro}, CIF ${f.cif}.`, encontrados: ['factura', `${f.articulos.length} artículos`, 'FOB/flete/seguro'], texto: texto.slice(0, 4000) });
+        return;
+      }
+      if (tipo === 'LIQUIDACION_DESPACHANTE') {
+        const l = parseLiquidacionDespachante(texto);
+        const c = l.conceptos;
+        const tributos: ImportacionImportData['tributos'] = [];
+        if (c.ivaImportacion) tributos.push({ tipo: TributoImportacionTipo.IVA_IMPORTACION, monto: c.ivaImportacion });
+        if (c.ivaAnticipado) tributos.push({ tipo: TributoImportacionTipo.ANTICIPO_IVA, monto: c.ivaAnticipado });
+        if (c.imaduni) tributos.push({ tipo: TributoImportacionTipo.ARANCEL_TEC, monto: c.imaduni });
+        if (c.recargo) tributos.push({ tipo: TributoImportacionTipo.RECARGO, monto: c.recargo });
+        const tasas = (c.tasaConsular ?? 0) + (c.tsa ?? 0) + (c.extraordinario ?? 0) + (c.guiaTransito ?? 0) + (c.timbre ?? 0) + (c.vuce ?? 0) + (c.escaner ?? 0);
+        if (tasas > 0) tributos.push({ tipo: TributoImportacionTipo.TASA_SERVICIOS, monto: tasas });
+        const gastos: ImportacionImportData['gastos'] = [];
+        if (c.honorarios) gastos.push({ concepto: GastoImportacionConcepto.HONORARIOS_DESPACHANTE, monto: c.honorarios, ivaGasto: 0 });
+        const otros = (c.gastosOperativos ?? 0) + (c.tcu ?? 0);
+        if (otros > 0) gastos.push({ concepto: GastoImportacionConcepto.OTRO, monto: otros, ivaGasto: 0 });
+        if (c.ivaGastos) { if (gastos.length) gastos[0].ivaGasto = c.ivaGastos; else gastos.push({ concepto: GastoImportacionConcepto.OTRO, monto: 0, ivaGasto: c.ivaGastos }); }
+        const datos: ImportacionImportData = {
+          ...vacio(), proveedorExterior: l.proveedor, paisOrigen: l.origen, tipoCambio: l.tipoCambio ?? 1,
+          duaNumero: l.carpeta, despachante: l.despachante, aduana: l.aduana, fechaNacionalizacion: l.fecha ?? undefined,
+          transporteDoc: l.transporte, tributos, gastos,
+          notas: l.gastosAgenciaExtra ? `Gastos de agencia informados aparte: USD ${l.gastosAgenciaExtra}` : null,
+        };
+        res.json({ datos, aviso: `Liquidación: carpeta ${l.carpeta ?? '—'}, total $${l.total}, IVA importación ${c.ivaImportacion ?? 0}, IVA anticipado ${c.ivaAnticipado ?? 0}, IVA gastos ${c.ivaGastos ?? 0}.`, encontrados: ['liquidación', 'tributos', 'IVA'], texto: texto.slice(0, 4000) });
+        return;
+      }
+      if (tipo === 'SWIFT' || tipo === 'DEBITO_BANCARIO') {
+        const p = parsePagoExterior(texto);
+        const datos: ImportacionImportData = {
+          ...vacio(), monedaOrigen: p.moneda,
+          notas: `Pago a ${p.beneficiario ?? 'proveedor'}: ${p.moneda} ${p.importe ?? '—'} (${p.fecha ?? 's/f'}), ref ${p.ref ?? '—'}${p.comision ? `, comisión ${p.comision}` : ''}.`,
+        };
+        res.json({ datos, aviso: `Comprobante de pago: ${p.moneda} ${p.importe ?? '—'} a ${p.beneficiario ?? '—'} (ref ${p.ref ?? '—'}${p.comision ? `, comisión ${p.comision}` : ''}). Los pagos se registrarán como transferencias aparte; por ahora va informado en Notas.`, encontrados: ['pago'], texto: texto.slice(0, 4000) });
+        return;
+      }
+      // Formato no reconocido → heurística genérica.
       const r = await extraerImportacionDesdePdf(req.file.buffer);
       res.json({ datos: r.datos, aviso: r.aviso, encontrados: r.encontrados, texto: r.texto });
       return;

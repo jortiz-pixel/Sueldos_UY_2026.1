@@ -483,7 +483,7 @@ export interface ImportacionExtraido {
     facturaComercialFecha?: string;
     transporteDoc?: string | null;
     notas?: string | null;
-    items?: Array<{ descripcion: string }>;
+    items?: Array<{ descripcion: string; cantidad?: number; fobUnitario?: number }>;
   } | null;
   errores?: string[];
   aviso?: string;

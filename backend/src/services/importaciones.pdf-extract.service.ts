@@ -28,7 +28,7 @@ export async function contarPaginasPdf(buffer: Buffer): Promise<number> {
 }
 
 /** Extrae el texto del PDF reconstruyendo las líneas por su posición vertical. */
-async function textoDelPdf(buffer: Buffer): Promise<string> {
+export async function textoDelPdf(buffer: Buffer): Promise<string> {
   const doc = await pdfjs.getDocument({
     data: new Uint8Array(buffer),
     isEvalSupported: false,

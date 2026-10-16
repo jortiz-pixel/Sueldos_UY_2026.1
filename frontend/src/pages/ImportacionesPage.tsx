@@ -177,7 +177,7 @@ function fusionarExtraido(prev: FormState, d: NonNullable<ImportacionExtraido['d
   for (const g of d.gastos) if ((g.monto > 0 || g.ivaGasto > 0) && !gastos.some((x) => x.concepto === g.concepto && x.monto === g.monto)) gastos.push({ concepto: g.concepto, descripcion: '', monto: g.monto, gravadoIva: g.ivaGasto > 0, ivaGasto: g.ivaGasto });
   // Ítems: agrega por descripción.
   const items = [...prev.items];
-  for (const it of d.items ?? []) if (it.descripcion.trim() && !items.some((x) => x.descripcion === it.descripcion)) items.push({ descripcion: it.descripcion, ncm: '', cantidad: 1, fobUnitario: 0 });
+  for (const it of d.items ?? []) if (it.descripcion.trim() && !items.some((x) => x.descripcion === it.descripcion)) items.push({ descripcion: it.descripcion, ncm: '', cantidad: it.cantidad ?? 1, fobUnitario: it.fobUnitario ?? 0 });
   // Notas: concatena sin repetir.
   const notas = d.notas && !prev.notas.includes(d.notas) ? [prev.notas, d.notas].filter(Boolean).join(' · ') : prev.notas;
   return {

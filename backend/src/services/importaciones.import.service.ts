@@ -29,7 +29,7 @@ export interface ImportacionImportData {
   facturaComercialFecha?: string;
   transporteDoc?: string | null;
   notas?: string | null;
-  items?: Array<{ descripcion: string }>;
+  items?: Array<{ descripcion: string; cantidad?: number; fobUnitario?: number }>;
 }
 export interface ImportacionImportRow {
   fila: number;
