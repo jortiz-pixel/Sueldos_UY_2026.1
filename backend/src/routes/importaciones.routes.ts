@@ -23,7 +23,8 @@ import { generateInformePDF, costeoFilename } from '../services/importaciones.pd
 import { parseImportacionesExcel, buildPlantillaImportaciones, ImportacionImportData } from '../services/importaciones.import.service';
 import { extraerImportacionDesdePdf, contarPaginasPdf, textoDelPdf } from '../services/importaciones.pdf-extract.service';
 import { clasificarDocumento, parseFacturaComercial, parseLiquidacionDespachante, parsePagoExterior, parseDUA } from '../services/importaciones.parsers.service';
-import { procesarExpediente } from '../services/importaciones.procesar.service';
+import { procesarExpediente, reconstruirCosteoDesdeExtraccion } from '../services/importaciones.procesar.service';
+import { NORMAS_IRAE } from '../services/importaciones.fiscal.service';
 import { validarTipoCambio, sanitizarIdentificador, armarAsientosImportacion, asientoInputDesdeImportacion } from '../services/importaciones.costeo.service';
 import { CUENTAS_IMPORTACION, PlanCuentas, etiquetaCuenta } from '../services/importaciones.config.service';
 import { cotizacionBcu, BCU_MONEDA } from '../services/cotizaciones.service';
@@ -363,6 +364,63 @@ importacionesRouter.put('/config', async (req: Request, res: Response, next: Nex
     });
     await recordAudit({ req, action: 'IMPORTACION_CONFIG', entity: 'importacion_config', entityId: cfg.id, companyId, newData: { formularioDgi: cfg.formularioDgi } });
     res.json({ ...cfg, inicioActividad: cfg.inicioActividad ? cfg.inicioActividad.toISOString().slice(0, 10) : null });
+  } catch (err) { next(err); }
+});
+
+// ── Configuración FISCAL (IRAE) por empresa — independiente de la contable ──
+const fiscalConfigSchema = z.object({
+  companyId: z.string().cuid(),
+  rut: z.string().nullable().optional(),
+  contribuyente: z.string().nullable().optional(),
+  regimenTributario: z.string().nullable().optional(),
+  fechaCierreEjercicio: z.string().regex(/^\d{2}-\d{2}$/).nullable().optional(),
+  metodoValuacionInventario: z.enum(['ADQUISICION', 'PRODUCCION', 'PLAZA']).nullable().optional(),
+  procedimientoExistencias: z.enum(['ULTIMA_COMPRA', 'PPP', 'FIFO', 'IDENTIFICACION']).nullable().optional(),
+  actividad: z.string().nullable().optional(),
+  tipoBienes: z.enum(['REVENTA', 'MATERIA_PRIMA', 'USO', 'MIXTO']).nullable().optional(),
+  tratamientoIva: z.enum(['RECUPERABLE_TOTAL', 'NO_RECUPERABLE', 'PRORRATA']).nullable().optional(),
+  porcentajeIvaNoRecuperable: z.number().min(0).max(100).nullable().optional(),
+  criterioMonedaExtranjera: z.enum(['ART74_INTERBANCARIO_COMPRADOR_DIA_ANTERIOR', 'PERSONALIZADO']).nullable().optional(),
+  criterioFechaOperacion: z.enum(['NACIONALIZACION', 'FACTURA', 'PAGO']).nullable().optional(),
+  validado: z.boolean().optional(),
+  vigenciaDesde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  autorizacionDgi: z.string().nullable().optional(),
+  notas: z.string().nullable().optional(),
+});
+
+// GET /fiscal-config?companyId= → configuración fiscal (o null) + normas IRAE aplicables.
+importacionesRouter.get('/fiscal-config', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const companyId = (req.query.companyId as string) || req.user!.companyId;
+    if (!companyId) throw new AppError(400, 'companyId requerido');
+    await assertCompanyAccess(req, companyId);
+    const cfg = await prisma.importacionFiscalConfig.findUnique({ where: { companyId } });
+    res.json({
+      config: cfg ? { ...cfg, vigenciaDesde: cfg.vigenciaDesde ? cfg.vigenciaDesde.toISOString().slice(0, 10) : null } : null,
+      normas: Object.values(NORMAS_IRAE),
+    });
+  } catch (err) { next(err); }
+});
+
+// PUT /fiscal-config → crea o actualiza la config fiscal; registra historial de cambios.
+importacionesRouter.put('/fiscal-config', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const data = fiscalConfigSchema.parse(req.body);
+    await assertCompanyAccess(req, data.companyId);
+    const { companyId, vigenciaDesde, ...rest } = data;
+    const previa = await prisma.importacionFiscalConfig.findUnique({ where: { companyId } });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const historialPrev: any[] = Array.isArray(previa?.historial) ? (previa!.historial as any[]) : [];
+    const entradaHist = { fecha: new Date().toISOString(), usuario: req.user?.userId ?? null, autorizacionDgi: rest.autorizacionDgi ?? null, validado: rest.validado ?? previa?.validado ?? false, metodo: rest.metodoValuacionInventario ?? previa?.metodoValuacionInventario ?? null };
+    const payload = {
+      ...rest,
+      validadoPor: rest.validado ? (req.user?.userId ?? null) : null,
+      vigenciaDesde: vigenciaDesde ? new Date(`${vigenciaDesde}T00:00:00Z`) : null,
+      historial: [...historialPrev, entradaHist] as Prisma.InputJsonValue,
+    };
+    const cfg = await prisma.importacionFiscalConfig.upsert({ where: { companyId }, create: { companyId, ...payload }, update: payload });
+    await recordAudit({ req, action: 'IMPORTACION_FISCAL_CONFIG', entity: 'importacion_fiscal_config', entityId: cfg.id, companyId, newData: { metodo: cfg.metodoValuacionInventario, validado: cfg.validado } });
+    res.json({ ...cfg, vigenciaDesde: cfg.vigenciaDesde ? cfg.vigenciaDesde.toISOString().slice(0, 10) : null });
   } catch (err) { next(err); }
 });
 
@@ -761,6 +819,36 @@ importacionesRouter.get('/:id/asiento', async (req: Request, res: Response, next
   } catch (err) { next(err); }
 });
 
+// ── GET /:id/costo-fiscal — costo fiscal de adquisición (IRAE), separado ──────
+importacionesRouter.get('/:id/costo-fiscal', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const imp = await prisma.importacion.findUnique({ where: { id: req.params.id } });
+    if (!imp) throw new NotFoundError('Importación');
+    await assertCompanyAccess(req, imp.companyId);
+    res.json({
+      estado: imp.costeoFiscalEstado ?? null,
+      motivo: imp.costeoFiscalMotivo ?? null,
+      detalle: imp.costeoFiscalDetalle ?? null,
+      normas: Object.values(NORMAS_IRAE),
+    });
+  } catch (err) { next(err); }
+});
+
+// ── POST /:id/recostear-fiscal — re-aplica el costeo (contable + fiscal) desde la
+// extracción ya guardada (sin re-leer documentos). Útil tras definir/validar la
+// config fiscal. No altera los documentos ni la extracción.
+importacionesRouter.post('/:id/recostear-fiscal', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const imp = await prisma.importacion.findUnique({ where: { id: req.params.id } });
+    if (!imp) throw new NotFoundError('Importación');
+    await assertCompanyAccess(req, imp.companyId);
+    await reconstruirCosteoDesdeExtraccion(imp.id);
+    const act = await prisma.importacion.findUnique({ where: { id: imp.id }, select: { costeoFiscalEstado: true, costeoFiscalMotivo: true, costeoFiscalDetalle: true } });
+    await recordAudit({ req, action: 'IMPORTACION_RECOSTEAR_FISCAL', entity: 'importacion', entityId: imp.id, companyId: imp.companyId, newData: { estadoFiscal: act?.costeoFiscalEstado } });
+    res.json({ estado: act?.costeoFiscalEstado ?? null, motivo: act?.costeoFiscalMotivo ?? null, detalle: act?.costeoFiscalDetalle ?? null });
+  } catch (err) { next(err); }
+});
+
 // ── GET /:id/costeo.pdf — INFORME completo del expediente (PDF) ──────────────
 importacionesRouter.get('/:id/costeo.pdf', async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -791,6 +879,8 @@ importacionesRouter.get('/:id/costeo.pdf', async (req: Request, res: Response, n
       imp,
       plan,
       costeoDetalle: det,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      costeoFiscalDetalle: (imp.costeoFiscalDetalle as any) ?? null,
       asientos: asientosDoc,
       facturas: facturas.map((f) => ({ proveedor: f.proveedor, numero: f.numero, fecha: f.fecha, moneda: f.moneda, incoterm: f.incoterm, fob: f.fob, flete: f.flete, seguro: f.seguro, cif: f.cif, total: f.total, articulos: f.articulos.map((a) => ({ nro: a.nro, codigo: a.codigo, descripcion: a.descripcion, cantidad: a.cantidad, precioUnit: a.precioUnit, total: a.total })) })),
       liquidaciones: liquidaciones.map((l) => ({ carpeta: l.carpeta, fecha: l.fecha, aduana: l.aduana, despachante: l.despachante, transporte: l.transporte, tipoCambio: l.tipoCambio, moneda: l.moneda, kilosBrutos: l.kilosBrutos, kilosNetos: l.kilosNetos, total: l.total, gastosAgenciaExtra: l.gastosAgenciaExtra, conceptos: l.conceptos.map((c) => ({ clave: c.clave, monto: c.monto })) })),

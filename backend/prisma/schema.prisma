@@ -222,6 +222,7 @@ model Company {
   obras             Obra[]
   importaciones     Importacion[]
   importacionConfig ImportacionEmpresaConfig?
+  importacionFiscalConfig ImportacionFiscalConfig?
 
   @@map("companies")
 }
@@ -1073,6 +1074,13 @@ model Importacion {
   // cronológicos, conciliaciones) serializado para el informe y la pantalla.
   costeoDetalle    Json?
 
+  // COSTO FISCAL DE ADQUISICIÓN (IRAE) — SEPARADO del contable (no altera lo contable
+  // ni los asientos). Estado OK | PENDIENTE (falta config fiscal validada o cotización
+  // fiscal) y detalle por artículo (contable vs fiscal + diferencia + normas).
+  costeoFiscalEstado  String? // OK | PENDIENTE
+  costeoFiscalMotivo  String?
+  costeoFiscalDetalle Json?
+
   notas     String?
   creadoPor String?
   createdAt DateTime @default(now())
@@ -1230,6 +1238,49 @@ model ImportacionEmpresaConfig {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// CONFIGURACIÓN FISCAL (IRAE) por empresa — INDEPENDIENTE de la config contable.
+// Define las políticas que habilitan emitir un costo fiscal de adquisición
+// DEFINITIVO. Mientras `validado` sea false o falte el método/criterio, el costo
+// fiscal se emite como PENDIENTE (no se usa el contable como valor fiscal por
+// defecto). Normas: Art. 42 T4 TO 2023; Arts. 74, 80, 81, 82 Dec. 150/007.
+// ─────────────────────────────────────────────────────────────────────────────
+model ImportacionFiscalConfig {
+  id                 String    @id @default(cuid())
+  companyId          String    @unique
+  rut                String?
+  contribuyente      String?
+  regimenTributario  String? // IRAE_GENERAL | IRAE_FICTO | ...
+  fechaCierreEjercicio String? // 'MM-DD'
+  // Método de valuación FISCAL de existencias (Art. 80 Dec. 150/007): a opción del
+  // contribuyente, uniforme. Para la ADQUISICIÓN se usa costo de adquisición; el
+  // método de CIERRE (plaza, etc.) es un concepto distinto (no se aplica acá).
+  metodoValuacionInventario String? // ADQUISICION | PRODUCCION | PLAZA
+  procedimientoExistencias  String? // ULTIMA_COMPRA | PPP | FIFO | IDENTIFICACION
+  actividad          String?
+  tipoBienes         String? // REVENTA | MATERIA_PRIMA | USO | MIXTO
+  // IVA: qué parte es recuperable (no integra costo) vs no recuperable (integra costo).
+  tratamientoIva     String? // RECUPERABLE_TOTAL | NO_RECUPERABLE | PRORRATA
+  porcentajeIvaNoRecuperable Float? // 0..100 (si PRORRATA)
+  // Moneda extranjera (Art. 74 Dec. 150/007) y fecha fiscal de la operación.
+  criterioMonedaExtranjera String? // ART74_INTERBANCARIO_COMPRADOR_DIA_ANTERIOR | PERSONALIZADO
+  criterioFechaOperacion   String? // NACIONALIZACION | FACTURA | PAGO
+  // Validación profesional: sin ella, el costo fiscal es PENDIENTE.
+  validado           Boolean   @default(false)
+  validadoPor        String?
+  vigenciaDesde      DateTime?
+  autorizacionDgi    String? // nº/fecha de autorización de cambio de método (Art. 80)
+  notas              String?
+  // Historial de cambios/autorizaciones: [{ fecha, usuario, cambios, autorizacionDgi }]
+  historial          Json?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("importacion_fiscal_config")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // COTIZACIONES (Etapa 2 §6) — tipos de cambio por fecha/moneda/tipo. Globales
 // (una cotización de una fecha vale para todas las empresas). Fuente BCU (toma
 // automática validada) o MANUAL. No se inventan cotizaciones: si no hay dato,
@@ -1242,6 +1293,7 @@ enum CotizacionTipo {
   ANTICIPO
   OBLIGACION
   CIERRE
+  FISCAL // Art. 74 Dec. 150/007: interbancaria comprador billete del día anterior a la operación
 }
 
 model Cotizacion {

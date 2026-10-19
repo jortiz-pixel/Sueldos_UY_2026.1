@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { generateInformePDF } = require('../dist/services/importaciones.pdf.service.js');
 const { construirCosteoHistorico } = require('../dist/services/importaciones.costeo.service.js');
+const { construirCostoFiscalAdquisicion } = require('../dist/services/importaciones.fiscal.service.js');
 
 const C = (n) => BigInt(Math.round(n * 100));
 const et = (k) => k;
@@ -74,9 +75,31 @@ const imp = {
   tcContable: null, tcAduanero: 40.266, notas: null,
 };
 
+// Costo fiscal (IRAE) con config validada: cotización fiscal Art. 74 (comprador día
+// anterior) distinta del contable → diferencia explicada; sección completa para el layout.
+const cotFiscalMap = { '2026-08-28': 40.10, '2026-08-27': 40.05, '2026-06-09': 40.30, '2026-06-10': 40.45, '2026-06-11': 40.50 };
+const rf = construirCostoFiscalAdquisicion({
+  contable: {
+    adquisicionUYU: costeo.adquisicionUYU, tributosNoRecuperables: costeo.tributosNoRecuperables, totalGastosUYU: costeo.totalGastosUYU, costoInventario: costeo.costoInventario,
+    ivaImportacion: costeo.ivaImportacion, ivaGastosUYU: costeo.ivaGastosUYU,
+    anticipos: [{ fecha: '2026-06-09', montoME: 2000 }, { fecha: '2026-06-10', montoME: 1800 }, { fecha: '2026-06-11', montoME: 1828.98 }],
+    excesoPagado: costeo.excesoPagado, saldoNoAnticipado: costeo.saldoNoAnticipado,
+    gastos: costeo.gastos.map((g) => ({ documento: g.documento, concepto: g.concepto, moneda: g.moneda, fecha: g.fecha || '2026-08-27', montoME: g.montoME, montoUYU: g.montoUYU, incluidoEnCosto: g.incluidoEnCosto, esDelDespachante: g.esDelDespachante })),
+    tributos: costeo.tributos.map((t) => ({ tipo: t.tipo, monto: t.monto, recuperable: t.recuperable, codigo: t.codigo })),
+    items: (costeo.items || []).map((i) => ({ codigo: i.codigo, descripcion: i.descripcion, cantidad: i.cantidad, fobME: i.fobME, costo: i.costo })),
+    cifME: 5628.84, monedaOrigen: 'USD',
+  },
+  factura: { numero: 'A24391', fecha: '2026-08-20', articulos: (costeo.items || []).map((i) => ({ codigo: i.codigo, descripcion: i.descripcion, cantidad: i.cantidad, unidad: 'u', fobME: i.fobME })) },
+  fechas: { nacionalizacion: '2026-08-28', factura: '2026-08-20' },
+  duaNumero: '002-2026-170135',
+  config: { validado: true, metodoValuacionInventario: 'ADQUISICION', criterioMonedaExtranjera: 'ART74_INTERBANCARIO_COMPRADOR_DIA_ANTERIOR', criterioFechaOperacion: 'NACIONALIZACION', tratamientoIva: 'RECUPERABLE_TOTAL', porcentajeIvaNoRecuperable: null, politicaDistribucion: 'FOB' },
+  cotizacionFiscal: (f) => (cotFiscalMap[f] != null ? { valor: cotFiscalMap[f], fuente: `BCU ${f} comprador billete (Art. 74)` } : null),
+});
+const costeoFiscalDetalle = JSON.parse(JSON.stringify(rf, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)));
+
 const input = {
   empresa: { razonSocial: 'GRO Consultores & Asociados SRL', rut: '020000000011' },
-  imp, plan: null,
+  imp, plan: null, costeoFiscalDetalle,
   facturas: [{ proveedor: imp.proveedorExterior, numero: 'A24391', fecha: new Date('2026-08-20'), moneda: 'USD', incoterm: 'CIF', fob: C(4838.44), flete: C(760.40), seguro: C(30), cif: C(5628.84), total: C(5628.84), articulos: det.items.map((it, i) => ({ nro: i + 1, codigo: it.codigo, descripcion: it.descripcion, cantidad: it.cantidad, precioUnit: Number(it.fobME) / 100 / Math.max(1, it.cantidad), total: BigInt(it.fobME) })) }],
   liquidaciones: [{ carpeta: '105523', fecha: new Date('2026-08-27'), aduana: '001 MONTEVIDEO', despachante: 'Pacini Despachante de Aduana', transporte: 'Marítimo', tipoCambio: 40.266, moneda: 'UYU', kilosBrutos: 139, kilosNetos: 120, total: C(96137), gastosAgenciaExtra: null, conceptos: [{ clave: 'ivaImportacion', monto: C(49843) }, { clave: 'escaner', monto: C(563) }, { clave: 'honorarios', monto: C(5700) }] }],
   transferencias: [

@@ -62,6 +62,8 @@ export interface InformeInput {
   asientos?: AsientoInformePdf[];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   costeoDetalle?: any; // CosteoHistorico serializado (anticipos, gastos, conciliaciones)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  costeoFiscalDetalle?: any; // CostoFiscalResultado serializado (IRAE, separado del contable)
 }
 
 const REGIMEN: Record<ImportacionRegimen, string> = {
@@ -538,6 +540,78 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
       total2('Movimientos a Mercaderías en los asientos', `${nMoney(cons.movimientosMercaderia)}   (dif ${nMoney(cons.difAsientos)})`);
       total2('Adquisición contable vs del asiento', `${nMoney(cons.adquisicionContable)} vs ${nMoney(cons.adquisicionAsiento)}   (dif ${nMoney(cons.difAdquisicion)})`);
       notaCol(cons.ok ? 'OK — las tres igualdades se cumplen (sin diferencias).' : 'INCONSISTENTE — hay diferencias; expediente pendiente de aprobación.', cons.ok ? '#1a7f37' : '#c00', true, 8);
+    }
+
+    // ── Costo Fiscal de Adquisición — IRAE (SEPARADO del contable) ──
+    const fis = input.costeoFiscalDetalle ?? null;
+    heading('Costo Fiscal de Adquisición — IRAE');
+    if (!fis) {
+      vacio('Sin costo fiscal calculado. Definí la configuración fiscal (IRAE) de la empresa y recosteá el expediente para emitirlo.');
+    } else {
+      const pendFiscal = fis.estado !== 'OK';
+      // Banner de estado (pendiente de aprobación o definitivo).
+      if (pendFiscal) {
+        const msg = `COSTO FISCAL PENDIENTE DE APROBACIÓN — ${(fis.motivos && fis.motivos.length) ? fis.motivos.join(' · ') : 'falta completar la configuración fiscal validada o las cotizaciones fiscales.'} No se emite un importe fiscal definitivo ni se usa el costo contable como valor fiscal.`;
+        doc.fontSize(8.5).font('Helvetica-Bold');
+        const h = Math.max(22, doc.heightOfString(msg, { width: W - 16 }) + 10);
+        ensure(h + 4);
+        doc.save().rect(M, y, W, h).fill('#FFF4E5'); doc.restore();
+        doc.fillColor('#b54708').text(msg, M + 8, y + 5, { width: W - 16 });
+        y += h + 8;
+      }
+      // Criterios aplicados.
+      kv('Método de valuación (adquisición)', `${fis.criterios?.metodoValuacion ?? '—'} · Art. 80 Dec. 150/007`);
+      kv('Moneda extranjera', `${fis.criterios?.monedaExtranjera ?? '—'} · Art. 74 Dec. 150/007`);
+      kv('Fecha fiscal de la operación', `${fis.criterios?.fechaOperacion ?? '—'}${fis.criterios?.fechaFiscalOperacion ? ` (${fis.criterios.fechaFiscalOperacion})` : ''}`);
+      kv('Tratamiento del IVA', `${fis.criterios?.tratamientoIva ?? '—'}`);
+      // Componentes A-F del costo fiscal.
+      y += 2;
+      subheading('Componentes del costo fiscal de adquisición');
+      for (const c of (fis.componentes ?? [])) {
+        const monto = c.montoUYU != null ? nMoney(c.montoUYU) : (c.estado === 'pendiente' ? 'PENDIENTE' : '—');
+        total2(`${c.clave}. ${c.etiqueta} [${c.norma}]`, monto, c.clave === 'A');
+        if (c.nota) notaCol(c.nota, c.estado === 'excluido' ? '#777' : '#555');
+      }
+      total2('= Costo fiscal de adquisición (total)', fis.totales?.costoFiscal != null ? nMoney(fis.totales.costoFiscal) : 'PENDIENTE', true);
+      // Cuadro de conciliación contable → fiscal.
+      y += 2;
+      subheading('Conciliación: costo contable → costo fiscal');
+      total2('Costo contable', nMoney(fis.conciliacion?.costoContable));
+      for (const aj of (fis.conciliacion?.ajustes ?? [])) {
+        total2(`${aj.signo === '+' ? 'Ajuste (+)' : 'Ajuste (−)'}: ${aj.concepto} [${aj.norma}]`, `${aj.signo} ${nMoney(aj.montoUYU)}`);
+        if (aj.justificacion) notaCol(aj.justificacion, '#555');
+      }
+      total2('= Costo fiscal de adquisición', fis.conciliacion?.costoFiscal != null ? nMoney(fis.conciliacion.costoFiscal) : 'PENDIENTE', true);
+      if (fis.conciliacion && fis.conciliacion.costoFiscal != null) notaCol(fis.conciliacion.cuadra ? 'La conciliación cierra: contable + ajustes = costo fiscal.' : 'ATENCIÓN: la conciliación no cierra; revisar los ajustes.', fis.conciliacion.cuadra ? '#1a7f37' : '#c00', true);
+      // Tabla por artículo: contable vs fiscal + diferencia.
+      y += 2;
+      subheading('Costo por artículo — contable vs fiscal (IRAE)');
+      const itemsFis: Array<{ codigo: string | null; descripcion: string; cantidad: number; costoContableTotal: string; costoContableUnit: string; costoFiscalTotal: string | null; costoFiscalUnit: string | null; diferencia: string | null; metodoAsignacion: string }> = fis.items ?? [];
+      if (itemsFis.length) {
+        tabla(
+          [{ w: 64, title: 'Código' }, { w: W - 434, title: 'Descripción' }, { w: 44, title: 'Cant.', align: 'right' }, { w: 84, title: 'Contable $', align: 'right' }, { w: 84, title: 'Fiscal $', align: 'right' }, { w: 80, title: 'Dif. $', align: 'right' }, { w: 78, title: 'Método' }],
+          itemsFis.map((it) => [
+            it.codigo ?? '—', it.descripcion, String(it.cantidad),
+            nMoney(it.costoContableTotal),
+            it.costoFiscalTotal != null ? nMoney(it.costoFiscalTotal) : 'PEND.',
+            it.diferencia != null ? nMoney(it.diferencia) : '—',
+            it.metodoAsignacion,
+          ]),
+        );
+        y += 2;
+        total2('Totales', `contable ${nMoney(fis.totales?.costoContable)}   ·   fiscal ${fis.totales?.costoFiscal != null ? nMoney(fis.totales.costoFiscal) : 'PENDIENTE'}`, true);
+      } else { vacio('Sin artículos para distribuir el costo fiscal.'); }
+      // Normas y cotizaciones fiscales utilizadas.
+      if ((fis.cotizacionesUsadas ?? []).length) {
+        y += 2;
+        subheading('Cotizaciones fiscales utilizadas (Art. 74)');
+        for (const c of fis.cotizacionesUsadas) notaCol(`Operación ${c.fecha}: ${Number(c.valor).toLocaleString('es-UY', { minimumFractionDigits: 3 })} — ${c.fuente}`, '#555');
+      }
+      y += 2;
+      subheading('Normas aplicadas');
+      for (const n of (fis.normas ?? [])) notaCol(`${n.articulo} ${n.norma} — ${n.descripcion} (vigente desde ${n.vigenciaDesde})`, '#555');
+      for (const o of (fis.observaciones ?? [])) notaCol(o, '#b54708', true);
+      nota('El costo fiscal de adquisición (IRAE) se determina en forma independiente del costo contable y de los asientos, que no se modifican. La valuación fiscal de existencias AL CIERRE (costo de plaza, etc.) y la producción/personalización son módulos aparte que consumen este costo de ingreso.');
     }
 
     // ── Gastos de plaza (desglose contable) ──

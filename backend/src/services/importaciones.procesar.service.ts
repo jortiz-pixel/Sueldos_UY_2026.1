@@ -11,6 +11,7 @@ import { storageService } from './storage.service';
 import { textoDelPdf } from './importaciones.pdf-extract.service';
 import { GastoImportacionConcepto } from '@prisma/client';
 import { construirCosteoHistorico, sanitizarIdentificador, validarTipoCambio, CosteoDocInput } from './importaciones.costeo.service';
+import { construirCostoFiscalAdquisicion, CostoFiscalInput } from './importaciones.fiscal.service';
 import { cotizacionBcu } from './cotizaciones.service';
 import {
   clasificarDocumento, parseFacturaComercial, parseLiquidacionDespachante,
@@ -109,6 +110,37 @@ async function tcFiscalDia(moneda: string, fecha: Date | null): Promise<{ valor:
   return obtenerTcFiscalOperacion(moneda, fecha, null);
 }
 
+/**
+ * Cotización FISCAL para IRAE (Art. 74 Dec. 150/007): interbancaria tipo COMPRADOR
+ * billete (TCC) del cierre del DÍA ANTERIOR a la operación; si no hay (fin de
+ * semana/feriado), el último día hábil anterior. Es un criterio distinto del
+ * contable (venta del día de pago) y del aduanero (TC del DUA). Se guarda como
+ * Cotizacion tipo FISCAL. Devuelve null si no se consigue (→ costo fiscal PENDIENTE).
+ */
+async function tcFiscalArt74(moneda: string, fechaOperacion: Date | null): Promise<{ valor: number; fuente: string } | null> {
+  if (!fechaOperacion) return null;
+  for (let atras = 1; atras <= 7; atras++) { // desde el día ANTERIOR, hasta 7 días atrás
+    const f = new Date(fechaOperacion); f.setUTCDate(f.getUTCDate() - atras);
+    const fStr = f.toISOString().slice(0, 10);
+    const guardada = await prisma.cotizacion.findFirst({ where: { monedaOrigen: moneda, monedaDestino: 'UYU', tipo: 'FISCAL', fecha: f } });
+    const gv = guardada ? validarTipoCambio(guardada.compra ?? guardada.valor) : { valido: false, valor: null as number | null };
+    if (guardada && gv.valido && gv.valor != null) return { valor: gv.valor, fuente: `${guardada.fuente || 'cotización fiscal'} ${fStr} (comprador billete, Art. 74)` };
+    try {
+      const bcu = await cotizacionBcu(moneda, fStr);
+      const v = validarTipoCambio(bcu?.compra); // comprador billete (TCC)
+      if (bcu && v.valido && v.valor != null) {
+        await prisma.cotizacion.upsert({
+          where: { fecha_monedaOrigen_monedaDestino_tipo: { fecha: f, monedaOrigen: moneda, monedaDestino: 'UYU', tipo: 'FISCAL' } },
+          create: { fecha: f, monedaOrigen: moneda, monedaDestino: 'UYU', tipo: 'FISCAL', valor: v.valor, compra: bcu.compra, venta: bcu.venta, fuente: 'BCU interbancario comprador billete (Art. 74 Dec. 150/007)' },
+          update: { valor: v.valor, compra: bcu.compra, venta: bcu.venta, fuente: 'BCU interbancario comprador billete (Art. 74 Dec. 150/007)' },
+        });
+        return { valor: v.valor, fuente: `BCU ${fStr} comprador billete (Art. 74 Dec. 150/007)${atras > 1 ? ` — último día hábil anterior` : ''}` };
+      }
+    } catch { /* probar el día anterior */ }
+  }
+  return null;
+}
+
 const bigintReplacer = (_k: string, v: unknown) => (typeof v === 'bigint' ? v.toString() : v);
 
 /**
@@ -120,7 +152,7 @@ const bigintReplacer = (_k: string, v: unknown) => (typeof v === 'bigint' ? v.to
  * el TC del DUA solo como estimación provisional y se bloquea la aprobación).
  * Guarda el detalle completo en costeoDetalle. Requiere DUA presente.
  */
-async function reconstruirCosteoDesdeExtraccion(importacionId: string): Promise<{ ok: boolean; estado?: string; motivo?: string }> {
+export async function reconstruirCosteoDesdeExtraccion(importacionId: string): Promise<{ ok: boolean; estado?: string; motivo?: string }> {
   const imp = await prisma.importacion.findUnique({ where: { id: importacionId } });
   if (!imp || imp.estado === 'ANULADA') return { ok: false };
   const [duaEx, serviciosEx, factura, pagoTrib, transferencias, recibos, packingEx] = await Promise.all([
@@ -211,6 +243,45 @@ async function reconstruirCosteoDesdeExtraccion(importacionId: string): Promise<
   const tcRepresentativo = tasasAnticipos.length === 1 ? tasasAnticipos[0] : null;
   const costeoDetalle = JSON.parse(JSON.stringify(r, bigintReplacer));
 
+  // ── COSTO FISCAL DE ADQUISICIÓN (IRAE) — separado, no altera lo contable ──
+  // Se pre-cargan las cotizaciones fiscales (Art. 74) de las fechas de operación
+  // relevantes; el motor es puro y las consume de un mapa. Sin config validada o sin
+  // cotización → PENDIENTE (no se emite importe fiscal ni se usa el contable).
+  const rf = await (async () => {
+    try {
+      const fiscalConfig = await prisma.importacionFiscalConfig.findUnique({ where: { companyId: imp.companyId } });
+      const opDates = new Set<string>();
+      if (iso(duaDate)) opDates.add(iso(duaDate)!);
+      if (factura?.fecha) opDates.add(iso(factura.fecha)!);
+      for (const a of anticipos) if (a.fecha) opDates.add(a.fecha);
+      for (const g of r.gastos) if (g.incluidoEnCosto && (g.moneda ?? 'UYU').toUpperCase() !== 'UYU' && g.fecha) opDates.add(g.fecha);
+      const fiscalCache = new Map<string, { valor: number; fuente: string }>();
+      for (const dISO of opDates) {
+        const c = await tcFiscalArt74(moneda, new Date(`${dISO}T00:00:00Z`));
+        if (c) fiscalCache.set(dISO, c);
+      }
+      const fiscalInput: CostoFiscalInput = {
+        contable: {
+          adquisicionUYU: r.adquisicionUYU, tributosNoRecuperables: r.tributosNoRecuperables, totalGastosUYU: r.totalGastosUYU, costoInventario: r.costoInventario,
+          ivaImportacion: r.ivaImportacion, ivaGastosUYU: r.ivaGastosUYU,
+          anticipos: anticipos.map((a) => ({ fecha: a.fecha, montoME: a.monto })),
+          excesoPagado: r.excesoPagado, saldoNoAnticipado: r.saldoNoAnticipado,
+          gastos: r.gastos.map((g) => ({ documento: g.documento, concepto: g.concepto, moneda: g.moneda, fecha: g.fecha ?? null, montoME: g.montoME, montoUYU: g.montoUYU, incluidoEnCosto: g.incluidoEnCosto, esDelDespachante: g.esDelDespachante })),
+          tributos: r.tributos.map((t) => ({ tipo: t.tipo, monto: t.monto, recuperable: t.recuperable, codigo: t.codigo })),
+          items: (r.items ?? []).map((i) => ({ codigo: i.codigo, descripcion: i.descripcion, cantidad: i.cantidad, fobME: i.fobME, costo: i.costo })),
+          cifME: factura ? Number(factura.total) / 100 : 0, monedaOrigen: moneda,
+        },
+        factura: factura ? { numero: factura.numero ?? null, fecha: iso(factura.fecha), articulos: factura.articulos.map((a) => ({ codigo: a.codigo, descripcion: a.descripcion || a.codigo || 'Ítem', cantidad: a.cantidad || 1, unidad: null, fobME: a.total })) } : null,
+        fechas: { nacionalizacion: iso(duaDate), factura: iso(factura?.fecha ?? null) },
+        duaNumero: sanitizarIdentificador(d.nroDua) ?? null,
+        config: fiscalConfig ? { validado: fiscalConfig.validado, metodoValuacionInventario: fiscalConfig.metodoValuacionInventario, criterioMonedaExtranjera: fiscalConfig.criterioMonedaExtranjera, criterioFechaOperacion: fiscalConfig.criterioFechaOperacion, tratamientoIva: fiscalConfig.tratamientoIva, porcentajeIvaNoRecuperable: fiscalConfig.porcentajeIvaNoRecuperable, politicaDistribucion: fiscalConfig.procedimientoExistencias ?? null } : null,
+        cotizacionFiscal: (f: string) => fiscalCache.get(f) ?? null,
+      };
+      return construirCostoFiscalAdquisicion(fiscalInput);
+    } catch { return null; }
+  })();
+  const costeoFiscalDetalle = rf ? JSON.parse(JSON.stringify(rf, bigintReplacer)) : null;
+
   await prisma.$transaction([
     prisma.itemImportacion.deleteMany({ where: { importacionId } }),
     prisma.tributoImportacion.deleteMany({ where: { importacionId } }),
@@ -237,6 +308,10 @@ async function reconstruirCosteoDesdeExtraccion(importacionId: string): Promise<
         costeoEstado: r.estado,
         costeoMotivo: r.motivos.length ? r.motivos.join(' · ') : null,
         costeoDetalle,
+        // Costo fiscal de adquisición (IRAE), separado del contable.
+        costeoFiscalEstado: rf ? rf.estado : null,
+        costeoFiscalMotivo: rf && rf.motivos.length ? rf.motivos.join(' · ') : null,
+        costeoFiscalDetalle,
         items: { create: (r.items ?? []).map((i) => ({ codigo: i.codigo, descripcion: i.descripcion, ncm, cantidad: i.cantidad, fobUnitario: i.cantidad ? i.fobME / BigInt(Math.max(1, Math.round(i.cantidad))) : i.fobME, fobTotal: i.fobME, costoProrrateado: i.costo })) },
         tributos: { create: r.tributos.map((t) => ({ tipo: t.tipo, baseImponible: 0n, tasa: 0, monto: t.monto, recuperable: t.recuperable })) },
         gastos: { create: r.gastos.filter((g) => g.incluidoEnCosto).map((g) => ({ concepto: /honorario/i.test(g.concepto) ? GastoImportacionConcepto.HONORARIOS_DESPACHANTE : GastoImportacionConcepto.OTRO, descripcion: `${g.documento}: ${g.concepto}`, monto: g.montoUYU, gravadoIva: g.gravado, ivaGasto: g.ivaUYU })) },
