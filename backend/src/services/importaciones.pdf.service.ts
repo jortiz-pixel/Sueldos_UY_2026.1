@@ -635,20 +635,29 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
 
     // ── 7. Tratamiento fiscal (IVA y anticipos, separados) ──
     heading('Tratamiento fiscal (IVA y anticipos)');
-    const sumTrib = (...ts: TributoImportacionTipo[]) => imp.tributos.filter((t) => ts.includes(t.tipo)).reduce((s, t) => s + t.monto, 0n);
-    const ivaImp = sumTrib(TributoImportacionTipo.IVA_IMPORTACION);
-    const ivaGastos = imp.gastos.reduce((s, g) => s + g.ivaGasto, 0n);
+    // Los tributos se toman SIEMPRE del costeo basado en el DUA DEFINITIVO (det), no de
+    // las filas guardadas (que pueden conservar valores de la liquidación preliminar).
+    // Solo si no hay costeo se cae a imp.tributos.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const dTrib: Array<{ tipo: string; monto: string }> | null = det?.tributos ?? null;
+    const sumTrib = (...ts: TributoImportacionTipo[]) => dTrib
+      ? dTrib.filter((t) => (ts as string[]).includes(t.tipo)).reduce((s, t) => s + BigInt(t.monto), 0n)
+      : imp.tributos.filter((t) => ts.includes(t.tipo)).reduce((s, t) => s + t.monto, 0n);
+    const bD = (v: unknown, fb: bigint): bigint => (det != null && v != null && v !== '' ? BigInt(String(v)) : fb);
+    const ivaImp = bD(det?.ivaImportacion, sumTrib(TributoImportacionTipo.IVA_IMPORTACION));
+    const ivaGastos = bD(det?.ivaGastosUYU, imp.gastos.reduce((s, g) => s + g.ivaGasto, 0n));
     const antIva = sumTrib(TributoImportacionTipo.ANTICIPO_IVA);
     const antIrae = sumTrib(TributoImportacionTipo.ANTICIPO_IRAE);
     const recuperables: TributoImportacionTipo[] = [TributoImportacionTipo.IVA_IMPORTACION, TributoImportacionTipo.ANTICIPO_IVA, TributoImportacionTipo.ANTICIPO_IRAE];
-    const noRec = imp.tributos.filter((t) => !recuperables.includes(t.tipo)).reduce((s, t) => s + t.monto, 0n);
+    const noRec = bD(det?.tributosNoRecuperables, imp.tributos.filter((t) => !recuperables.includes(t.tipo)).reduce((s, t) => s + t.monto, 0n));
+    const creditoTotal = bD(det?.creditoFiscalIva, imp.creditoFiscalIva);
     total2('IVA importación (crédito fiscal)', money(ivaImp));
     total2('IVA de servicios / plaza (crédito fiscal)', money(ivaGastos));
-    total2('Crédito fiscal IVA total', money(imp.creditoFiscalIva), true);
+    total2('Crédito fiscal IVA total', money(creditoTotal), true);
     total2('Anticipo IVA importación', money(antIva));
     total2('Anticipo IRAE', money(antIrae));
     total2('Tributos no recuperables (integran el costo)', money(noRec > 0n ? noRec : 0n));
-    notaCol('El IVA importación, el IVA de servicios y los anticipos de IVA/IRAE no integran el costo (son crédito fiscal / pagos a cuenta).', '#777');
+    notaCol('Tributos tomados del DUA definitivo (no de la liquidación preliminar). El IVA importación, el IVA de servicios y los anticipos de IVA/IRAE no integran el costo (son crédito fiscal / pagos a cuenta).', '#777');
 
     // ── 7. Asientos contables CRONOLÓGICOS (en pesos, con moneda original y refs) ──
     heading('Asientos contables cronológicos');
