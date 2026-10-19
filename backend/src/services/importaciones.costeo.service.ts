@@ -344,8 +344,9 @@ export interface AnticipoProveedor {
   monto: number;             // ME al proveedor
   comision: number;          // ME comisión bancaria
   cotizacion: number | null; // cotización fiscal del día del pago (null → provisional)
+  fuente?: string | null;    // fuente verificable de la cotización (ej. "BCU 2026-06-09")
 }
-export interface ServicioFechado extends ServicioCosteo { fecha?: string | null; cotizacion?: number | null }
+export interface ServicioFechado extends ServicioCosteo { fecha?: string | null; cotizacion?: number | null; fuenteCotizacion?: string | null }
 
 export interface AsientoRef { documento: string; pagina?: string | null; regla: string }
 export interface LineaAsientoHist { cuenta: string; monedaOrig?: string | null; montoOrig?: number | null; debe: bigint; haber: bigint }
@@ -353,8 +354,9 @@ export interface AsientoHist { fecha: string | null; glosa: string; definitivo: 
 
 export interface GastoDesglosado {
   documento: string; emisor: string | null; rutEmisor: string | null; concepto: string; moneda: string;
+  fecha?: string | null; fuenteCotizacion?: string | null;
   montoME: number; cotizacion: number; montoUYU: bigint; ivaUYU: bigint;
-  gravado: boolean; porCuentaDeTerceros: boolean; incluidoEnCosto: boolean; tratamiento: string;
+  gravado: boolean; porCuentaDeTerceros: boolean; incluidoEnCosto: boolean; esDelDespachante: boolean; tratamiento: string;
 }
 
 export interface CosteoHistorico {
@@ -369,7 +371,9 @@ export interface CosteoHistorico {
   tributos: TributoCosteo[]; totalTributos: bigint; tributosNoRecuperables: bigint; ivaImportacion: bigint; anticiposFiscales: bigint;
   gastos: GastoDesglosado[]; totalGastosUYU: bigint; ivaGastosUYU: bigint; creditoFiscalIva: bigint;
   costoInventario: bigint | null;
-  items: Array<{ descripcion: string; cantidad: number; fobME: bigint; costo: bigint }> | null;
+  items: Array<{ codigo: string | null; descripcion: string; cantidad: number; fobME: bigint; costo: bigint }> | null;
+  // Cuenta corriente del despachante UNIFICADA (misma que usan asientos y conciliación).
+  cuentaDespachante: { cargosUYU: bigint; pagosUYU: bigint; saldoUYU: bigint } | null;
   asientos: AsientoHist[];
   // Verificación automática de consistencia (PASO 6): todas las igualdades deben dar 0.
   consistencia: {
@@ -395,6 +399,8 @@ export interface CosteoHistoricoInput {
   anticipos: AnticipoProveedor[];
   pagoSpeCtms: bigint | null;
   pagoDespachanteCtms: bigint | null;
+  fechaPagoDespachante?: string | null;    // fecha del recibo del despachante
+  pagoAgencia?: { fecha: string | null; moneda: string; montoME: number } | null; // evidencia de la transferencia a la agencia (fecha + ME)
   fechaReconocimiento: string | null;      // DUA / nacionalización
   cotizacionReconocimiento: number | null; // para el saldo no anticipado
   tcProvisional: number | null;            // fallback marcado provisional (ej. TC del DUA)
@@ -405,7 +411,7 @@ export interface CosteoHistoricoInput {
 const cents = (me: number, tc: number): bigint => BigInt(Math.round(me * tc * 100));
 
 export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHistorico {
-  const { dua, factura, servicios, anticipos, pagoSpeCtms, pagoDespachanteCtms, fechaReconocimiento, cotizacionReconocimiento, tcProvisional, unidadesPacking, etiqueta } = input;
+  const { dua, factura, servicios, anticipos, pagoSpeCtms, pagoDespachanteCtms, fechaPagoDespachante, pagoAgencia, fechaReconocimiento, cotizacionReconocimiento, tcProvisional, unidadesPacking, etiqueta } = input;
   const motivos: string[] = [];
   const et = etiqueta;
 
@@ -427,7 +433,8 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
     const provisional = !tcReal.valido;
     if (provisional) { provisionalCosto = true; motivos.push(`Falta la cotización fiscal del ${a.fecha ?? 's/f'} para el anticipo ${a.referencia ?? ''} (costo provisional).`); }
     const tcUsado = tc ?? null;
-    return { ...a, tcUsado, provisional, montoUYU: tc ? cents(a.monto, tc) : 0n, comisionUYU: tc ? cents(a.comision, tc) : 0n };
+    const fuente = a.fuente ?? (provisional ? `provisional (TC del DUA ${tc ?? '—'})` : (a.fecha ? `BCU ${a.fecha}` : 'cotización cargada'));
+    return { ...a, tcUsado, provisional, fuente, montoUYU: tc ? cents(a.monto, tc) : 0n, comisionUYU: tc ? cents(a.comision, tc) : 0n };
   });
   const anticiposPagadosUYU = anticiposCalc.reduce((s, a) => s + a.montoUYU, 0n); // total girado al proveedor
   const comisionesBancariasUYU = anticiposCalc.reduce((s, a) => s + a.comisionUYU, 0n);
@@ -459,6 +466,7 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
 
   // ── Gastos de plaza (desglosados, con dedup por cuenta de terceros) ──
   const importadorRut = dua?.importadorRut ?? null;
+  const rutDespachante = dua?.declaranteRut ?? null;
   const gastos: GastoDesglosado[] = [];
   for (const s of servicios) {
     const esUsd = (s.moneda ?? '').toUpperCase() === 'USD';
@@ -470,20 +478,20 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
     const gop = Number(s.gastosOperativos) || 0;
     if (facturadoATercero) {
       // No es costo del importador: lo re-cobra el despachante (evita duplicar).
-      gastos.push({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, concepto: 'Servicio facturado al despachante', moneda: s.moneda ?? 'UYU', montoME: Number(s.total) || 0, cotizacion: tcS ?? 1, montoUYU: 0n, ivaUYU: 0n, gravado: false, porCuentaDeTerceros: true, incluidoEnCosto: false, tratamiento: 'Facturado a un tercero (el despachante); se evita duplicar — el costo entra por su re-facturación.' });
+      gastos.push({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, fecha: s.fecha ?? null, fuenteCotizacion: s.fuenteCotizacion ?? null, esDelDespachante: rutDespachante ? (s.rutEmisor === rutDespachante) : false, concepto: 'Servicio facturado al despachante', moneda: s.moneda ?? 'UYU', montoME: Number(s.total) || 0, cotizacion: tcS ?? 1, montoUYU: 0n, ivaUYU: 0n, gravado: false, porCuentaDeTerceros: true, incluidoEnCosto: false, tratamiento: 'Facturado a un tercero (el despachante); se evita duplicar — el costo entra por su re-facturación.' });
       continue;
     }
     if (hon || gop) {
-      if (hon) gastos.push({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, concepto: 'Honorarios del despachante', moneda: s.moneda ?? 'UYU', montoME: hon, cotizacion: tcS ?? 1, montoUYU: cents(hon, tcS ?? 1), ivaUYU: cents(Math.round(hon * 0.22 * 100) / 100, tcS ?? 1), gravado: true, porCuentaDeTerceros: false, incluidoEnCosto: true, tratamiento: 'Gasto directamente atribuible (gravado 22%, IVA crédito).' });
-      if (gop) gastos.push({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, concepto: 'Gastos operativos', moneda: s.moneda ?? 'UYU', montoME: gop, cotizacion: tcS ?? 1, montoUYU: cents(gop, tcS ?? 1), ivaUYU: cents(Math.round(gop * 0.22 * 100) / 100, tcS ?? 1), gravado: true, porCuentaDeTerceros: false, incluidoEnCosto: true, tratamiento: 'Gasto directamente atribuible (gravado 22%, IVA crédito).' });
+      if (hon) gastos.push({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, fecha: s.fecha ?? null, fuenteCotizacion: s.fuenteCotizacion ?? null, esDelDespachante: rutDespachante ? (s.rutEmisor === rutDespachante) : false, concepto: 'Honorarios del despachante', moneda: s.moneda ?? 'UYU', montoME: hon, cotizacion: tcS ?? 1, montoUYU: cents(hon, tcS ?? 1), ivaUYU: cents(Math.round(hon * 0.22 * 100) / 100, tcS ?? 1), gravado: true, porCuentaDeTerceros: false, incluidoEnCosto: true, tratamiento: 'Gasto directamente atribuible (gravado 22%, IVA crédito).' });
+      if (gop) gastos.push({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, fecha: s.fecha ?? null, fuenteCotizacion: s.fuenteCotizacion ?? null, esDelDespachante: rutDespachante ? (s.rutEmisor === rutDespachante) : false, concepto: 'Gastos operativos', moneda: s.moneda ?? 'UYU', montoME: gop, cotizacion: tcS ?? 1, montoUYU: cents(gop, tcS ?? 1), ivaUYU: cents(Math.round(gop * 0.22 * 100) / 100, tcS ?? 1), gravado: true, porCuentaDeTerceros: false, incluidoEnCosto: true, tratamiento: 'Gasto directamente atribuible (gravado 22%, IVA crédito).' });
       // El "no facturable" de la e-factura del despachante = tributos del DUA (NO es gasto).
       const noFac = Number(s.noFacturable) || 0;
-      if (noFac) gastos.push({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, concepto: 'Pagos por cuenta del importador (tributos / tasas oficiales)', moneda: s.moneda ?? 'UYU', montoME: noFac, cotizacion: 1, montoUYU: 0n, ivaUYU: 0n, gravado: false, porCuentaDeTerceros: false, incluidoEnCosto: false, tratamiento: 'No es gasto: son los tributos del DUA pagados por cuenta; ya se cuentan en la liquidación aduanera.' });
+      if (noFac) gastos.push({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, fecha: s.fecha ?? null, fuenteCotizacion: s.fuenteCotizacion ?? null, esDelDespachante: rutDespachante ? (s.rutEmisor === rutDespachante) : false, concepto: 'Pagos por cuenta del importador (tributos / tasas oficiales)', moneda: s.moneda ?? 'UYU', montoME: noFac, cotizacion: 1, montoUYU: 0n, ivaUYU: 0n, gravado: false, porCuentaDeTerceros: false, incluidoEnCosto: false, tratamiento: 'No es gasto: son los tributos del DUA pagados por cuenta; ya se cuentan en la liquidación aduanera.' });
     } else {
       const total = Number(s.total) || 0;
       if (total > 0) {
         const esReembolso = /terceros|terminal/i.test(doc) || /terceros|terminal/i.test(String(s.concepto ?? ''));
-        gastos.push({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, concepto: esReembolso ? 'Reembolso de gasto de terminal (por cuenta de terceros)' : 'Servicio de plaza', moneda: s.moneda ?? 'UYU', montoME: total, cotizacion: tcS ?? 1, montoUYU: cents(total, tcS ?? 1), ivaUYU: 0n, gravado: (Number(s.iva) || 0) > 0, porCuentaDeTerceros: esReembolso, incluidoEnCosto: true, tratamiento: esReembolso ? 'Costo del importador (reembolso del gasto de terminal que el despachante pagó por su cuenta).' : 'Gasto directamente atribuible.' });
+        gastos.push({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, fecha: s.fecha ?? null, fuenteCotizacion: s.fuenteCotizacion ?? null, esDelDespachante: rutDespachante ? (s.rutEmisor === rutDespachante) : false, concepto: esReembolso ? 'Reembolso de gasto de terminal (por cuenta de terceros)' : 'Servicio de plaza', moneda: s.moneda ?? 'UYU', montoME: total, cotizacion: tcS ?? 1, montoUYU: cents(total, tcS ?? 1), ivaUYU: 0n, gravado: (Number(s.iva) || 0) > 0, porCuentaDeTerceros: esReembolso, incluidoEnCosto: true, tratamiento: esReembolso ? 'Costo del importador (reembolso del gasto de terminal que el despachante pagó por su cuenta).' : 'Gasto directamente atribuible.' });
       }
     }
   }
@@ -511,7 +519,7 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
       let costo: bigint;
       if (sumaFob > 0n && i < arts.length - 1) { costo = (costoInventario * a.total) / sumaFob; acum += costo; }
       else costo = costoInventario - acum;
-      items.push({ descripcion: a.descripcion, cantidad: a.cantidad, fobME: a.total, costo });
+      items.push({ codigo: a.codigo ?? null, descripcion: a.descripcion, cantidad: a.cantidad, fobME: a.total, costo });
     }
   }
 
@@ -541,48 +549,84 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
     mk(fechaReconocimiento, 'Reconocimiento de la mercadería (incorporación al inventario y aplicación de anticipos)', lineasRec,
       [{ documento: `Factura comercial`, regla: 'Inventario al CIF de la factura valuado por los anticipos (TC de cada pago); el exceso pagado NO se capitaliza (crédito con el proveedor); el saldo no anticipado al TC de reconocimiento. No se divide el importe del proveedor del exterior.' }], estado === 'OK');
   }
-  // Tributos del DUA + anticipos fiscales (28/08).
+  // Flujos de fondos reconstruidos de los comprobantes, SIN duplicar bancos:
+  // si la e-factura del despachante trae los tributos como "no facturable", los
+  // pagó el despachante (SPE por cuenta) y el importador los reintegra en el
+  // recibo → la contrapartida es DESPACHANTES, no Banco (el pago único es el
+  // recibo). Si no, los pagó el importador directo por SPE → contrapartida Banco.
+  const noFacDespachante = servicios.reduce((s, x) => s + (Number(x.noFacturable) || 0), 0);
+  const difNoFac = P(noFacDespachante) - totalTributos;
+  const tributosPorDespachante = noFacDespachante > 0 && (difNoFac < 0n ? -difNoFac : difNoFac) <= 200n;
+
+  // Gastos divididos por prestador: despachante (cuenta corriente) vs agencia/plaza.
+  const gDesp = gastos.filter((g) => g.incluidoEnCosto && g.esDelDespachante);
+  const gAgencia = gastos.filter((g) => g.incluidoEnCosto && !g.esDelDespachante);
+  const montoDesp = gDesp.reduce((s, g) => s + g.montoUYU, 0n); const ivaDesp = gDesp.reduce((s, g) => s + g.ivaUYU, 0n);
+  const montoAg = gAgencia.reduce((s, g) => s + g.montoUYU, 0n); const ivaAg = gAgencia.reduce((s, g) => s + g.ivaUYU, 0n);
+  const fechaDesp = gDesp.find((g) => g.fecha)?.fecha ?? fechaReconocimiento;
+  const fechaAg = gAgencia.find((g) => g.fecha)?.fecha ?? fechaReconocimiento;
+
+  // Tributos del DUA (28/08): contrapartida según quién los pagó (sin doble banco).
   if (totalTributos > 0n) {
-    mk(fechaReconocimiento, 'Tributos aduaneros y anticipos fiscales (pago SPE)', [
+    mk(fechaReconocimiento, 'Tributos aduaneros y anticipos fiscales del DUA', [
       { cuenta: et('ivaComprasImportacion'), debe: ivaImportacion, haber: 0n },
       { cuenta: et('mercaderiasImportadas'), debe: tributosNoRecuperables, haber: 0n },
       { cuenta: et('anticipoIvaImportacion'), debe: anticiposFiscales, haber: 0n },
-      { cuenta: et('bancoPesos'), debe: 0n, haber: totalTributos },
-    ], [{ documento: `DUA ${dua?.nroDua ?? ''}`, pagina: 'pág. 1 (tributos)', regla: 'Tributos liquidados en el DUA; IVA importación = crédito fiscal; anticipo IVA = pago a cuenta (no integra costo); no recuperables al inventario.' }, { documento: 'Pago SPE/Sistarbanc', regla: 'Concilia con el pago oficial de tributos.' }], true);
+      { cuenta: et(tributosPorDespachante ? 'despachantes' : 'bancoPesos'), debe: 0n, haber: totalTributos },
+    ], [{ documento: `DUA ${dua?.nroDua ?? ''}`, pagina: 'pág. 1 (tributos)', regla: 'Tributos liquidados en el DUA; IVA importación = crédito fiscal; anticipo IVA = pago a cuenta (no integra costo); no recuperables al inventario.' }, { documento: 'Pago SPE/Sistarbanc (cód. autorización)', regla: tributosPorDespachante ? 'Los pagó el despachante por cuenta del importador (constan como "no facturable" en su e-factura y se reintegran en el recibo); contrapartida Despachantes, NO Banco (el único egreso bancario es el recibo).' : 'Pagados directamente por el importador por SPE; contrapartida Banco.' }], true);
   }
-  // Gastos y honorarios del despachante / plaza.
-  const gastosCosto = gastos.filter((g) => g.incluidoEnCosto);
-  if (gastosCosto.length) {
-    mk(null, 'Gastos y honorarios del despachante y la plaza', [
-      { cuenta: et('mercaderiasImportadas'), debe: totalGastosUYU, haber: 0n },
-      { cuenta: et('ivaComprasPlaza'), debe: ivaGastosUYU, haber: 0n },
-      { cuenta: et('despachantes'), debe: 0n, haber: totalGastosUYU + ivaGastosUYU },
-    ], [{ documento: 'e-Facturas de servicios (despachante, terminal, agencia)', regla: 'Gastos directamente atribuibles al inventario; IVA de servicios = crédito fiscal. Los pagos por cuenta de terceros se cuentan una sola vez.' }], estado === 'OK');
+  // Gastos y honorarios del DESPACHANTE (cuenta corriente del despachante).
+  if (montoDesp > 0n || ivaDesp > 0n) {
+    mk(fechaDesp, 'Gastos y honorarios del despachante de aduana', [
+      { cuenta: et('mercaderiasImportadas'), debe: montoDesp, haber: 0n },
+      { cuenta: et('ivaComprasPlaza'), debe: ivaDesp, haber: 0n },
+      { cuenta: et('despachantes'), debe: 0n, haber: montoDesp + ivaDesp },
+    ], [{ documento: gDesp.map((g) => g.documento).filter((v, i, a) => a.indexOf(v) === i).join(', '), regla: 'Gastos directamente atribuibles al inventario (honorarios, operativos y reembolso de terminal); IVA de servicios = crédito fiscal. El reembolso de terceros se cuenta una sola vez.' }], estado === 'OK');
   }
-  // Pago al despachante (cancelación).
+  // Gastos de la AGENCIA de carga / plaza (prestador distinto del despachante).
+  if (montoAg > 0n || ivaAg > 0n) {
+    mk(fechaAg, 'Gastos de la agencia de carga / plaza', [
+      { cuenta: et('mercaderiasImportadas'), debe: montoAg, haber: 0n },
+      { cuenta: et('ivaComprasPlaza'), debe: ivaAg, haber: 0n },
+      { cuenta: et('proveedoresLocales'), monedaOrig: gAgencia[0]?.moneda, montoOrig: gAgencia.reduce((s, g) => s + g.montoME, 0), debe: 0n, haber: montoAg + ivaAg },
+    ], [{ documento: gAgencia.map((g) => g.documento).filter((v, i, a) => a.indexOf(v) === i).join(', '), regla: 'Servicio de un prestador distinto del despachante (agencia de carga); se paga por separado, no integra la cuenta del despachante.' }], estado === 'OK');
+  }
+  // Pago al despachante (recibo) — ÚNICO egreso bancario que cubre tributos + gastos.
   if (pagoDespachanteCtms && pagoDespachanteCtms > 0n) {
-    mk(fechaReconocimiento, 'Pago al despachante de aduana (cancelación)', [
+    mk(fechaPagoDespachante ?? fechaReconocimiento, 'Pago al despachante de aduana (recibo)', [
       { cuenta: et('despachantes'), debe: pagoDespachanteCtms, haber: 0n },
       { cuenta: et('bancoPesos'), debe: 0n, haber: pagoDespachanteCtms },
-    ], [{ documento: 'Recibo del despachante', regla: 'Cancelación de la obligación con el despachante (recibo de cobranza).' }], true);
+    ], [{ documento: 'Recibo del despachante (cobranza)', regla: 'Cancela la cuenta del despachante (tributos reintegrados + gastos + honorarios). El saldo queda a favor/contra según la entrega a cuenta.' }], true);
+  }
+  // Pago a la agencia de carga (transferencia en plaza): cancela su cuenta por el
+  // valor contabilizado del servicio (la ME pagada se muestra como referencia).
+  const deudaAgencia = montoAg + ivaAg;
+  if (pagoAgencia && deudaAgencia > 0n) {
+    mk(pagoAgencia.fecha ?? fechaAg, 'Pago a la agencia de carga (transferencia)', [
+      { cuenta: et('proveedoresLocales'), monedaOrig: pagoAgencia.moneda, montoOrig: pagoAgencia.montoME, debe: deudaAgencia, haber: 0n },
+      { cuenta: et(pagoAgencia.moneda && pagoAgencia.moneda !== 'UYU' ? 'bancoMe' : 'bancoPesos'), monedaOrig: pagoAgencia.moneda, montoOrig: pagoAgencia.montoME, debe: 0n, haber: deudaAgencia },
+    ], [{ documento: `Transferencia en plaza${pagoAgencia.fecha ? ` ${pagoAgencia.fecha}` : ''}`, regla: 'Cancelación del servicio de la agencia de carga (comprobante de transferencia); cuenta separada del despachante.' }], true);
   }
   asientos.sort((a, b) => (a.fecha ?? '9999').localeCompare(b.fecha ?? '9999'));
 
+  // Cuenta corriente del despachante UNIFICADA = movimientos a Despachantes en los
+  // asientos (misma base que la conciliación y el resumen).
+  const movDespachante = asientos.reduce((s, a) => s + a.lineas.filter((l) => l.cuenta === 'despachantes').reduce((ss, l) => ss + l.debe - l.haber, 0n), 0n);
+  const cargosDespachante = asientos.reduce((s, a) => s + a.lineas.filter((l) => l.cuenta === 'despachantes').reduce((ss, l) => ss + l.haber, 0n), 0n);
+  const pagosDespachanteAs = asientos.reduce((s, a) => s + a.lineas.filter((l) => l.cuenta === 'despachantes').reduce((ss, l) => ss + l.debe, 0n), 0n);
+  const cuentaDespachante = (cargosDespachante > 0n || pagosDespachanteAs > 0n) ? { cargosUYU: cargosDespachante, pagosUYU: pagosDespachanteAs, saldoUYU: movDespachante } : null;
+
   // ── Conciliaciones ──
-  const noFacDespachante = servicios.reduce((s, x) => s + (Number(x.noFacturable) || 0), 0);
+  // La cuenta del despachante se toma de los MISMOS asientos (cuentaDespachante),
+  // así el resumen, la conciliación y los asientos muestran una ÚNICA cuenta.
   const conc: CosteoHistorico['conciliacion'] = {
-    despachante: pagoDespachanteCtms != null ? (() => {
-      // Cuenta del despachante: SOLO lo que facturó el DESPACHANTE (por su RUT):
-      // honorarios, gastos operativos, reembolso de terminal y tributos no facturables
-      // + su IVA. NO otros prestadores (p. ej. la agencia de carga, que se paga aparte).
-      const rutDesp = dua?.declaranteRut ?? null;
-      const esDespachante = (g: GastoDesglosado) => rutDesp ? g.rutEmisor === rutDesp : /honorario|operativo|reembolso|cuenta del importador/i.test(g.concepto);
-      const cargos = gastos.filter((g) => g.incluidoEnCosto && esDespachante(g)).map((g) => ({ concepto: `${g.documento}: ${g.concepto}`, monto: g.montoUYU }));
-      const ivaDesp = gastos.filter((g) => esDespachante(g)).reduce((s, g) => s + g.ivaUYU, 0n);
-      const cargosTrib = noFacDespachante ? [{ concepto: 'Tributos pagados por el despachante (no facturable)', monto: P(noFacDespachante) }] : [];
-      const totalCargos = [...cargos, ...cargosTrib].reduce((s, c) => s + c.monto, 0n) + ivaDesp;
-      const saldo = pagoDespachanteCtms - totalCargos;
-      return { cargos: [...cargos, ...cargosTrib, { concepto: 'IVA de servicios', monto: ivaDesp }], totalCargos, pagos: [{ concepto: 'Recibo de cobranza', monto: pagoDespachanteCtms }], totalPagos: pagoDespachanteCtms, saldo, nota: saldo > 0n ? `Saldo a favor del importador de $ ${(Number(saldo) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2 })} (sobrepago documentado en el recibo y la adenda).` : (saldo < 0n ? `Saldo pendiente con el despachante de $ ${(Number(-saldo) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2 })}.` : 'Cuenta saldada.') };
+    despachante: cuentaDespachante ? (() => {
+      const cargos: Array<{ concepto: string; monto: bigint }> = [];
+      if (tributosPorDespachante) cargos.push({ concepto: 'Tributos del DUA (pagados por el despachante por cuenta)', monto: totalTributos });
+      for (const g of gDesp) cargos.push({ concepto: `${g.documento}: ${g.concepto}`, monto: g.montoUYU });
+      if (ivaDesp > 0n) cargos.push({ concepto: 'IVA de servicios del despachante', monto: ivaDesp });
+      const saldo = cuentaDespachante.saldoUYU; // debe − haber: >0 = a favor del importador (pagó de más)
+      return { cargos, totalCargos: cuentaDespachante.cargosUYU, pagos: [{ concepto: 'Recibo de cobranza', monto: cuentaDespachante.pagosUYU }], totalPagos: cuentaDespachante.pagosUYU, saldo, nota: saldo > 0n ? `Saldo a favor del importador de $ ${(Number(saldo) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2 })} (entrega a cuenta mayor; documentado en el recibo y la adenda).` : (saldo < 0n ? `Saldo pendiente con el despachante de $ ${(Number(-saldo) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2 })}.` : 'Cuenta saldada.') };
     })() : null,
     tributos: (dua && pagoSpeCtms != null) ? { dua: totalTributos, spe: pagoSpeCtms, ok: (totalTributos - pagoSpeCtms < 0n ? pagoSpeCtms - totalTributos : totalTributos - pagoSpeCtms) <= 100n, detalle: tributos.map((t) => ({ codigo: t.codigo, nombre: (dua.tributos.find((x) => x.codigo === t.codigo)?.nombre) ?? t.codigo, monto: t.monto })) } : null,
     unidades: { dua: dua ? null : null, factura: factura ? factura.articulos.reduce((s, a) => s + (a.cantidad || 0), 0) : 0, packing: unidadesPacking, ok: false, nota: '' },
@@ -624,6 +668,6 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
     anticipos: anticiposCalc, adquisicionUYU, anticiposPagadosUYU, excesoPagado, saldoNoAnticipado, comisionesBancariasUYU,
     tributos, totalTributos, tributosNoRecuperables, ivaImportacion, anticiposFiscales,
     gastos, totalGastosUYU, ivaGastosUYU, creditoFiscalIva,
-    costoInventario, items, asientos, consistencia, conciliacion: conc,
+    costoInventario, items, cuentaDespachante, asientos, consistencia, conciliacion: conc,
   };
 }

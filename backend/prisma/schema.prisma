@@ -1096,6 +1096,7 @@ model Importacion {
 model ItemImportacion {
   id               String  @id @default(cuid())
   importacionId    String
+  codigo           String? // código original del artículo en la factura del proveedor
   descripcion      String
   ncm              String? // Nomenclatura Común del Mercosur (texto libre, informativo)
   cantidad         Float   @default(1)

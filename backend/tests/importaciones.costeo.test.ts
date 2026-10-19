@@ -422,3 +422,82 @@ describe('construirCosteoHistorico — consistencia e importe en exceso', () => 
     expect(r.consistencia.adquisicionAsiento).toBe(r.adquisicionUYU);
   });
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// FLUJOS DE FONDOS: sin duplicar bancos; cuenta del despachante UNIFICADA; agencia
+// separada; asientos con fecha; códigos de artículo; fuente de cotización.
+// ═════════════════════════════════════════════════════════════════════════════
+function marpolosFlujos(): CosteoHistoricoInput {
+  const base = marpolos(40.10, 40.20);
+  return {
+    ...base,
+    servicios: [
+      ...base.servicios,
+      // Agencia de carga (KIXOLER): prestador distinto, USD, con su fecha y cotización.
+      { rutComprador: '220616930019', rutEmisor: '217127640018', moneda: 'USD', serie: 'A', numero: '24391', emisor: 'KIXOLER', honorarios: null, gastosOperativos: null, iva: null, total: 150.64, noFacturable: null, fecha: '2026-08-27', cotizacion: 40.18, fuenteCotizacion: 'BCU 2026-08-27 (venta)' } as any,
+    ],
+    anticipos: base.anticipos.map((a) => ({ ...a, fuente: `BCU ${a.fecha} (venta)` })),
+    fechaPagoDespachante: '2026-08-28',
+    pagoAgencia: { fecha: '2026-08-28', moneda: 'USD', montoME: 155 },
+  };
+}
+
+describe('construirCosteoHistorico — flujos de fondos y cuentas', () => {
+  it('NO duplica salidas de banco: los tributos van contra el despachante, no Banco', () => {
+    const r = construirCosteoHistorico(marpolosFlujos());
+    const trib = r.asientos.find((a) => /Tributos aduaneros/.test(a.glosa))!;
+    // La contrapartida de los tributos es Despachantes (los pagó por cuenta), NO Banco.
+    expect(trib.lineas.some((l) => /despachantes/.test(l.cuenta) && l.haber === C(83166))).toBe(true);
+    expect(trib.lineas.some((l) => /banco/i.test(l.cuenta))).toBe(false);
+    // El único egreso en pesos por el despachante es el recibo (no 83.166 + 96.137).
+    const bancoPesosHaber = r.asientos.reduce((s, a) => s + a.lineas.filter((l) => l.cuenta === 'bancoPesos').reduce((ss, l) => ss + l.haber, 0n), 0n);
+    expect(bancoPesosHaber).toBe(C(96137)); // solo el recibo del despachante
+  });
+
+  it('cuenta corriente del despachante UNIFICADA (asientos = conciliación)', () => {
+    const r = construirCosteoHistorico(marpolosFlujos());
+    expect(r.cuentaDespachante?.cargosUYU).toBe(C(95456)); // tributos 83.166 + gastos 10.486 + IVA 1.804
+    expect(r.cuentaDespachante?.pagosUYU).toBe(C(96137));
+    expect(r.cuentaDespachante?.saldoUYU).toBe(C(96137) - C(95456)); // 681 a favor
+    // La conciliación usa EXACTAMENTE la misma cuenta.
+    expect(r.conciliacion.despachante?.totalCargos).toBe(r.cuentaDespachante?.cargosUYU);
+    expect(r.conciliacion.despachante?.saldo).toBe(r.cuentaDespachante?.saldoUYU);
+  });
+
+  it('la agencia de carga es una cuenta SEPARADA del despachante', () => {
+    const r = construirCosteoHistorico(marpolosFlujos());
+    const ag = r.asientos.find((a) => /agencia de carga \/ plaza/i.test(a.glosa));
+    expect(ag).toBeTruthy();
+    expect(ag!.lineas.some((l) => /proveedoresLocales/.test(l.cuenta))).toBe(true);
+    // KIXOLER no está en la cuenta del despachante.
+    const kix = r.gastos.find((g) => g.documento.includes('24391'))!;
+    expect(kix.esDelDespachante).toBe(false);
+    expect(kix.fuenteCotizacion).toMatch(/BCU/);
+  });
+
+  it('NINGÚN asiento queda sin fecha', () => {
+    const r = construirCosteoHistorico(marpolosFlujos());
+    expect(r.asientos.length).toBeGreaterThan(0);
+    expect(r.asientos.every((a) => !!a.fecha)).toBe(true);
+  });
+
+  it('los artículos conservan su código original de la factura', () => {
+    const r = construirCosteoHistorico(marpolosFlujos());
+    expect(r.items!.every((i) => i.codigo != null && i.codigo !== '')).toBe(true);
+    expect(r.items![0].codigo).toBe('A1');
+  });
+
+  it('los anticipos muestran la fuente verificable de su cotización', () => {
+    const r = construirCosteoHistorico(marpolosFlujos());
+    expect(r.anticipos.every((a) => !!a.fuente)).toBe(true);
+    expect(r.anticipos[0].fuente).toMatch(/BCU/);
+  });
+
+  it('sigue cerrando la consistencia (costo = artículos = asientos) con el flujo nuevo', () => {
+    const r = construirCosteoHistorico(marpolosFlujos());
+    expect(r.consistencia.ok).toBe(true);
+    expect(r.consistencia.difArticulos).toBe(0n);
+    expect(r.consistencia.difAsientos).toBe(0n);
+    expect(r.asientos.every((a) => a.balanceado)).toBe(true);
+  });
+});

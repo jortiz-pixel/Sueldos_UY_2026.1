@@ -270,17 +270,22 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
 
     // ── 3. Costo de adquisición histórico (anticipos al proveedor) ──
     heading('Costo de adquisición histórico (anticipos al proveedor)');
-    const anticipos: Array<{ fecha: string | null; referencia: string | null; moneda: string; monto: number; comision: number; tcUsado: number | null; montoUYU: string; comisionUYU: string; provisional: boolean }> = det?.anticipos ?? [];
+    const anticipos: Array<{ fecha: string | null; referencia: string | null; moneda: string; monto: number; comision: number; tcUsado: number | null; montoUYU: string; comisionUYU: string; provisional: boolean; fuente: string | null }> = det?.anticipos ?? [];
     if (anticipos.length) {
       tabla(
-        [{ w: 62, title: 'Fecha' }, { w: 58, title: 'Ref.' }, { w: 80, title: 'Importe ME', align: 'right' }, { w: 58, title: 'TC fiscal', align: 'right' }, { w: 92, title: 'Importe $', align: 'right' }, { w: W - 350, title: 'Origen / regla' }],
-        anticipos.map((a) => [a.fecha ?? '—', a.referencia ?? '—', meMoney(a.monto, a.moneda), `${a.tcUsado ?? '—'}${a.provisional ? '*' : ''}`, nMoney(a.montoUYU), `SWIFT op. ${a.referencia ?? '—'} · TC del día de pago${a.provisional ? ' (provisional)' : ''}`]),
+        [{ w: 58, title: 'Fecha' }, { w: 54, title: 'Op.' }, { w: 78, title: 'Importe ME', align: 'right' }, { w: 50, title: 'TC', align: 'right' }, { w: 86, title: 'Importe $', align: 'right' }, { w: W - 326, title: 'Fuente de la cotización' }],
+        anticipos.map((a) => [a.fecha ?? '—', a.referencia ?? '—', meMoney(a.monto, a.moneda), `${a.tcUsado ?? '—'}${a.provisional ? '*' : ''}`, nMoney(a.montoUYU), a.fuente ?? (a.provisional ? 'PROVISIONAL (sin cotización del día)' : '—')]),
       );
       y += 4;
       total2('Adquisición (CIF) histórica en pesos', nMoney(det?.adquisicionUYU), true);
       if (det?.saldoNoAnticipado) total2('Saldo no anticipado (al TC de reconocimiento)', `${meMoney(det.saldoNoAnticipado.me, imp.monedaOrigen)} = ${nMoney(det.saldoNoAnticipado.uyu)}`);
       total2('Comisiones bancarias (gasto, no inventario)', nMoney(det?.comisionesBancariasUYU));
-      nota('La mercadería pagada por adelantado es una partida NO monetaria (NIC 21): cada anticipo se valúa al tipo de cambio fiscal de SU fecha de pago. Las comisiones bancarias son un gasto financiero (no integran el costo). * = cotización provisional (falta la del día).');
+      nota('La mercadería pagada por adelantado es una partida NO monetaria (NIC 21): cada anticipo se valúa al tipo de cambio fiscal de SU fecha de pago, tomado de fuente verificable (BCU o cotización cargada). Las comisiones bancarias son un gasto financiero (no integran el costo). * = cotización provisional (falta la del día → aprobación bloqueada).');
+      // Separación EXPRESA de criterios de tipo de cambio.
+      subheading('Criterios de tipo de cambio aplicados');
+      total2('CONTABLE (costo de adquisición)', `cotización fiscal del día de CADA anticipo (ver tabla) — fuente BCU`);
+      total2('FISCAL (IVA y anticipos)', `tributos liquidados en el DUA, en pesos (sin reconversión)`);
+      total2('ADUANERO (solo valoración en aduana)', `TC del DUA ${imp.tcAduanero ?? '—'} → valor en aduana (NO se usa para el costo)`);
     } else if (transferencias.length) {
       tabla(
         [{ w: 70, title: 'Ref.' }, { w: 70, title: 'Fecha' }, { w: 95, title: 'Importe', align: 'right' }, { w: 80, title: 'Comisión', align: 'right' }, { w: W - 315, title: 'Respaldo' }],
@@ -422,11 +427,11 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     if (det?.excesoPagado) nota(`Se pagó de más ${meMoney(det.excesoPagado.me, imp.monedaOrigen)} (= ${nMoney(det.excesoPagado.uyu)}) sobre el CIF: NO se capitaliza al inventario; queda como crédito con el proveedor.`);
     if (exDua && exDua.datos?.valorAduanaPesos != null) nota(`Valor en Aduana (base fiscal de los tributos): $ ${(exDua.datos.valorAduanaPesos).toLocaleString('es-UY', { minimumFractionDigits: 2 })}. El costo del inventario NO usa ese valor: la adquisición es el CIF de la factura valuado por los anticipos (TC de cada pago). Los anticipos de IVA/IRAE son pagos a cuenta y NO integran el costo.`);
     y += 4;
-    const itemsDet: Array<{ descripcion: string; cantidad: number; fobME: string; costo: string }> = det?.items ?? [];
+    const itemsDet: Array<{ codigo: string | null; descripcion: string; cantidad: number; fobME: string; costo: string }> = det?.items ?? [];
     if (itemsDet.length) {
       tabla(
-        [{ w: 24, title: '#' }, { w: W - 300, title: 'Descripción' }, { w: 44, title: 'Cant.', align: 'right' }, { w: 86, title: 'FOB', align: 'right' }, { w: 78, title: 'Costo $', align: 'right' }, { w: 68, title: 'C. unit. $', align: 'right' }],
-        itemsDet.map((i, idx) => [String(idx + 1), i.descripcion, String(i.cantidad), money(BigInt(i.fobME), sym(imp.monedaOrigen)), n2(BigInt(i.costo)), (i.cantidad ? Number(i.costo) / 100 / i.cantidad : 0).toLocaleString('es-UY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })]),
+        [{ w: 22, title: '#' }, { w: 64, title: 'Código' }, { w: W - 364, title: 'Descripción' }, { w: 40, title: 'Cant.', align: 'right' }, { w: 84, title: 'FOB', align: 'right' }, { w: 78, title: 'Costo $', align: 'right' }, { w: 66, title: 'C. unit. $', align: 'right' }],
+        itemsDet.map((i, idx) => [String(idx + 1), i.codigo ?? '—', i.descripcion, String(i.cantidad), money(BigInt(i.fobME), sym(imp.monedaOrigen)), n2(BigInt(i.costo)), (i.cantidad ? Number(i.costo) / 100 / i.cantidad : 0).toLocaleString('es-UY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })]),
       );
       // Verificación: la suma de los costos por artículo cuadra con el costo total.
       const sumaArt = itemsDet.reduce((s, i) => s + BigInt(i.costo), 0n);
