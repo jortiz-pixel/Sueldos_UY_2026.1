@@ -5,7 +5,7 @@
  */
 import { logger } from '../utils/logger';
 
-const BCU_URL = 'https://cotizaciones.bcu.gub.uy/wscotizaciones/servlet/awsbcucotizaciones';
+export const BCU_URL = 'https://cotizaciones.bcu.gub.uy/wscotizaciones/servlet/awsbcucotizaciones';
 
 // Códigos de moneda del BCU (Grupo 2). Solo los confirmados; ampliar con cuidado.
 export const BCU_MONEDA: Record<string, number> = {

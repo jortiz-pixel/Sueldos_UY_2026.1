@@ -28,6 +28,7 @@ import { importacionesRouter } from './routes/importaciones.routes';
 import { portalRouter } from './routes/portal.routes';
 import { errorHandler } from './middleware/errorHandler';
 import { logger } from './utils/logger';
+import { cotizacionBcu, BCU_URL } from './services/cotizaciones.service';
 
 const app = express();
 
@@ -126,6 +127,33 @@ app.get('/health', (_req, res) => {
 // Versión desplegada (pública, sin auth) para el indicador del frontend.
 app.get('/api/version', (_req, res) => {
   res.json({ version: APP_VERSION, builtAt: APP_BUILT_AT });
+});
+
+// Chequeo de disponibilidad del web service del BCU (dependencia externa de las
+// cotizaciones). Sin auth, sin datos sensibles: sirve para saber si ESTE servidor
+// tiene salida al BCU. Prueba USD en ?fecha=YYYY-MM-DD (por defecto 2026-08-27).
+app.get('/health/bcu', async (req, res) => {
+  const f = String(req.query.fecha ?? '2026-08-27');
+  const fecha = /^\d{4}-\d{2}-\d{2}$/.test(f) ? f : '2026-08-27';
+  const moneda = /^[A-Za-z]{3}$/.test(String(req.query.moneda ?? '')) ? String(req.query.moneda).toUpperCase() : 'USD';
+  const t0 = Date.now();
+  // Reachability directa (DNS + TCP + TLS): cualquier respuesta HTTP prueba que el
+  // servidor tiene salida al BCU. cotizacionBcu() traga los errores de red y devuelve
+  // null, por eso la prueba de alcance se hace aparte.
+  let reachable = false; let httpStatus: number | null = null; let error: string | null = null;
+  try {
+    const r = await fetch(BCU_URL, { method: 'GET', signal: AbortSignal.timeout(15000) });
+    reachable = true; httpStatus = r.status;
+  } catch (e) { error = (e as Error).message; }
+  const dato = reachable ? await cotizacionBcu(moneda, fecha).catch(() => null) : null;
+  res.status(reachable ? 200 : 502).json({
+    reachable, httpStatus, ms: Date.now() - t0, moneda, fecha,
+    dato: dato ? { fecha: dato.fecha, compra: dato.compra, venta: dato.venta } : null,
+    error,
+    nota: !reachable
+      ? 'El servidor NO tiene salida al BCU (sin red o servicio caído): las cotizaciones deben cargarse a mano.'
+      : (dato ? 'El servidor alcanza el BCU y hay cotización para la fecha: alcanza con reprocesar.' : 'El servidor alcanza el BCU pero no hay cotización para esa fecha (feriado/fin de semana/futuro).'),
+  });
 });
 
 app.use((_req, res) => {
