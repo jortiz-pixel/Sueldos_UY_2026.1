@@ -13,6 +13,7 @@
 import { TributoImportacionTipo } from '@prisma/client';
 import { divRoundHalfUp } from '../utils/money';
 import { LineaAsiento } from './pagos.service';
+import { costoMercaderiaImportada } from './importaciones.costeo.service';
 import { etiquetaCuenta, PlanCuentas } from './importaciones.config.service';
 
 /** Tributos recuperables (crédito fiscal / pago a cuenta): no integran el costo. */
@@ -80,7 +81,10 @@ export function calcularCosteo(input: CosteoInput): CosteoResultado {
     ivaGastos += g.ivaGasto;
   }
 
-  const costoMercaderia = cif + tributosNoRecuperables + totalGastos;
+  // Fórmula ÚNICA (importaciones.costeo.service): Adquisición + Tributos no
+  // recuperables + Gastos atribuibles. En el alta manual la Adquisición es el CIF de
+  // la factura del proveedor; el motor documental usa la adquisición por anticipos.
+  const costoMercaderia = costoMercaderiaImportada(cif, tributosNoRecuperables, totalGastos);
   const creditoFiscalIva = ivaImportacion + ivaGastos;
 
   // Prorrateo del costo a los ítems por participación en el FOB. El redondeo de

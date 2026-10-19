@@ -767,3 +767,33 @@ describe('cuenta del despachante — saldo CONFIRMADO vs PROYECTADO', () => {
     expect(cd.pagosPendientesUYU).toBe(0n);
   });
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// FÓRMULA ÚNICA del costo de la mercadería: Adquisición + Tributos no recuperables
+// + Gastos atribuibles; sin anticipos de impuestos ni IVA recuperable. Igual para
+// todas las importaciones.
+// ═════════════════════════════════════════════════════════════════════════════
+import { costoMercaderiaImportada } from '../src/services/importaciones.costeo.service';
+
+describe('fórmula única del costo de la mercadería', () => {
+  it('costo = Adquisición + Tributos no recuperables + Gastos (helper central)', () => {
+    const r = construirCosteoHistorico(marpolos(40.512, 40.674));
+    expect(r.costoInventario).toBe(costoMercaderiaImportada(r.adquisicionUYU, r.tributosNoRecuperables, r.totalGastosUYU));
+  });
+
+  it('NO incorpora los anticipos de impuestos (IVA/IRAE) ni el IVA recuperable', () => {
+    const r = construirCosteoHistorico(marpolos(40.512, 40.674));
+    const partes = r.adquisicionUYU + r.tributosNoRecuperables + r.totalGastosUYU;
+    expect(r.costoInventario).toBe(partes);
+    // Ni el anticipo de IVA (22.665) ni el IVA importación (49.863) están en el costo.
+    expect(r.anticiposFiscales).toBe(C(22665));
+    expect(r.ivaImportacion).toBe(C(49863));
+    expect(r.costoInventario! < partes + r.anticiposFiscales).toBe(true);
+    expect(r.costoInventario! < partes + r.ivaImportacion).toBe(true);
+  });
+
+  it('el helper es una suma pura (misma fórmula para cualquier importación)', () => {
+    expect(costoMercaderiaImportada(C(100000), C(5000), C(2000))).toBe(C(107000));
+    expect(costoMercaderiaImportada(0n, 0n, 0n)).toBe(0n);
+  });
+});

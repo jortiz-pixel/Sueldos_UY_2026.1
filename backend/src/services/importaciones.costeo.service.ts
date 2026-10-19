@@ -443,6 +443,21 @@ export interface CosteoHistoricoInput {
 
 const cents = (me: number, tc: number): bigint => BigInt(Math.round(me * tc * 100));
 
+/**
+ * FÓRMULA ÚNICA del costo de la mercadería importada — la misma para TODAS las
+ * importaciones (manual o documental):
+ *
+ *   Costo total = Adquisición + Tributos NO recuperables + Gastos atribuibles
+ *
+ * Datos: Adquisición (factura del proveedor / pagos al proveedor), Tributos no
+ * recuperables (DUA), Gastos atribuibles (factura del despachante). NO integran el
+ * costo los anticipos de impuestos (IVA/IRAE) ni el IVA que la empresa recupera
+ * (crédito fiscal). Centralizada acá para que ningún cálculo diverja.
+ */
+export function costoMercaderiaImportada(adquisicionUYU: bigint, tributosNoRecuperablesUYU: bigint, gastosAtribuiblesUYU: bigint): bigint {
+  return adquisicionUYU + tributosNoRecuperablesUYU + gastosAtribuiblesUYU;
+}
+
 /** Una cotización es DEFINITIVA solo si su fuente es verificable: BCU, carga manual
  *  o una cotización contable cargada. El tipo de cambio ADUANERO del DUA NO respalda
  *  el criterio contable/fiscal: si una partida en ME quedó valuada con una fuente así
@@ -562,7 +577,7 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
   let costoInventario: bigint | null = null;
   let items: CosteoHistorico['items'] = null;
   if (adquisicionUYU > 0n && factura) {
-    costoInventario = adquisicionUYU + tributosNoRecuperables + totalGastosUYU;
+    costoInventario = costoMercaderiaImportada(adquisicionUYU, tributosNoRecuperables, totalGastosUYU);
     const arts = factura.articulos;
     const sumaFob = arts.reduce((s, a) => s + a.total, 0n);
     items = [];
