@@ -406,7 +406,21 @@ export interface FacturaServiciosParsed {
   subtotalGravado: number | null; iva: number | null; subtotalNoGravado: number | null; noFacturable: number | null;
   honorarios: number | null; gastosOperativos: number | null;
   carpeta: string | null; dua: string | null; tipoCambio: number | null;
+  concepto: string | null; // concepto principal (1.ª línea de detalle, o detectado)
   lineas: LineaServicio[];
+}
+
+/**
+ * Un mismo PDF puede traer VARIAS e-Facturas (p. ej. la agencia de carga emite la
+ * factura del servicio y, aparte, el "IVA sobre flete"). Se parte el texto por el
+ * cierre de cada CFE (campo DGI "Código de Seguridad") y se parsea cada una. Si hay
+ * una sola, devuelve esa; nunca pierde comprobantes.
+ */
+export function parseFacturasServiciosUY(texto: string): FacturaServiciosParsed[] {
+  const partes = texto.split(/C[óo]digo\s+(?:de\s+)?Seguridad\s*:?[^\n]*/i).map((s) => s.trim()).filter(Boolean);
+  const candidatos = partes.filter((b) => /\b[A-Z]\s*-?\s*\d{4,8}\b/.test(b) && /total\s*a\s*pagar|sub\s*total/i.test(b));
+  if (candidatos.length <= 1) return [parseFacturaServiciosUY(texto)];
+  return candidatos.map((b) => parseFacturaServiciosUY(b));
 }
 
 const EMISORES_UY: Record<string, string> = {
@@ -431,7 +445,6 @@ export function parseFacturaServiciosUY(texto: string): FacturaServiciosParsed {
   const numero = mSerie ? mSerie[2] : null;
   const fecha = fechaDMY(texto.match(/(\d{1,2}\/\d{1,2}\/\d{4})/)?.[1] || null);
   const moneda = /pesos/i.test(texto) ? 'UYU' : (/d[oó]lar/i.test(texto) ? 'USD' : 'UYU');
-  const total = (() => { const v = texto.match(/TOTAL A PAGAR:?\s*([\d.,]+)/i)?.[1] || texto.match(/Total a Pagar:?\s*([\d.,]+)/i)?.[1] || texto.match(/\bTOTAL:?\s*([\d.,]+)/i)?.[1]; return v ? parseNum(v) : null; })();
 
   // Helper: monto de una etiqueta que puede traer el número en la misma línea,
   // en la anterior o en la siguiente (los CFE separan label e importe en renglones).
@@ -444,6 +457,15 @@ export function parseFacturaServiciosUY(texto: string): FacturaServiciosParsed {
     }
     return null;
   };
+  // Total a pagar: en línea, o con el número en el renglón anterior/siguiente
+  // (los CFE de la agencia ponen el importe en otra línea que la etiqueta).
+  const total = (() => {
+    const inline = texto.match(/TOTAL\s+A\s+PAGAR:?\s*([\d.]+,\d{2})/i)?.[1];
+    if (inline) return parseNum(inline);
+    const m = montoEtiqueta(/total\s*a\s*pagar/i); if (m != null) return m;
+    const sub = montoEtiqueta(/sub\s*total\s*:/i); if (sub != null) return sub;
+    const v = texto.match(/\bTOTAL:?\s*([\d.,]+)/i)?.[1]; return v ? parseNum(v) : null;
+  })();
   const subtotalGravado = montoEtiqueta(/SUBTOTAL GRAVADO/i);
   const subtotalNoGravado = montoEtiqueta(/SUBTOTAL NO GRAVADO/i);
   const iva = montoEtiqueta(/TOTAL IVA/i);
@@ -475,12 +497,17 @@ export function parseFacturaServiciosUY(texto: string): FacturaServiciosParsed {
     }
   }
 
+  // Concepto principal: la 1.ª línea de detalle; si no se pudo extraer (OCR), se
+  // detecta un IVA sobre flete por el texto (el OCR suele escribir "lva" por "Iva").
+  const concepto = detalle[0]?.descripcion
+    ?? (/sobre\s*flete|s\/\s*flete/i.test(texto) ? 'IVA sobre flete' : (/\b(iva|lva)\b/i.test(texto) && /flete|transporte|carga/i.test(texto) ? 'IVA sobre flete' : null));
+
   return {
     emisor: (rutEmisor && EMISORES_UY[rutEmisor]) || null,
     rutEmisor, tipoDoc, serie, numero, rutComprador,
     comprador: despues.match(/(?:NOMBRE\s+)?\b([A-ZÑ][A-ZÑ ]+?(?:SAS|SRL))\b/)?.[1]?.replace(/^NOMBRE\s+/i, '').trim() ?? null,
     fecha, moneda, total, subtotalGravado, iva, subtotalNoGravado, noFacturable,
-    honorarios, gastosOperativos, carpeta, dua, tipoCambio, lineas: detalle,
+    honorarios, gastosOperativos, carpeta, dua, tipoCambio, concepto, lineas: detalle,
   };
 }
 

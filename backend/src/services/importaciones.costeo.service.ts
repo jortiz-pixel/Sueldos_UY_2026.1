@@ -569,7 +569,9 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
         // Comprobante que es SOLO IVA de plaza (p. ej. "IVA sobre flete", emitido aparte
         // por la agencia de carga): es CRÉDITO FISCAL, no integra el costo, pero SÍ
         // integra la cuenta de la agencia (así el pasivo iguala al recibo).
-        const esIvaPlaza = /^\s*i\.?\s*v\.?\s*a\.?\b/i.test(String(s.concepto ?? '').trim()) || /\biva\b\s*(sobre|por|s\/|de)?\s*(flete|transporte|carga|embarque|plaza)/i.test(concStr);
+        const esIvaPlaza = /^\s*i\.?\s*v\.?\s*a\.?\b/i.test(String(s.concepto ?? '').trim())
+          || /sobre\s*flete|s\/\s*flete/i.test(concStr)
+          || /\b(iva|lva)\b\s*(sobre|por|s\/|de)?\s*(flete|transporte|carga|embarque|plaza)/i.test(concStr);
         if (esIvaPlaza) {
           pushG({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, fecha: s.fecha ?? null, fuenteCotizacion: s.fuenteCotizacion ?? null, esDelDespachante: rutDespachante ? (s.rutEmisor === rutDespachante) : false, concepto: 'IVA sobre flete / plaza (crédito fiscal)', moneda: s.moneda ?? 'UYU', montoME: total, cotizacion: tcS ?? 1, montoUYU: 0n, ivaUYU: cents(total, tcS ?? 1), gravado: false, porCuentaDeTerceros: false, incluidoEnCosto: false, esIvaPlaza: true, tratamiento: 'Comprobante de IVA (p. ej. IVA sobre flete): crédito fiscal, no integra el costo; integra la cuenta de la agencia para que el pasivo iguale al recibo.' });
         } else {

@@ -842,3 +842,24 @@ describe('agencia de carga — IVA sobre flete y conciliación con el recibo', (
     expect(r.conciliacion.agencia?.nota).toMatch(/falta registrar|IVA sobre flete/i);
   });
 });
+
+// Un PDF con DOS e-Facturas (servicio + IVA sobre flete) debe partirse en ambas.
+import { parseFacturasServiciosUY } from '../src/services/importaciones.parsers.service';
+describe('parser — varias e-Facturas en un mismo PDF (agencia de carga)', () => {
+  const pdf = [
+    'KIXOLER S.A.', 'RUC 217127640018', 'A 24391', 'e-Factura', 'RUC COMPRADOR', '220616930019',
+    'Dolares Americanos', '27/08/2026', '01 VZ - Verificación de Carga: 1 150,00', 'Sub Total: 150,64',
+    'Total a Pagar: 150,64', 'Código Seguridad: lj4oC/',
+    'KIXOLER S.A.', 'RUC 217127640018', 'A 29255', 'e-Factura Venta por Cuenta Ajena', 'RUC COMPRADOR', '220616930019',
+    'Dolares Americanos', '27/08/2026', '02 VZ - lva Sobre Flete 1,00 1', '4,36', 'Total a Pagar:', 'Código Seguridad: aXYIXq',
+  ].join('\n');
+  it('separa las dos facturas con sus totales y detecta el IVA sobre flete', () => {
+    const cfes = parseFacturasServiciosUY(pdf);
+    expect(cfes.length).toBe(2);
+    expect(cfes[0].numero).toBe('24391');
+    expect(cfes[0].total).toBeCloseTo(150.64, 2);
+    expect(cfes[1].numero).toBe('29255');
+    expect(cfes[1].total).toBeCloseTo(4.36, 2);
+    expect(cfes[1].concepto).toMatch(/flete/i);
+  });
+});

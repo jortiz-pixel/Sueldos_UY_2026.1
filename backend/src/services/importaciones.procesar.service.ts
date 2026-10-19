@@ -16,7 +16,7 @@ import { cotizacionBcu } from './cotizaciones.service';
 import {
   clasificarDocumento, parseFacturaComercial, parseLiquidacionDespachante,
   parsePagoExterior, consolidarPagos, TipoDoc, PagoParsed,
-  parseDUA, parseFacturaServiciosUY, parsePackingList, parsePagoLocal,
+  parseDUA, parseFacturaServiciosUY, parseFacturasServiciosUY, parsePackingList, parsePagoLocal,
   parseRecibo, parseCertificadoOrigen,
 } from './importaciones.parsers.service';
 
@@ -184,7 +184,7 @@ export async function reconstruirCosteoDesdeExtraccion(importacionId: string): P
     const sd: any = s.datos ?? {};
     const esUsd = (sd.moneda ?? '').toUpperCase() === 'USD';
     const cot = esUsd ? await tcFiscalDia(sd.moneda, s.fecha) : { valor: null, fuente: null };
-    const primeraLinea = Array.isArray(sd.lineas) && sd.lineas[0] ? String(sd.lineas[0].descripcion ?? '') : '';
+    const primeraLinea = sd.concepto ?? (Array.isArray(sd.lineas) && sd.lineas[0] ? String(sd.lineas[0].descripcion ?? '') : '');
     return { rutComprador: sd.rutComprador ?? null, rutEmisor: sd.rutEmisor ?? s.rutEmisor ?? null, moneda: sd.moneda ?? null, serie: sd.serie ?? null, numero: sd.numero ?? null, emisor: s.emisor, honorarios: sd.honorarios ?? null, gastosOperativos: sd.gastosOperativos ?? null, iva: sd.iva ?? null, total: sd.total ?? null, noFacturable: sd.noFacturable ?? null, concepto: primeraLinea, fecha: iso(s.fecha), cotizacion: esUsd ? cot.valor : null, fuenteCotizacion: esUsd ? cot.fuente : 'operación en pesos' };
   }));
   // Pago al despachante: recibo emitido por el despachante (RUT declarante).
@@ -409,14 +409,18 @@ export async function procesarExpediente(importacionId: string): Promise<Procesa
       });
       dua += 1;
     } else if (tipo === 'FACTURA_SERVICIOS_UY') {
-      const s = parseFacturaServiciosUY(texto);
-      await guardarExtraccion(doc.id, 'FACTURA_SERVICIOS_UY', confianza, {
-        emisor: s.emisor, rutEmisor: s.rutEmisor, serie: s.serie, numero: s.numero,
-        fecha: s.fecha, moneda: s.moneda, total: s.total,
-        resumen: `${s.emisor ?? 'Servicio UY'} · ${s.tipoDoc} ${s.serie ?? ''}${s.numero ?? ''} · ${s.moneda} ${(s.total ?? 0).toLocaleString('es-UY')}`,
-        datos: s,
-      });
-      facturasServicios += 1;
+      // Un mismo PDF puede traer VARIAS e-Facturas (p. ej. servicio + IVA sobre flete):
+      // se guarda UNA extracción por CFE para no perder ningún comprobante.
+      const cfes = parseFacturasServiciosUY(texto);
+      for (const s of cfes) {
+        await guardarExtraccion(doc.id, 'FACTURA_SERVICIOS_UY', confianza, {
+          emisor: s.emisor, rutEmisor: s.rutEmisor, serie: s.serie, numero: s.numero,
+          fecha: s.fecha, moneda: s.moneda, total: s.total,
+          resumen: `${s.emisor ?? 'Servicio UY'} · ${s.tipoDoc} ${s.serie ?? ''}${s.numero ?? ''} · ${s.moneda} ${(s.total ?? 0).toLocaleString('es-UY')}${s.concepto ? ` · ${s.concepto}` : ''}`,
+          datos: s,
+        });
+      }
+      facturasServicios += cfes.length;
     } else if (tipo === 'PACKING_LIST') {
       const p = parsePackingList(texto);
       await guardarExtraccion(doc.id, 'PACKING_LIST', confianza, {
