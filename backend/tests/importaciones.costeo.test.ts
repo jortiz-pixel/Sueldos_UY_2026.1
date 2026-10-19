@@ -797,3 +797,48 @@ describe('fórmula única del costo de la mercadería', () => {
     expect(costoMercaderiaImportada(0n, 0n, 0n)).toBe(0n);
   });
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// AGENCIA DE CARGA (KIXOLER): IVA sobre flete como crédito (no costo) y la cuenta
+// de la agencia debe cuadrar con el recibo. Caso: 2 facturas (servicio + IVA) y
+// un recibo por el total.
+// ═════════════════════════════════════════════════════════════════════════════
+describe('agencia de carga — IVA sobre flete y conciliación con el recibo', () => {
+  const conIvaFlete = (): CosteoHistoricoInput => {
+    const b = marpolosFlujos(); // KIXOLER A24391 USD 150,64 + pagoAgencia 155
+    return {
+      ...b,
+      servicios: [
+        ...b.servicios,
+        // Segunda factura de la agencia: IVA sobre flete USD 4,36.
+        { rutComprador: '220616930019', rutEmisor: '217127640018', moneda: 'USD', serie: 'A', numero: '29255', emisor: 'KIXOLER', honorarios: null, gastosOperativos: null, iva: null, total: 4.36, noFacturable: null, fecha: '2026-08-27', cotizacion: 40.18, fuenteCotizacion: 'BCU 2026-08-27 (venta)', concepto: 'IVA sobre flete' } as never,
+      ],
+    };
+  };
+
+  it('el IVA sobre flete es crédito fiscal (no costo) e integra la cuenta de la agencia', () => {
+    const r = construirCosteoHistorico(conIvaFlete());
+    const iva = r.gastos.find((g) => g.documento.includes('29255'))!;
+    expect(iva.esIvaPlaza).toBe(true);
+    expect(iva.incluidoEnCosto).toBe(false);   // NO integra el costo
+    expect(iva.montoUYU).toBe(0n);
+    expect(iva.ivaUYU).toBe(BigInt(Math.round(4.36 * 40.18 * 100))); // sí es crédito fiscal
+    // El servicio (150,64) sigue siendo costo; el IVA no.
+    const serv = r.gastos.find((g) => g.documento.includes('24391'))!;
+    expect(serv.incluidoEnCosto).toBe(true);
+  });
+
+  it('la cuenta de la agencia cuadra: facturado (servicio + IVA) = recibo', () => {
+    const r = construirCosteoHistorico(conIvaFlete());
+    expect(r.conciliacion.agencia?.facturadoME).toBeCloseTo(155, 2);
+    expect(r.conciliacion.agencia?.pagadoME).toBeCloseTo(155, 2);
+    expect(r.conciliacion.agencia?.difME).toBeCloseTo(0, 2);
+    expect(r.conciliacion.agencia?.nota).toMatch(/coincide/i);
+  });
+
+  it('sin el comprobante de IVA sobre flete, la conciliación FLAGEA el faltante (no lo oculta)', () => {
+    const r = construirCosteoHistorico(marpolosFlujos()); // solo servicio 150,64, recibo 155
+    expect(r.conciliacion.agencia?.difME).toBeCloseTo(-4.36, 2);
+    expect(r.conciliacion.agencia?.nota).toMatch(/falta registrar|IVA sobre flete/i);
+  });
+});

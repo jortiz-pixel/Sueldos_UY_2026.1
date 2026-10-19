@@ -726,6 +726,7 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     const conc = det?.conciliacion;
     if (conc?.unidades) check(`Unidades DUA (${conc.unidades.dua ?? '—'}) vs factura (${conc.unidades.factura})`, !!conc.unidades.ok && !conc.unidades.parseIncompleto, conc.unidades.nota);
     if (conc?.anticiposVsCif) check('Anticipos vs CIF', Math.abs(conc.anticiposVsCif.difME) <= 1, conc.anticiposVsCif.nota);
+    if (conc?.agencia) check('Agencia de carga: facturado vs pagado', Math.abs(conc.agencia.difME) <= 0.01, conc.agencia.nota);
     if (conc?.tributos) {
       // Tasa Escáner (código 36) tomada del detalle real, no hardcodeada.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

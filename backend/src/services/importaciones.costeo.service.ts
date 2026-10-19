@@ -360,6 +360,9 @@ export interface GastoDesglosado {
   // true si la cotización del gasto en ME no tiene respaldo verificable (p. ej. quedó
   // con el TC del DUA): el importe no es definitivo.
   provisional?: boolean;
+  // true si el comprobante es SOLO IVA de plaza (p. ej. "IVA sobre flete"): crédito
+  // fiscal, no integra el costo, pero SÍ integra la cuenta de la agencia de carga.
+  esIvaPlaza?: boolean;
 }
 
 export interface CosteoHistorico {
@@ -406,6 +409,10 @@ export interface CosteoHistorico {
       ok: boolean; parseIncompleto: boolean; nota: string;
     };
     anticiposVsCif: { anticiposME: number; cifME: number; difME: number; nota: string } | null;
+    // Cuenta de la AGENCIA de carga: lo facturado por la agencia (servicios + IVA de
+    // plaza) vs lo pagado por el recibo. Si no coinciden, señala un comprobante sin
+    // registrar (p. ej. un IVA sobre flete faltante).
+    agencia: { facturadoME: number; pagadoME: number; difME: number; deudaUYU: string; nota: string } | null;
     // Liquidación preliminar del despachante vs tributos liquidados del DUA. Explica,
     // sin eliminarla, la diferencia (p. ej. la Tasa Escáner y los redondeos entre el
     // estimado y el liquidado).
@@ -558,8 +565,17 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
     } else {
       const total = Number(s.total) || 0;
       if (total > 0) {
-        const esReembolso = /terceros|terminal/i.test(doc) || /terceros|terminal/i.test(String(s.concepto ?? ''));
-        pushG({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, fecha: s.fecha ?? null, fuenteCotizacion: s.fuenteCotizacion ?? null, esDelDespachante: rutDespachante ? (s.rutEmisor === rutDespachante) : false, concepto: esReembolso ? 'Reembolso de gasto de terminal (por cuenta de terceros)' : 'Servicio de plaza', moneda: s.moneda ?? 'UYU', montoME: total, cotizacion: tcS ?? 1, montoUYU: cents(total, tcS ?? 1), ivaUYU: 0n, gravado: (Number(s.iva) || 0) > 0, porCuentaDeTerceros: esReembolso, incluidoEnCosto: true, tratamiento: esReembolso ? 'Costo del importador (reembolso del gasto de terminal que el despachante pagó por su cuenta).' : 'Gasto directamente atribuible.' });
+        const concStr = `${s.concepto ?? ''} ${doc}`;
+        // Comprobante que es SOLO IVA de plaza (p. ej. "IVA sobre flete", emitido aparte
+        // por la agencia de carga): es CRÉDITO FISCAL, no integra el costo, pero SÍ
+        // integra la cuenta de la agencia (así el pasivo iguala al recibo).
+        const esIvaPlaza = /^\s*i\.?\s*v\.?\s*a\.?\b/i.test(String(s.concepto ?? '').trim()) || /\biva\b\s*(sobre|por|s\/|de)?\s*(flete|transporte|carga|embarque|plaza)/i.test(concStr);
+        if (esIvaPlaza) {
+          pushG({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, fecha: s.fecha ?? null, fuenteCotizacion: s.fuenteCotizacion ?? null, esDelDespachante: rutDespachante ? (s.rutEmisor === rutDespachante) : false, concepto: 'IVA sobre flete / plaza (crédito fiscal)', moneda: s.moneda ?? 'UYU', montoME: total, cotizacion: tcS ?? 1, montoUYU: 0n, ivaUYU: cents(total, tcS ?? 1), gravado: false, porCuentaDeTerceros: false, incluidoEnCosto: false, esIvaPlaza: true, tratamiento: 'Comprobante de IVA (p. ej. IVA sobre flete): crédito fiscal, no integra el costo; integra la cuenta de la agencia para que el pasivo iguale al recibo.' });
+        } else {
+          const esReembolso = /terceros|terminal/i.test(doc) || /terceros|terminal/i.test(String(s.concepto ?? ''));
+          pushG({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, fecha: s.fecha ?? null, fuenteCotizacion: s.fuenteCotizacion ?? null, esDelDespachante: rutDespachante ? (s.rutEmisor === rutDespachante) : false, concepto: esReembolso ? 'Reembolso de gasto de terminal (por cuenta de terceros)' : 'Servicio de plaza', moneda: s.moneda ?? 'UYU', montoME: total, cotizacion: tcS ?? 1, montoUYU: cents(total, tcS ?? 1), ivaUYU: 0n, gravado: (Number(s.iva) || 0) > 0, porCuentaDeTerceros: esReembolso, incluidoEnCosto: true, tratamiento: esReembolso ? 'Costo del importador (reembolso del gasto de terminal que el despachante pagó por su cuenta).' : 'Gasto directamente atribuible.' });
+        }
       }
     }
   }
@@ -627,8 +643,11 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
   const tributosPorDespachante = noFacDespachante > 0 && (difNoFac < 0n ? -difNoFac : difNoFac) <= 200n;
 
   // Gastos divididos por prestador: despachante (cuenta corriente) vs agencia/plaza.
+  // La cuenta de la agencia incluye TODOS sus comprobantes: los servicios que integran
+  // el costo Y el IVA de plaza puro (p. ej. "IVA sobre flete"), que es crédito fiscal
+  // pero igual integra el pasivo con la agencia (así el pasivo iguala al recibo).
   const gDesp = gastos.filter((g) => g.incluidoEnCosto && g.esDelDespachante);
-  const gAgencia = gastos.filter((g) => g.incluidoEnCosto && !g.esDelDespachante);
+  const gAgencia = gastos.filter((g) => (g.incluidoEnCosto || g.esIvaPlaza) && !g.esDelDespachante);
   const montoDesp = gDesp.reduce((s, g) => s + g.montoUYU, 0n); const ivaDesp = gDesp.reduce((s, g) => s + g.ivaUYU, 0n);
   const montoAg = gAgencia.reduce((s, g) => s + g.montoUYU, 0n); const ivaAg = gAgencia.reduce((s, g) => s + g.ivaUYU, 0n);
   const fechaDesp = gDesp.find((g) => g.fecha)?.fecha ?? fechaReconocimiento;
@@ -723,6 +742,18 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
     tributos: (dua && pagoSpeCtms != null) ? { dua: totalTributos, spe: pagoSpeCtms, ok: (totalTributos - pagoSpeCtms < 0n ? pagoSpeCtms - totalTributos : totalTributos - pagoSpeCtms) <= 100n, detalle: tributos.map((t) => ({ codigo: t.codigo, nombre: (dua.tributos.find((x) => x.codigo === t.codigo)?.nombre) ?? t.codigo, monto: t.monto })) } : null,
     unidades: { dua: dua ? null : null, factura: factura ? factura.articulos.reduce((s, a) => s + (a.cantidad || 0), 0) : 0, packing: unidadesPacking, packingBultos: packingBultos ?? null, packingBultosDeclarados: packingBultosDeclarados ?? null, ok: false, parseIncompleto: false, nota: '' },
     anticiposVsCif: factura ? { anticiposME, cifME, difME, nota: difME > 0 ? `Pagado de más ${difME.toFixed(2)} ${factura.moneda} sobre el CIF: NO se capitaliza (queda como crédito con el proveedor).` : (difME < 0 ? `Falta anticipar ${(-difME).toFixed(2)} ${factura.moneda}: el saldo se valúa al TC de reconocimiento.` : `Los anticipos cubren exactamente el CIF (${cifME.toFixed(2)} ${factura.moneda}).`) } : null,
+    agencia: (pagoAgencia || gAgencia.length) ? (() => {
+      const facturadoME = Math.round(gAgencia.reduce((s, g) => s + g.montoME, 0) * 100) / 100;
+      const pagadoME = Math.round((pagoAgencia?.montoME ?? 0) * 100) / 100;
+      const dif = Math.round((facturadoME - pagadoME) * 100) / 100;
+      const mon = gAgencia[0]?.moneda ?? pagoAgencia?.moneda ?? 'USD';
+      const nota = dif === 0
+        ? `La agencia facturó ${facturadoME.toFixed(2)} ${mon} (servicios + IVA de plaza) y el recibo pagó ${pagadoME.toFixed(2)} ${mon}: coincide.`
+        : (dif < 0
+            ? `El recibo (${pagadoME.toFixed(2)} ${mon}) supera lo facturado registrado (${facturadoME.toFixed(2)} ${mon}) en ${(-dif).toFixed(2)} ${mon}: falta registrar un comprobante de la agencia (p. ej. IVA sobre flete). El pasivo NO iguala al recibo hasta cargarlo.`
+            : `Lo facturado por la agencia (${facturadoME.toFixed(2)} ${mon}) supera el recibo (${pagadoME.toFixed(2)} ${mon}) en ${dif.toFixed(2)} ${mon}: revisar el pago.`);
+      return { facturadoME, pagadoME, difME: dif, deudaUYU: (montoAg + ivaAg).toString(), nota };
+    })() : null,
     liquidacionPreliminar: null,
   };
   // Unidades DUA (viene como número en el DUA).
