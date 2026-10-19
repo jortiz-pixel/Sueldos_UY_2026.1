@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Ship, Plus, Trash2, Save, X, Pencil, FileDown, Download, Calculator, Paperclip, Upload, FileSpreadsheet, CheckCircle, AlertCircle, Settings, Coins } from 'lucide-react';
+import { Ship, Plus, Trash2, Save, X, Pencil, FileDown, Download, Calculator, Paperclip, Upload, FileSpreadsheet, CheckCircle, AlertCircle, Settings, Coins, Scale, RefreshCw } from 'lucide-react';
 import { importacionesApi } from '../services/api';
 import { useCompany } from '../hooks/useCompany';
 import {
   Importacion, ImportacionPayload, ImportacionEstado, ImportacionRegimen,
   TributoTipo, GastoConcepto, MESES, ImportacionExtraido, TipoDocImportacion, EstadoProcDoc,
   ImportacionConfigPayload, CotizacionTipo,
+  FiscalConfig, FiscalConfigPayload,
 } from '../types';
 
 function descargarBlob(blob: Blob, filename: string) {
@@ -561,6 +562,8 @@ function FormImportacion({ companyId, inicial, importacion, onClose, onSaved, on
           <p className="text-xs text-ink-subtle">El asiento refleja el último guardado. Si editaste importes, guardá primero para verlo actualizado.</p>
         </div>
       )}
+
+      {importacion && <CostoFiscalPanel importacionId={importacion.id} companyId={companyId} />}
 
       {importacion && <DocumentosPanel importacionId={importacion.id} />}
       {importacion && <DatosExtraidosPanel importacionId={importacion.id} />}
@@ -1388,6 +1391,195 @@ function DatosExtraidosPanel({ importacionId }: { importacionId: string }) {
         </div>
       )}
       <p className="text-xs text-ink-subtle">Datos leídos automáticamente de los documentos. La edición con historial y la conciliación llegan en la próxima sub-etapa.</p>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COSTO FISCAL DE ADQUISICIÓN — IRAE (separado del contable)
+// ─────────────────────────────────────────────────────────────────────────────
+const mc = (s: string | null | undefined) => (s == null ? '—' : '$ ' + (Number(s) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+
+function CostoFiscalPanel({ importacionId, companyId }: { importacionId: string; companyId: string }) {
+  const qc = useQueryClient();
+  const [config, setConfig] = useState(false);
+  const { data, isLoading } = useQuery({
+    queryKey: ['importacion-costo-fiscal', importacionId],
+    queryFn: () => importacionesApi.costoFiscal(importacionId),
+  });
+  const recostear = useMutation({
+    mutationFn: () => importacionesApi.recostearFiscal(importacionId),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['importacion-costo-fiscal', importacionId] }); qc.invalidateQueries({ queryKey: ['importacion-asiento', importacionId] }); },
+  });
+  const det = data?.detalle ?? null;
+  const pend = (data?.estado ?? 'PENDIENTE') !== 'OK';
+  return (
+    <div className="card p-5 space-y-3">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-subtle flex items-center gap-2"><Scale size={16} /> Costo Fiscal de Adquisición — IRAE</h2>
+        <div className="flex items-center gap-2">
+          <span className={`badge ${pend ? 'badge-yellow' : 'badge-green'}`}>{data?.estado ?? 'PENDIENTE'}</span>
+          <button className="btn-secondary btn-sm" onClick={() => setConfig(true)}><Settings size={14} /> Configuración fiscal</button>
+          <button className="btn-secondary btn-sm" disabled={recostear.isPending} onClick={() => recostear.mutate()}><RefreshCw size={14} /> {recostear.isPending ? 'Recalculando…' : 'Recostear fiscal'}</button>
+        </div>
+      </div>
+      {isLoading && <p className="text-xs text-ink-subtle">Cargando…</p>}
+      {!isLoading && !det && <p className="text-sm text-ink-subtle">Sin costo fiscal calculado. Definí la configuración fiscal (IRAE) de la empresa y recosteá el expediente.</p>}
+      {det && (
+        <>
+          {pend && (
+            <div className="p-3 bg-warn-bg border border-warn/30 rounded-lg text-sm text-warn flex gap-2">
+              <AlertCircle size={16} className="shrink-0 mt-0.5" />
+              <span><b>Pendiente de aprobación.</b> {det.motivos?.length ? det.motivos.join(' · ') : 'Falta completar la configuración fiscal validada o las cotizaciones fiscales.'} No se emite un importe fiscal definitivo ni se usa el costo contable como valor fiscal.</span>
+            </div>
+          )}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-y-2 gap-x-6 text-sm">
+            <Resumen label="Costo contable" valor={mc(det.totales.costoContable)} />
+            <Resumen label="Costo fiscal IRAE" valor={det.totales.costoFiscal != null ? mc(det.totales.costoFiscal) : 'PENDIENTE'} fuerte />
+            <Resumen label="Diferencia (contable − fiscal)" valor={det.totales.diferencia != null ? mc(det.totales.diferencia) : '—'} />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1 text-xs text-ink-subtle">
+            <span>Método: <b className="text-ink">{det.criterios.metodoValuacion}</b> (Art. 80 Dec. 150/007)</span>
+            <span>Moneda extranjera: <b className="text-ink">{det.criterios.monedaExtranjera}</b> (Art. 74)</span>
+            <span>Fecha fiscal: <b className="text-ink">{det.criterios.fechaOperacion}</b>{det.criterios.fechaFiscalOperacion ? ` (${det.criterios.fechaFiscalOperacion})` : ''}</span>
+            <span>IVA: <b className="text-ink">{det.criterios.tratamientoIva}</b></span>
+          </div>
+
+          {/* Por artículo: contable vs fiscal + diferencia */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="table-header">
+                <tr>
+                  <th className="text-left">Código</th><th className="text-left">Descripción</th><th className="text-right">Cant.</th>
+                  <th className="text-right">Contable</th><th className="text-right">Fiscal IRAE</th><th className="text-right">Diferencia</th><th className="text-left">Método</th>
+                </tr>
+              </thead>
+              <tbody>
+                {det.items.map((it, i) => (
+                  <tr key={i} className="border-b border-ink-border/40">
+                    <td className="font-mono text-xs">{it.codigo ?? '—'}</td>
+                    <td className="max-w-[18rem] truncate" title={it.descripcion}>{it.descripcion}</td>
+                    <td className="text-right figure">{it.cantidad}</td>
+                    <td className="text-right figure">{mc(it.costoContableTotal)}</td>
+                    <td className="text-right figure">{it.costoFiscalTotal != null ? mc(it.costoFiscalTotal) : 'PEND.'}</td>
+                    <td className="text-right figure">{it.diferencia != null ? mc(it.diferencia) : '—'}</td>
+                    <td className="text-xs">{it.metodoAsignacion}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Conciliación contable → fiscal */}
+          {det.conciliacion.ajustes.length > 0 && (
+            <div className="text-sm">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-ink-subtle mb-1">Conciliación contable → fiscal</h3>
+              <div className="space-y-1">
+                <div className="flex justify-between"><span>Costo contable</span><span className="figure">{mc(det.conciliacion.costoContable)}</span></div>
+                {det.conciliacion.ajustes.map((a, i) => (
+                  <div key={i} className="flex justify-between text-ink-subtle">
+                    <span title={a.justificacion}>{a.signo === '+' ? 'Ajuste (+)' : 'Ajuste (−)'}: {a.concepto} <span className="text-[10px]">[{a.norma}]</span></span>
+                    <span className="figure">{a.signo} {mc(a.montoUYU)}</span>
+                  </div>
+                ))}
+                <div className="flex justify-between font-semibold border-t border-ink-border pt-1"><span>Costo fiscal de adquisición</span><span className="figure">{det.conciliacion.costoFiscal != null ? mc(det.conciliacion.costoFiscal) : 'PENDIENTE'}</span></div>
+              </div>
+            </div>
+          )}
+
+          {/* Componentes A-F */}
+          <details className="text-sm">
+            <summary className="cursor-pointer text-ink-subtle">Componentes del costo fiscal (A-F) y normas</summary>
+            <div className="mt-2 space-y-1">
+              {det.componentes.map((c) => (
+                <div key={c.clave} className="flex justify-between gap-4">
+                  <span className="text-ink-subtle">{c.clave}. {c.etiqueta} <span className="text-[10px]">[{c.norma}]</span></span>
+                  <span className="figure shrink-0">{c.montoUYU != null ? mc(c.montoUYU) : (c.estado === 'pendiente' ? 'PEND.' : '—')}</span>
+                </div>
+              ))}
+              {det.cotizacionesUsadas.length > 0 && (
+                <p className="text-xs text-ink-subtle mt-2">Cotizaciones fiscales (Art. 74): {det.cotizacionesUsadas.map((c) => `${c.fecha} ${c.valor}`).join(' · ')}</p>
+              )}
+              <div className="text-[11px] text-ink-subtle mt-2 space-y-0.5">
+                {det.normas.map((n) => (<div key={n.codigo}>{n.articulo} {n.norma} — {n.descripcion}</div>))}
+              </div>
+            </div>
+          </details>
+          <p className="text-xs text-ink-subtle">El costo fiscal (IRAE) es independiente del contable y de los asientos (no se modifican). La valuación de existencias al cierre y la producción/personalización son módulos aparte.</p>
+        </>
+      )}
+      {config && <FiscalConfigModal companyId={companyId} onClose={() => { setConfig(false); qc.invalidateQueries({ queryKey: ['importacion-costo-fiscal', importacionId] }); }} />}
+    </div>
+  );
+}
+
+const OPC = {
+  metodoValuacionInventario: [['', '—'], ['ADQUISICION', 'Costo de adquisición'], ['PRODUCCION', 'Costo de producción'], ['PLAZA', 'Costo de plaza (cierre)']],
+  procedimientoExistencias: [['', '—'], ['ULTIMA_COMPRA', 'Última compra'], ['PPP', 'Precio promedio'], ['FIFO', 'FIFO'], ['IDENTIFICACION', 'Identificación específica']],
+  tipoBienes: [['', '—'], ['REVENTA', 'Reventa'], ['MATERIA_PRIMA', 'Materia prima'], ['USO', 'Bienes de uso'], ['MIXTO', 'Mixto']],
+  tratamientoIva: [['', '—'], ['RECUPERABLE_TOTAL', 'Recuperable total (no integra costo)'], ['NO_RECUPERABLE', 'No recuperable (integra costo)'], ['PRORRATA', 'Prorrata']],
+  criterioMonedaExtranjera: [['', '—'], ['ART74_INTERBANCARIO_COMPRADOR_DIA_ANTERIOR', 'Art. 74: interbancario comprador, día anterior'], ['PERSONALIZADO', 'Personalizado']],
+  criterioFechaOperacion: [['', '—'], ['NACIONALIZACION', 'Nacionalización (DUA)'], ['FACTURA', 'Factura'], ['PAGO', 'Pago (cada anticipo)']],
+} as const;
+
+function FiscalConfigModal({ companyId, onClose }: { companyId: string; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [form, setForm] = useState<FiscalConfig | null>(null);
+  const [guardado, setGuardado] = useState(false);
+  const { data, isLoading } = useQuery({
+    queryKey: ['importaciones-fiscal-config', companyId],
+    queryFn: () => importacionesApi.fiscalConfig.get(companyId),
+  });
+  useEffect(() => { if (data && form === null) setForm(data.config ?? {}); }, [data, form]);
+  const guardar = useMutation({
+    mutationFn: (payload: FiscalConfigPayload) => importacionesApi.fiscalConfig.save(payload),
+    onSuccess: () => { setGuardado(true); qc.invalidateQueries({ queryKey: ['importaciones-fiscal-config', companyId] }); },
+  });
+  const set = <K extends keyof FiscalConfig>(k: K, v: FiscalConfig[K]) => { setForm((p) => (p ? { ...p, [k]: v } : p)); setGuardado(false); };
+  const sel = (k: keyof FiscalConfig, opts: readonly (readonly [string, string])[]) => (
+    <select className="input" value={(form?.[k] as string) ?? ''} onChange={(e) => set(k, (e.target.value || null) as never)}>
+      {opts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+    </select>
+  );
+  const txt = (k: keyof FiscalConfig, ph: string) => (
+    <input className="input" value={(form?.[k] as string) ?? ''} placeholder={ph} onChange={(e) => set(k, (e.target.value || null) as never)} />
+  );
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="card p-5 w-full max-w-2xl max-h-[90vh] overflow-y-auto space-y-3" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-subtle flex items-center gap-2"><Scale size={16} /> Configuración fiscal (IRAE)</h2>
+          <button onClick={onClose}><X size={18} /></button>
+        </div>
+        {isLoading || !form ? <p className="text-xs text-ink-subtle">Cargando…</p> : (
+          <>
+            <p className="text-xs text-ink-subtle">Define las políticas IRAE que habilitan emitir un costo fiscal <b>definitivo</b>. Sin validar, el costo fiscal queda PENDIENTE. Normas: Art. 42 T4 TO 2023; Arts. 74, 80 Dec. 150/007.</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+              <label className="space-y-1"><span className="text-ink-subtle text-xs">RUT</span>{txt('rut', 'RUT del contribuyente')}</label>
+              <label className="space-y-1"><span className="text-ink-subtle text-xs">Contribuyente</span>{txt('contribuyente', 'Razón social')}</label>
+              <label className="space-y-1"><span className="text-ink-subtle text-xs">Régimen tributario</span>{txt('regimenTributario', 'IRAE general / ficto')}</label>
+              <label className="space-y-1"><span className="text-ink-subtle text-xs">Cierre de ejercicio (MM-DD)</span>{txt('fechaCierreEjercicio', '12-31')}</label>
+              <label className="space-y-1"><span className="text-ink-subtle text-xs">Método de valuación (Art. 80)</span>{sel('metodoValuacionInventario', OPC.metodoValuacionInventario)}</label>
+              <label className="space-y-1"><span className="text-ink-subtle text-xs">Procedimiento de existencias</span>{sel('procedimientoExistencias', OPC.procedimientoExistencias)}</label>
+              <label className="space-y-1"><span className="text-ink-subtle text-xs">Tipo de bienes</span>{sel('tipoBienes', OPC.tipoBienes)}</label>
+              <label className="space-y-1"><span className="text-ink-subtle text-xs">Actividad</span>{txt('actividad', 'Importación y reventa')}</label>
+              <label className="space-y-1"><span className="text-ink-subtle text-xs">Tratamiento del IVA</span>{sel('tratamientoIva', OPC.tratamientoIva)}</label>
+              <label className="space-y-1"><span className="text-ink-subtle text-xs">% IVA no recuperable (prorrata)</span><input className="input" type="number" value={form.porcentajeIvaNoRecuperable ?? ''} onChange={(e) => set('porcentajeIvaNoRecuperable', e.target.value === '' ? null : Number(e.target.value))} /></label>
+              <label className="space-y-1"><span className="text-ink-subtle text-xs">Moneda extranjera (Art. 74)</span>{sel('criterioMonedaExtranjera', OPC.criterioMonedaExtranjera)}</label>
+              <label className="space-y-1"><span className="text-ink-subtle text-xs">Fecha fiscal de la operación</span>{sel('criterioFechaOperacion', OPC.criterioFechaOperacion)}</label>
+              <label className="space-y-1"><span className="text-ink-subtle text-xs">Vigencia desde</span><input className="input" type="date" value={form.vigenciaDesde ?? ''} onChange={(e) => set('vigenciaDesde', e.target.value || null)} /></label>
+              <label className="space-y-1"><span className="text-ink-subtle text-xs">Autorización DGI (cambio de método)</span>{txt('autorizacionDgi', 'Nº / fecha')}</label>
+            </div>
+            <label className="space-y-1 block text-sm"><span className="text-ink-subtle text-xs">Notas</span><textarea className="input" rows={2} value={form.notas ?? ''} onChange={(e) => set('notas', e.target.value || null)} /></label>
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!form.validado} onChange={(e) => set('validado', e.target.checked)} /> <span><b>Validado</b> por el profesional (habilita el costo fiscal definitivo)</span></label>
+            {guardado && <div className="text-ok text-sm flex items-center gap-1"><CheckCircle size={14} /> Guardado. Recosteá el expediente para aplicar los cambios.</div>}
+            <div className="flex justify-end gap-2">
+              <button className="btn-secondary" onClick={onClose}>Cerrar</button>
+              <button className="btn-primary" disabled={guardar.isPending} onClick={() => guardar.mutate({ ...form, companyId })}><Save size={16} /> {guardar.isPending ? 'Guardando…' : 'Guardar configuración'}</button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

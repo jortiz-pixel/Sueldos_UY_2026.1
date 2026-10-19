@@ -475,6 +475,52 @@ export interface ImportacionEmpresaConfig {
 }
 export interface ImportacionConfigPayload extends ImportacionEmpresaConfig { companyId: string; }
 
+// ── Costo fiscal de adquisición (IRAE) — separado del contable ──
+export interface FiscalConfig {
+  id?: string;
+  rut?: string | null;
+  contribuyente?: string | null;
+  regimenTributario?: string | null;
+  fechaCierreEjercicio?: string | null; // MM-DD
+  metodoValuacionInventario?: 'ADQUISICION' | 'PRODUCCION' | 'PLAZA' | null;
+  procedimientoExistencias?: 'ULTIMA_COMPRA' | 'PPP' | 'FIFO' | 'IDENTIFICACION' | null;
+  actividad?: string | null;
+  tipoBienes?: 'REVENTA' | 'MATERIA_PRIMA' | 'USO' | 'MIXTO' | null;
+  tratamientoIva?: 'RECUPERABLE_TOTAL' | 'NO_RECUPERABLE' | 'PRORRATA' | null;
+  porcentajeIvaNoRecuperable?: number | null;
+  criterioMonedaExtranjera?: 'ART74_INTERBANCARIO_COMPRADOR_DIA_ANTERIOR' | 'PERSONALIZADO' | null;
+  criterioFechaOperacion?: 'NACIONALIZACION' | 'FACTURA' | 'PAGO' | null;
+  validado?: boolean;
+  validadoPor?: string | null;
+  vigenciaDesde?: string | null; // YYYY-MM-DD
+  autorizacionDgi?: string | null;
+  notas?: string | null;
+}
+export interface FiscalConfigPayload extends FiscalConfig { companyId: string; }
+export interface NormaIrae { codigo: string; norma: string; articulo: string; descripcion: string; fuente: string; vigenciaDesde: string; }
+export interface ItemCostoFiscal {
+  codigo: string | null; descripcion: string; cantidad: number; unidad: string | null;
+  factura: string | null; dua: string | null; fobME: string; participacion: number;
+  costoContableTotal: string; costoContableUnit: string;
+  costoFiscalTotal: string | null; costoFiscalUnit: string | null;
+  diferencia: string | null; metodoAsignacion: string;
+}
+export interface ComponenteFiscal { clave: string; etiqueta: string; montoUYU: string | null; norma: string; nota: string; estado: 'incluido' | 'excluido' | 'pendiente' | 'revisar'; }
+export interface AjusteConciliacionFiscal { concepto: string; signo: '+' | '-'; montoUYU: string; norma: string; justificacion: string; }
+export interface CostoFiscalDetalle {
+  estado: 'OK' | 'PENDIENTE';
+  definitivo: boolean;
+  motivos: string[];
+  criterios: { monedaExtranjera: string; fechaOperacion: string; fechaFiscalOperacion: string | null; metodoValuacion: string; tratamientoIva: string };
+  componentes: ComponenteFiscal[];
+  items: ItemCostoFiscal[];
+  totales: { costoContable: string; costoFiscal: string | null; diferencia: string | null };
+  conciliacion: { costoContable: string; ajustes: AjusteConciliacionFiscal[]; costoFiscal: string | null; cuadra: boolean };
+  normas: NormaIrae[];
+  cotizacionesUsadas: Array<{ fecha: string; valor: number; fuente: string }>;
+  observaciones: string[];
+}
+
 export interface ImportacionCliente {
   companyId: string;
   razonSocial: string;

@@ -1,5 +1,5 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
-import { AuthResponse, User, Company, Employee, PayrollPeriod, Liquidation, NominaItem, PayrollParameters, TipoAporte, TipoContribuyente, GrupoActividad, Contrato, Concepto, Obra, Importacion, ImportacionPayload, ImportacionEstado, AsientoImportacion, CreditoFiscalReporte, ImportacionImportResult, ImportacionCliente, ImportacionExtraido, ImportacionDocumento, CuentaCatalogo, ImportacionEmpresaConfig, ImportacionConfigPayload, Cotizacion, CotizacionTipo, ExtraccionImportacion, ProcesarResultado } from '../types';
+import { AuthResponse, User, Company, Employee, PayrollPeriod, Liquidation, NominaItem, PayrollParameters, TipoAporte, TipoContribuyente, GrupoActividad, Contrato, Concepto, Obra, Importacion, ImportacionPayload, ImportacionEstado, AsientoImportacion, CreditoFiscalReporte, ImportacionImportResult, ImportacionCliente, ImportacionExtraido, ImportacionDocumento, CuentaCatalogo, ImportacionEmpresaConfig, ImportacionConfigPayload, Cotizacion, CotizacionTipo, ExtraccionImportacion, ProcesarResultado, FiscalConfig, FiscalConfigPayload, NormaIrae, CostoFiscalDetalle } from '../types';
 
 const BASE_URL = import.meta.env.VITE_API_URL || '';
 
@@ -835,6 +835,17 @@ export const importacionesApi = {
     save: (payload: ImportacionConfigPayload) =>
       api.put<ImportacionEmpresaConfig>('/importaciones/config', payload).then((r) => r.data),
   },
+  // Costo fiscal de adquisición (IRAE), separado del contable.
+  fiscalConfig: {
+    get: (companyId: string) =>
+      api.get<{ config: FiscalConfig | null; normas: NormaIrae[] }>('/importaciones/fiscal-config', { params: { companyId } }).then((r) => r.data),
+    save: (payload: FiscalConfigPayload) =>
+      api.put<FiscalConfig>('/importaciones/fiscal-config', payload).then((r) => r.data),
+  },
+  costoFiscal: (id: string) =>
+    api.get<{ estado: string | null; motivo: string | null; detalle: CostoFiscalDetalle | null; normas: NormaIrae[] }>(`/importaciones/${id}/costo-fiscal`).then((r) => r.data),
+  recostearFiscal: (id: string) =>
+    api.post<{ estado: string | null; motivo: string | null; detalle: CostoFiscalDetalle | null }>(`/importaciones/${id}/recostear-fiscal`).then((r) => r.data),
   cotizaciones: {
     list: (params: { moneda?: string; tipo?: string; desde?: string; hasta?: string }) =>
       api.get<{ cotizaciones: Cotizacion[]; monedasBcu: string[] }>('/importaciones/cotizaciones', { params }).then((r) => r.data),
