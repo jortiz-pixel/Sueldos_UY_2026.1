@@ -132,7 +132,7 @@ app.get('/api/version', (_req, res) => {
 // Chequeo de disponibilidad del web service del BCU (dependencia externa de las
 // cotizaciones). Sin auth, sin datos sensibles: sirve para saber si ESTE servidor
 // tiene salida al BCU. Prueba USD en ?fecha=YYYY-MM-DD (por defecto 2026-08-27).
-app.get('/health/bcu', async (req, res) => {
+app.get('/api/health/bcu', async (req, res) => {
   const f = String(req.query.fecha ?? '2026-08-27');
   const fecha = /^\d{4}-\d{2}-\d{2}$/.test(f) ? f : '2026-08-27';
   const moneda = /^[A-Za-z]{3}$/.test(String(req.query.moneda ?? '')) ? String(req.query.moneda).toUpperCase() : 'USD';
