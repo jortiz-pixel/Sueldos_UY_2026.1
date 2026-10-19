@@ -63,31 +63,42 @@ export interface ProcesarResultado {
  */
 async function obtenerTcFiscalOperacion(moneda: string, fecha: Date | null, tcDua: number | null): Promise<{ valor: number | null; fuente: string | null }> {
   const fechaStr = fecha ? fecha.toISOString().slice(0, 10) : null;
-  // 1) Cotización cargada por el operador para la fecha (si existe).
+  // 1) Cotización CONTABLE de ESA fecha (o del último día hábil inmediato, ventana
+  //    de 4 días para cubrir fines de semana/feriados). NUNCA una cotización vieja
+  //    de otro período: la ventana acotada evita reutilizar, p. ej., junio para agosto.
   if (fecha) {
+    const desde = new Date(fecha); desde.setUTCDate(desde.getUTCDate() - 4);
     const guardada = await prisma.cotizacion.findFirst({
-      where: { monedaOrigen: moneda, tipo: 'CONTABLE', fecha: { lte: fecha } },
+      where: { monedaOrigen: moneda, tipo: 'CONTABLE', fecha: { gte: desde, lte: fecha } },
       orderBy: { fecha: 'desc' },
     });
-    if (guardada && validarTipoCambio(guardada.valor).valido) return { valor: guardada.valor, fuente: `${guardada.fuente || 'cotización cargada'} ${guardada.fecha.toISOString().slice(0, 10)}` };
+    if (guardada && validarTipoCambio(guardada.valor).valido) {
+      const fg = guardada.fecha.toISOString().slice(0, 10);
+      return { valor: guardada.valor, fuente: `${guardada.fuente || 'cotización cargada'} ${fg}${fg !== fechaStr ? ` (último día hábil para ${fechaStr})` : ''}` };
+    }
   }
   // 2) La cotización fiscal del día que informa el DUA (validada estrictamente).
   const vDua = validarTipoCambio(tcDua);
   if (vDua.valido && vDua.valor != null) return { valor: vDua.valor, fuente: 'DUA (cotización oficial del día de la operación)' };
-  // 3) BCU para la fecha exacta de la operación.
+  // 3) BCU: la cotización de ESA fecha; si no hay (fin de semana/feriado) se toma
+  //    el último día hábil inmediato (hasta 4 días atrás), nunca más lejos.
   if (fecha && fechaStr) {
-    try {
-      const bcu = await cotizacionBcu(moneda, fechaStr);
-      const v = validarTipoCambio(bcu?.venta);
-      if (bcu && v.valido && v.valor != null) {
-        await prisma.cotizacion.upsert({
-          where: { fecha_monedaOrigen_monedaDestino_tipo: { fecha, monedaOrigen: moneda, monedaDestino: 'UYU', tipo: 'CONTABLE' } },
-          create: { fecha, monedaOrigen: moneda, monedaDestino: 'UYU', tipo: 'CONTABLE', valor: v.valor, compra: bcu.compra, venta: bcu.venta, fuente: 'BCU' },
-          update: { valor: v.valor, compra: bcu.compra, venta: bcu.venta, fuente: 'BCU' },
-        });
-        return { valor: v.valor, fuente: `BCU ${fechaStr} (venta)` };
-      }
-    } catch { /* BCU no disponible → se deja pendiente, sin inventar datos */ }
+    for (let atras = 0; atras <= 4; atras++) {
+      try {
+        const f = new Date(fecha); f.setUTCDate(f.getUTCDate() - atras);
+        const fStr = f.toISOString().slice(0, 10);
+        const bcu = await cotizacionBcu(moneda, fStr);
+        const v = validarTipoCambio(bcu?.venta);
+        if (bcu && v.valido && v.valor != null) {
+          await prisma.cotizacion.upsert({
+            where: { fecha_monedaOrigen_monedaDestino_tipo: { fecha: f, monedaOrigen: moneda, monedaDestino: 'UYU', tipo: 'CONTABLE' } },
+            create: { fecha: f, monedaOrigen: moneda, monedaDestino: 'UYU', tipo: 'CONTABLE', valor: v.valor, compra: bcu.compra, venta: bcu.venta, fuente: 'BCU' },
+            update: { valor: v.valor, compra: bcu.compra, venta: bcu.venta, fuente: 'BCU' },
+          });
+          return { valor: v.valor, fuente: `BCU ${fStr} (venta)${atras ? ` — último día hábil para ${fechaStr}` : ''}` };
+        }
+      } catch { /* probar el día anterior */ }
+    }
   }
   return { valor: null, fuente: null };
 }

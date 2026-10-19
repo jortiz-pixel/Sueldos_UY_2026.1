@@ -501,3 +501,42 @@ describe('construirCosteoHistorico — flujos de fondos y cuentas', () => {
     expect(r.asientos.every((a) => a.balanceado)).toBe(true);
   });
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ACTUALIZACIÓN AUTOMÁTICA: si cambia una cotización o un gasto, el costo del
+// inventario se recalcula y SIGUE cumpliendo costo = artículos = asientos. (PASO 5)
+// ═════════════════════════════════════════════════════════════════════════════
+describe('construirCosteoHistorico — recálculo automático y consistencia', () => {
+  it('cambiar la cotización de un anticipo cambia el costo y mantiene las igualdades', () => {
+    const a = construirCosteoHistorico(marpolos(40.10, 40.20));
+    const b = construirCosteoHistorico(marpolos(41.50, 41.80)); // otras cotizaciones
+    expect(b.costoInventario).not.toBe(a.costoInventario);         // el costo se actualiza
+    for (const r of [a, b]) {
+      expect(r.consistencia.ok).toBe(true);
+      expect(r.consistencia.sumaCostoArticulos).toBe(r.costoInventario);
+      expect(r.consistencia.movimientosMercaderia).toBe(r.costoInventario);
+      expect(r.asientos.every((x) => x.balanceado)).toBe(true);
+    }
+  });
+
+  it('cambiar un gasto cambia el costo y mantiene las igualdades', () => {
+    const base = marpolos(40.10, 40.20);
+    const masGasto: CosteoHistoricoInput = { ...base, servicios: base.servicios.map((s) => s.numero === '0040415' ? { ...s, honorarios: 9999 } : s) };
+    const a = construirCosteoHistorico(base);
+    const b = construirCosteoHistorico(masGasto);
+    expect(b.totalGastosUYU).not.toBe(a.totalGastosUYU);
+    expect(b.costoInventario).not.toBe(a.costoInventario);
+    expect(b.consistencia.ok).toBe(true);
+    expect(b.consistencia.sumaCostoArticulos).toBe(b.costoInventario);
+    expect(b.consistencia.movimientosMercaderia).toBe(b.costoInventario);
+  });
+
+  it('el pago al despachante queda sujeto a confirmación salvo comprobante bancario', () => {
+    const r1 = construirCosteoHistorico(marpolosFlujos());
+    expect(r1.cuentaDespachante?.pagoConfirmado).toBe(false);
+    expect(r1.conciliacion.despachante?.nota).toMatch(/SUJETO A CONFIRMACI/i);
+    const r2 = construirCosteoHistorico({ ...marpolosFlujos(), pagoDespachanteConfirmado: true });
+    expect(r2.cuentaDespachante?.pagoConfirmado).toBe(true);
+    expect(r2.conciliacion.despachante?.nota).not.toMatch(/SUJETO A CONFIRMACI/i);
+  });
+});

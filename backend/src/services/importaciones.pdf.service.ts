@@ -181,13 +181,16 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     const liq0 = liquidaciones[0];
     const fac0 = facturas[0];
     const totPagRes = transferencias.reduce((s, t) => s + t.importe, 0n);
+    const cd0 = det?.cuentaDespachante ?? null;
     const resumen: Array<[string, string]> = [
       ['CIF (factura)', fac0 ? money(fac0.cif, sym(fac0.moneda)) : money(imp.cif)],
       ['Costo del inventario', pendiente ? 'PENDIENTE' : money(imp.costoMercaderia)],
       ['Crédito fiscal IVA', money(imp.creditoFiscalIva)],
       ['Anticipos (pago a cuenta)', money(imp.anticipos)],
       ['Total pagado al proveedor', money(totPagRes, 'US$')],
-      ['TC fiscal (día operación)', `${imp.tcContable ?? '—'}`],
+      ['TC contable (anticipos)', `${imp.tcContable ?? '—'}`],
+      ['Cta. despachante (cargos)', cd0 ? nMoney(cd0.cargosUYU) : '—'],
+      ['Cta. despachante (saldo)', cd0 ? `${nMoney(cd0.saldoUYU)}${cd0.pagoConfirmado ? '' : ' (s/confirmar)'}` : '—'],
     ];
     const boxH = 16 + Math.ceil(resumen.length / 2) * 15 + 8;
     doc.save().rect(M, y, W, boxH).fill('#F3F6FF'); doc.restore();
@@ -280,12 +283,12 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
       total2('Adquisición (CIF) histórica en pesos', nMoney(det?.adquisicionUYU), true);
       if (det?.saldoNoAnticipado) total2('Saldo no anticipado (al TC de reconocimiento)', `${meMoney(det.saldoNoAnticipado.me, imp.monedaOrigen)} = ${nMoney(det.saldoNoAnticipado.uyu)}`);
       total2('Comisiones bancarias (gasto, no inventario)', nMoney(det?.comisionesBancariasUYU));
-      nota('La mercadería pagada por adelantado es una partida NO monetaria (NIC 21): cada anticipo se valúa al tipo de cambio fiscal de SU fecha de pago, tomado de fuente verificable (BCU o cotización cargada). Las comisiones bancarias son un gasto financiero (no integran el costo). * = cotización provisional (falta la del día → aprobación bloqueada).');
-      // Separación EXPRESA de criterios de tipo de cambio.
-      subheading('Criterios de tipo de cambio aplicados');
-      total2('CONTABLE (costo de adquisición)', `cotización fiscal del día de CADA anticipo (ver tabla) — fuente BCU`);
-      total2('FISCAL (IVA y anticipos)', `tributos liquidados en el DUA, en pesos (sin reconversión)`);
-      total2('ADUANERO (solo valoración en aduana)', `TC del DUA ${imp.tcAduanero ?? '—'} → valor en aduana (NO se usa para el costo)`);
+      nota('La mercadería pagada por adelantado es una partida NO monetaria (NIC 21): cada anticipo se valúa al tipo de cambio de SU fecha de pago, de fuente verificable (BCU o cotización cargada). Las comisiones bancarias son un gasto financiero (no integran el costo). * = cotización provisional (falta la del día; aprobación bloqueada).');
+      // Separación EXPRESA de criterios de tipo de cambio (no se usan indistintamente).
+      subheading('Criterios de tipo de cambio (separados)');
+      kv('CONTABLE (costo)', `cotización del día de CADA anticipo/servicio (BCU o cargada). Es la que forma el costo del inventario. Ver columna "Fuente".`);
+      kv('FISCAL (tributos)', `los tributos del DUA ya están liquidados en PESOS (IVA importación, anticipo IVA, tasas); no se reconvierten.`);
+      kv('ADUANERO (valoración)', `TC del DUA ${imp.tcAduanero ?? "—"}: solo el Valor en Aduana (base de los tributos). NO se usa para el costo contable.`);
     } else if (transferencias.length) {
       tabla(
         [{ w: 70, title: 'Ref.' }, { w: 70, title: 'Fecha' }, { w: 95, title: 'Importe', align: 'right' }, { w: 80, title: 'Comisión', align: 'right' }, { w: W - 315, title: 'Respaldo' }],
@@ -544,7 +547,7 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     if (conc?.unidades) check(`Unidades DUA (${conc.unidades.dua ?? '—'}) vs factura (${conc.unidades.factura})`, !!conc.unidades.ok, conc.unidades.nota);
     if (conc?.anticiposVsCif) check('Anticipos vs CIF', Math.abs(conc.anticiposVsCif.difME) <= 1, conc.anticiposVsCif.nota);
     if (conc?.tributos) check('Tributos DUA vs pago SPE', !!conc.tributos.ok, `${nMoney(conc.tributos.dua)} vs ${nMoney(conc.tributos.spe)} (incluye Tasa Escáner $563)`);
-    if (conc?.despachante) check('Cuenta del despachante', (conc.despachante.saldo ?? 0) >= 0 ? true : false, `cargos ${nMoney(conc.despachante.totalCargos)} · pagos ${nMoney(conc.despachante.totalPagos)} → ${conc.despachante.nota}`);
+    if (conc?.despachante) check('Cuenta del despachante', (conc.despachante.saldo ?? 0) >= 0 ? true : false, `cargos ${nMoney(conc.despachante.totalCargos)} · pagos ${nMoney(conc.despachante.totalPagos)}. ${conc.despachante.nota}`);
 
     // ── Packing list / detalle logístico ──
     heading('Packing list y detalle logístico');
