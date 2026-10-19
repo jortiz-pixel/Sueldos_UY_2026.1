@@ -182,15 +182,32 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     const fac0 = facturas[0];
     const totPagRes = transferencias.reduce((s, t) => s + t.importe, 0n);
     const cd0 = det?.cuentaDespachante ?? null;
+    // TC CONTABLE: las cotizaciones REALES de los anticipos (criterio contable). Si hay
+    // varias fechas con cotizaciones distintas, se muestran todas (40,512 / 40,674) en
+    // lugar de colapsar a una sola o usar el TC aduanero del DUA.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const tcsRaw: number[] = (det?.anticipos ?? []).map((a: any) => Number(a?.tcUsado)).filter((v: number) => Number.isFinite(v) && v > 0);
+    const tcsContables: number[] = [...new Set<number>(tcsRaw)];
+    const fmtTc = (v: number) => v.toLocaleString('es-UY', { minimumFractionDigits: 3, maximumFractionDigits: 4 });
+    const tcContableDisp = tcsContables.length
+      ? (tcsContables.length === 1 ? fmtTc(tcsContables[0]) : `${tcsContables.map(fmtTc).join(' / ')} (múltiples)`)
+      : (imp.tcContable != null ? fmtTc(Number(imp.tcContable)) : '—');
+    // Pagos al despachante diferenciados: confirmados vs pendientes de confirmación.
+    const pagoDespDisp = cd0
+      ? (cd0.pagosPendientesUYU && Number(cd0.pagosPendientesUYU) > 0
+          ? `${nMoney(cd0.pagosPendientesUYU)} s/confirmar`
+          : (cd0.pagosConfirmadosUYU && Number(cd0.pagosConfirmadosUYU) > 0 ? `${nMoney(cd0.pagosConfirmadosUYU)} confirmado` : '—'))
+      : '—';
     const resumen: Array<[string, string]> = [
       ['CIF (factura)', fac0 ? money(fac0.cif, sym(fac0.moneda)) : money(imp.cif)],
       ['Costo del inventario', pendiente ? 'PENDIENTE' : money(imp.costoMercaderia)],
       ['Crédito fiscal IVA', money(imp.creditoFiscalIva)],
       ['Anticipos (pago a cuenta)', money(imp.anticipos)],
       ['Total pagado al proveedor', money(totPagRes, 'US$')],
-      ['TC contable (anticipos)', `${imp.tcContable ?? '—'}`],
+      ['TC contable (anticipos)', tcContableDisp],
       ['Cta. despachante (cargos)', cd0 ? nMoney(cd0.cargosUYU) : '—'],
       ['Cta. despachante (saldo)', cd0 ? `${nMoney(cd0.saldoUYU)}${cd0.pagoConfirmado ? '' : ' (s/confirmar)'}` : '—'],
+      ['Pago al despachante', pagoDespDisp],
     ];
     const boxH = 16 + Math.ceil(resumen.length / 2) * 15 + 8;
     doc.save().rect(M, y, W, boxH).fill('#F3F6FF'); doc.restore();
@@ -499,10 +516,17 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
         const h = a.lineas.reduce((s, l) => s + l.haber, 0n);
         total2('Totales del asiento', `$ ${n2(d)}      $ ${n2(h)}`, true);
         if (!a.balanceado) { doc.fontSize(8).fillColor('#c00').text('! El asiento no balancea.', M + 4, y); y += 12; }
+        // Asiento PROVISORIO (p. ej. el pago al despachante): se señala que NO se
+        // exporta como definitivo hasta verificar el egreso de fondos.
+        if (!a.definitivo) {
+          const aviso = 'PROVISORIO — no se exporta como asiento definitivo hasta verificar el egreso de fondos (solo consta el recibo de cobranza, falta el comprobante bancario).';
+          doc.fontSize(7.5).font('Helvetica-Bold').fillColor('#b54708').text(aviso, M + 6, y, { width: W - 12 });
+          y += Math.max(10, doc.heightOfString(aviso, { width: W - 12 })) + 1;
+        }
         for (const rf of (a.referencias ?? [])) doc.fontSize(7).font('Helvetica-Oblique').fillColor('#888').text(`Origen: ${rf.documento}${rf.pagina ? ` (${rf.pagina})` : ''} — ${rf.regla}`, M + 6, y, { width: W - 10 }), y += Math.max(9, doc.heightOfString(`Origen: ${rf.documento} — ${rf.regla}`, { width: W - 10 }));
         y += 5;
       }
-      nota('Asientos en orden cronológico por su fecha real; importes en pesos con la moneda original a la vista. Cada uno cita el documento y la regla aplicada. El importe del proveedor del exterior no se divide entre cuentas sin respaldo documental.');
+      nota('Asientos en orden cronológico por su fecha real; importes en pesos con la moneda original a la vista. Cada uno cita el documento y la regla aplicada. Los asientos marcados PROVISORIO quedan fuera de la exportación definitiva hasta verificar el egreso. El importe del proveedor del exterior no se divide entre cuentas sin respaldo documental.');
     } else { vacio('Sin asientos (costeo incompleto — procesá los documentos).'); }
 
     // ── 8. Conciliación ──
@@ -544,10 +568,26 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     }
     // Conciliaciones del costeo histórico (unidades, anticipos vs CIF, despachante).
     const conc = det?.conciliacion;
-    if (conc?.unidades) check(`Unidades DUA (${conc.unidades.dua ?? '—'}) vs factura (${conc.unidades.factura})`, !!conc.unidades.ok, conc.unidades.nota);
+    if (conc?.unidades) check(`Unidades DUA (${conc.unidades.dua ?? '—'}) vs factura (${conc.unidades.factura})`, !!conc.unidades.ok && !conc.unidades.parseIncompleto, conc.unidades.nota);
     if (conc?.anticiposVsCif) check('Anticipos vs CIF', Math.abs(conc.anticiposVsCif.difME) <= 1, conc.anticiposVsCif.nota);
-    if (conc?.tributos) check('Tributos DUA vs pago SPE', !!conc.tributos.ok, `${nMoney(conc.tributos.dua)} vs ${nMoney(conc.tributos.spe)} (incluye Tasa Escáner $563)`);
-    if (conc?.despachante) check('Cuenta del despachante', (conc.despachante.saldo ?? 0) >= 0 ? true : false, `cargos ${nMoney(conc.despachante.totalCargos)} · pagos ${nMoney(conc.despachante.totalPagos)}. ${conc.despachante.nota}`);
+    if (conc?.tributos) {
+      // Tasa Escáner (código 36) tomada del detalle real, no hardcodeada.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const esc = (conc.tributos.detalle ?? []).find((t: any) => t.codigo === '36');
+      const escTxt = esc ? ` (incluye Tasa Escáner ${nMoney(esc.monto)})` : '';
+      check('Tributos DUA vs pago SPE', !!conc.tributos.ok, `${nMoney(conc.tributos.dua)} vs ${nMoney(conc.tributos.spe)}${escTxt}`);
+    }
+    // Liquidación preliminar del despachante vs tributos liquidados del DUA (#5: $563).
+    if (conc?.liquidacionPreliminar) {
+      const lp = conc.liquidacionPreliminar;
+      const okLp = (lp.difVsDua ?? 0) === 0 || Math.abs(Number(lp.difVsDua) / 100) <= 700; // tolera estimado vs liquidado + escáner
+      check('Liquidación preliminar vs tributos del DUA', okLp, `preliminar ${nMoney(lp.sumaConceptos)} vs DUA ${nMoney(lp.tributosDua)} (dif ${nMoney(lp.difVsDua < 0 ? -lp.difVsDua : lp.difVsDua)}). ${lp.nota}`);
+    }
+    if (conc?.despachante) {
+      const d0 = det?.cuentaDespachante ?? null;
+      const detPagos = d0 ? `confirmados ${nMoney(d0.pagosConfirmadosUYU)} · pendientes ${nMoney(d0.pagosPendientesUYU)}` : `pagos ${nMoney(conc.despachante.totalPagos)}`;
+      check('Cuenta del despachante', (conc.despachante.saldo ?? 0) >= 0 ? true : false, `cargos ${nMoney(conc.despachante.totalCargos)} · ${detPagos}. ${conc.despachante.nota}`);
+    }
 
     // ── Packing list / detalle logístico ──
     heading('Packing list y detalle logístico');
@@ -559,6 +599,17 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
       kv('Banco de ingreso de divisas', p.bancoDivisas ?? '—');
       kv('Bultos / unidades', `${exDua?.datos?.totalBultos ?? p.totalBultos ?? '—'} bultos · ${p.cantidadTotal ?? '—'} unidades`);
       kv('Peso bruto / neto (DUA)', `${exDua?.datos?.pesoBruto ?? '—'} kg / ${exDua?.datos?.pesoNeto ?? '—'} kg`);
+      // Aviso de parseo incompleto / diferencia de cantidades (packing vs factura/DUA).
+      const uni = det?.conciliacion?.unidades;
+      if (uni && (uni.parseIncompleto || (uni.packing != null && uni.dua != null && uni.packing !== uni.dua))) {
+        const bultosDecl = exDua?.datos?.totalBultos ?? uni.packingBultosDeclarados;
+        const aviso = `Diferencia de cantidades: el packing list aporta ${uni.packing ?? '—'} unidades en ${uni.packingBultos ?? p.totalBultos ?? '—'} bulto(s) parseado(s)${bultosDecl != null ? ` de ${bultosDecl} declarado(s)` : ''}, frente a ${uni.dua ?? uni.factura} del DUA/factura. ${uni.parseIncompleto ? 'El packing se leyó de forma incompleta (bultos con formato degradado en el PDF); la cantidad OFICIAL es la del DUA/factura y el packing NO modifica el costo.' : ''}`;
+        const h = Math.max(22, doc.heightOfString(aviso, { width: W - 20 }) + 10);
+        ensure(h + 4);
+        doc.save().rect(M, y, W, h).fill('#FFF4E5'); doc.restore();
+        doc.fontSize(8).font('Helvetica-Bold').fillColor('#b54708').text(aviso, M + 8, y + 5, { width: W - 20 });
+        y += h + 6;
+      }
       const bultos: Array<{ nro: number; dimensiones: string | null; cantidad: number | null; peso: number | null }> = p.bultos ?? [];
       if (bultos.length) {
         y += 2;

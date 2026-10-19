@@ -163,9 +163,18 @@ async function reconstruirCosteoDesdeExtraccion(importacionId: string): Promise<
   const pagoAgData: any = pagoAgenciaEx?.datos ?? null;
   const pagoAgencia = pagoAgenciaEx ? { fecha: pagoAgenciaEx.fecha ? iso(pagoAgenciaEx.fecha) : (pagoAgData?.fecha ?? null), moneda: pagoAgenciaEx.moneda ?? pagoAgData?.moneda ?? 'UYU', montoME: Number(pagoAgenciaEx.total) / 100 } : null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const unidadesPacking: number | null = (packingEx?.datos as any)?.cantidadTotal ?? null;
-  // Cotización fiscal de la fecha de reconocimiento (día de la operación).
-  const cotReconoc = await obtenerTcFiscalOperacion(moneda, duaDate, tcAdVal.valor);
+  const packingDatos: any = packingEx?.datos ?? null;
+  const unidadesPacking: number | null = packingDatos?.cantidadTotal ?? null;
+  // Bultos parseados del packing vs bultos declarados (DUA): detecta parseos incompletos.
+  const packingBultos: number | null = packingDatos?.totalBultos ?? null;
+  const packingBultosDeclarados: number | null = d.totalBultos ?? null;
+  // Liquidación preliminar del despachante ("Gastos del Embarque"): total + conceptos,
+  // para conciliar contra los tributos liquidados del DUA (p. ej. la Tasa Escáner).
+  const liqDesp = await prisma.importacionLiquidacion.findFirst({ where: { importacionId }, include: { conceptos: true }, orderBy: { createdAt: 'asc' } });
+  const liquidacionPreliminar = liqDesp ? { total: liqDesp.total ?? null, conceptos: liqDesp.conceptos.map((c) => ({ clave: c.clave, monto: c.monto })) } : null;
+  // Cotización fiscal de la fecha de reconocimiento (día de la operación) por BCU
+  // (NUNCA el TC aduanero del DUA: ese criterio es solo para el Valor en Aduana).
+  const cotReconoc = await tcFiscalDia(moneda, duaDate);
 
   const r = construirCosteoHistorico({
     dua: {
@@ -184,13 +193,22 @@ async function reconstruirCosteoDesdeExtraccion(importacionId: string): Promise<
     pagoDespachanteCtms: reciboDesp ? reciboDesp.total : null,
     fechaPagoDespachante: reciboDesp?.fecha ? iso(reciboDesp.fecha) : null,
     pagoAgencia,
-    fechaReconocimiento: iso(duaDate), cotizacionReconocimiento: cotReconoc.valor, tcProvisional: tcAdVal.valor,
-    unidadesPacking,
+    fechaReconocimiento: iso(duaDate), cotizacionReconocimiento: cotReconoc.valor,
+    // El TC aduanero del DUA NO se usa para valuar el COSTO (criterio contable): si
+    // falta la cotización de alguna fecha, el asiento queda PROVISIONAL en lugar de
+    // asumir el TC aduanero.
+    tcProvisional: null,
+    unidadesPacking, packingBultos, packingBultosDeclarados,
+    liquidacionPreliminar,
     etiqueta: (k) => k, // en el informe/asiento se re-etiqueta con el plan de cuentas
   });
   const ncm: string | null = d.ncm ?? null;
-  // TC representativo para el cabezal (varios si hay anticipos en distintas fechas).
-  const tcRepresentativo = anticipos.length === 1 ? (anticipos[0].cotizacion ?? null) : (cotReconoc.valor ?? null);
+  // TC CONTABLE del cabezal = la cotización de los anticipos (criterio contable, NIC 21).
+  // Si hay UNA sola cotización, se guarda; si hay VARIAS fechas con cotizaciones distintas
+  // (p. ej. 40,512 y 40,674), se guarda NULL y la portada muestra todas (no se colapsa a
+  // una sola ni se usa el TC aduanero del DUA). El detalle por anticipo va en costeoDetalle.
+  const tasasAnticipos = [...new Set(anticipos.map((a) => a.cotizacion).filter((v): v is number => v != null))];
+  const tcRepresentativo = tasasAnticipos.length === 1 ? tasasAnticipos[0] : null;
   const costeoDetalle = JSON.parse(JSON.stringify(r, bigintReplacer));
 
   await prisma.$transaction([

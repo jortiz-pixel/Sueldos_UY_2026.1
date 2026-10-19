@@ -540,3 +540,112 @@ describe('construirCosteoHistorico — recálculo automático y consistencia', (
     expect(r2.conciliacion.despachante?.nota).not.toMatch(/SUJETO A CONFIRMACI/i);
   });
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CORRECCIONES MARPOLOS (002-2026-170135): TC contable sin el aduanero, cuenta del
+// despachante diferenciada, pago provisorio, diferencia $563 y packing incompleto.
+// ═════════════════════════════════════════════════════════════════════════════
+describe('construirCosteoHistorico — correcciones MARPOLOS', () => {
+  // #1: sin TC provisional (null), una cotización faltante NO se valúa al TC aduanero
+  // del DUA: el anticipo queda PENDIENTE (montoUYU 0) y el expediente PROVISIONAL.
+  it('#1 sin TC provisional: la cotización faltante no cae al TC aduanero (queda pendiente)', () => {
+    const inp = { ...marpolos(40.512, null), tcProvisional: null };
+    const r = construirCosteoHistorico(inp);
+    expect(r.estado).toBe('PROVISIONAL');
+    const a2 = r.anticipos.find((a) => a.referencia === '075328')!;
+    expect(a2.provisional).toBe(true);
+    expect(a2.tcUsado).toBeNull();        // NO usó 40,266 (el aduanero)
+    expect(a2.montoUYU).toBe(0n);         // queda pendiente, no valuado al DUA
+    expect(r.motivos.join(' ')).toMatch(/cotizaci/i);
+  });
+
+  // #2: el TC contable del cabezal son las cotizaciones REALES de los anticipos.
+  it('#2 el TC contable surge de los anticipos reales (no del DUA 40,266)', () => {
+    const r = construirCosteoHistorico(marpolos(40.512, 40.674));
+    const tcs = [...new Set(r.anticipos.map((a) => a.tcUsado))];
+    expect(tcs).toContain(40.512);
+    expect(tcs).toContain(40.674);
+    expect(tcs).not.toContain(40.266);    // el aduanero no aparece como TC contable
+  });
+
+  // #3: la cuenta del despachante diferencia confirmados vs pendientes de confirmación.
+  it('#3 cuenta del despachante: separa pagos confirmados de pendientes', () => {
+    const pend = construirCosteoHistorico(marpolosFlujos());
+    expect(pend.cuentaDespachante?.pagosPendientesUYU).toBe(C(96137));
+    expect(pend.cuentaDespachante?.pagosConfirmadosUYU).toBe(0n);
+    const conf = construirCosteoHistorico({ ...marpolosFlujos(), pagoDespachanteConfirmado: true });
+    expect(conf.cuentaDespachante?.pagosConfirmadosUYU).toBe(C(96137));
+    expect(conf.cuentaDespachante?.pagosPendientesUYU).toBe(0n);
+    // la conciliación lista ambos renglones de pago.
+    expect(pend.conciliacion.despachante?.pagos.some((p) => /pendientes/i.test(p.concepto))).toBe(true);
+  });
+
+  // #4: el asiento del pago al despachante ($96.137) queda PROVISORIO sin comprobante.
+  it('#4 el pago al despachante es un asiento provisorio hasta verificar el egreso', () => {
+    const r = construirCosteoHistorico(marpolosFlujos());
+    const pago = r.asientos.find((a) => /Pago al despachante/i.test(a.glosa))!;
+    expect(pago.definitivo).toBe(false);
+    expect(pago.glosa).toMatch(/sujeto a confirmaci/i);
+  });
+
+  // #5: diferencia entre la liquidación preliminar del despachante y los tributos del
+  // DUA — se EXPLICA (Tasa Escáner + redondeo estimado/liquidado), no se elimina.
+  it('#5 concilia la liquidación preliminar vs tributos del DUA (Tasa Escáner $563)', () => {
+    const inp: CosteoHistoricoInput = {
+      ...marpolosFlujos(),
+      liquidacionPreliminar: {
+        total: C(96137),
+        conceptos: [
+          { clave: 'tasaConsular', monto: C(6797) }, { clave: 'tsa', monto: C(453) },
+          { clave: 'extraordinario', monto: C(1932) }, { clave: 'ivaImportacion', monto: C(49843) },
+          { clave: 'ivaAnticipado', monto: C(22656) }, { clave: 'guiaTransito', monto: C(380) },
+          { clave: 'timbre', monto: C(270) }, { clave: 'vuce', monto: C(239) },
+          { clave: 'escaner', monto: C(563) },             // la Tasa Escáner SÍ está
+          { clave: 'tcu', monto: C(3000) },                // exento, no es tributo
+          { clave: 'gastosOperativos', monto: C(2500) }, { clave: 'honorarios', monto: C(5700) },
+          { clave: 'ivaGastos', monto: C(1804) },
+        ],
+      },
+    };
+    const r = construirCosteoHistorico(inp);
+    const lp = r.conciliacion.liquidacionPreliminar!;
+    expect(lp).toBeTruthy();
+    // Solo los tributos se comparan contra el DUA (no honorarios/TCU/IVA gastos).
+    expect(lp.sumaTributos).toBe(C(83133));                 // 6797+..+563
+    expect(lp.tributosDua).toBe(C(83166));
+    expect(lp.difVsDua).toBe(C(83133) - C(83166));          // −33 (estimado vs liquidado)
+    expect(lp.nota).toMatch(/Escáner/);
+    expect(lp.nota).toMatch(/no se elimina/i);
+    // La diferencia NO se elimina: el costeo mantiene los tributos liquidados del DUA.
+    expect(r.totalTributos).toBe(C(83166));
+  });
+
+  // #6: packing list parseado de forma incompleta (9 de 12 bultos, 222 de 281) → se
+  // DETECTA y se SEÑALA; la cantidad oficial sigue siendo la del DUA/factura.
+  it('#6 detecta el packing incompleto (222/281, 9 de 12 bultos) sin forzar cifras', () => {
+    const inp = marpolos(40.512, 40.674);
+    (inp.dua as any).unidadesComerciales = 281;
+    inp.unidadesPacking = 222;
+    inp.packingBultos = 9;
+    inp.packingBultosDeclarados = 12;
+    const r = construirCosteoHistorico(inp);
+    expect(r.conciliacion.unidades.parseIncompleto).toBe(true);
+    expect(r.conciliacion.unidades.packing).toBe(222);
+    expect(r.conciliacion.unidades.packingBultos).toBe(9);
+    expect(r.conciliacion.unidades.packingBultosDeclarados).toBe(12);
+    expect(r.conciliacion.unidades.nota).toMatch(/incompleto/i);
+    // La factura/DUA siguen siendo la cantidad oficial (281), intacta.
+    expect(r.conciliacion.unidades.factura).toBe(281);
+    expect(r.conciliacion.unidades.dua).toBe(281);
+  });
+
+  // #7: los 33 (aquí 2) artículos conservan código y las tres igualdades cierran.
+  it('#7 conserva códigos de artículos y mantiene costo = artículos = asientos', () => {
+    const r = construirCosteoHistorico(marpolos(40.512, 40.674));
+    expect(r.items!.every((i) => i.codigo)).toBe(true);
+    expect(r.consistencia.ok).toBe(true);
+    expect(r.consistencia.difArticulos).toBe(0n);
+    expect(r.consistencia.difAsientos).toBe(0n);
+    expect(r.consistencia.difAdquisicion).toBe(0n);
+  });
+});

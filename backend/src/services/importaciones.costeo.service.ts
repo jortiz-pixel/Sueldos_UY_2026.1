@@ -373,7 +373,13 @@ export interface CosteoHistorico {
   costoInventario: bigint | null;
   items: Array<{ codigo: string | null; descripcion: string; cantidad: number; fobME: bigint; costo: bigint }> | null;
   // Cuenta corriente del despachante UNIFICADA (misma que usan asientos y conciliación).
-  cuentaDespachante: { cargosUYU: bigint; pagosUYU: bigint; saldoUYU: bigint; pagoConfirmado: boolean } | null;
+  // Diferencia el saldo documentado (cargos), los pagos CONFIRMADOS (con egreso bancario)
+  // y los pagos PENDIENTES de confirmación (solo recibo de cobranza).
+  cuentaDespachante: {
+    cargosUYU: bigint; pagosUYU: bigint;
+    pagosConfirmadosUYU: bigint; pagosPendientesUYU: bigint;
+    saldoUYU: bigint; pagoConfirmado: boolean;
+  } | null;
   asientos: AsientoHist[];
   // Verificación automática de consistencia (PASO 6): todas las igualdades deben dar 0.
   consistencia: {
@@ -387,8 +393,20 @@ export interface CosteoHistorico {
   conciliacion: {
     despachante: { cargos: Array<{ concepto: string; monto: bigint }>; totalCargos: bigint; pagos: Array<{ concepto: string; monto: bigint }>; totalPagos: bigint; saldo: bigint; nota: string } | null;
     tributos: { dua: bigint; spe: bigint; ok: boolean; detalle: Array<{ codigo: string; nombre: string; monto: bigint }> } | null;
-    unidades: { dua: number | null; factura: number; packing: number | null; ok: boolean; nota: string };
+    unidades: {
+      dua: number | null; factura: number;
+      packing: number | null; packingBultos: number | null; packingBultosDeclarados: number | null;
+      ok: boolean; parseIncompleto: boolean; nota: string;
+    };
     anticiposVsCif: { anticiposME: number; cifME: number; difME: number; nota: string } | null;
+    // Liquidación preliminar del despachante vs tributos liquidados del DUA. Explica,
+    // sin eliminarla, la diferencia (p. ej. la Tasa Escáner y los redondeos entre el
+    // estimado y el liquidado).
+    liquidacionPreliminar: {
+      total: bigint | null; sumaConceptos: bigint; difTotalConceptos: bigint;
+      sumaTributos: bigint; tributosDua: bigint; difVsDua: bigint;
+      detalle: Array<{ concepto: string; monto: bigint }>; nota: string;
+    } | null;
   };
 }
 
@@ -406,13 +424,20 @@ export interface CosteoHistoricoInput {
   cotizacionReconocimiento: number | null; // para el saldo no anticipado
   tcProvisional: number | null;            // fallback marcado provisional (ej. TC del DUA)
   unidadesPacking: number | null;
+  // Packing list: bultos efectivamente parseados y bultos declarados en el documento
+  // (para detectar parseos incompletos y conciliar cantidades contra factura/DUA).
+  packingBultos?: number | null;
+  packingBultosDeclarados?: number | null;
+  // Liquidación preliminar del despachante (hoja "Gastos del Embarque"): total y
+  // conceptos declarados, para conciliar contra los tributos liquidados del DUA.
+  liquidacionPreliminar?: { total: bigint | null; conceptos: Array<{ clave: string; monto: bigint }> } | null;
   etiqueta: (clave: string) => string;
 }
 
 const cents = (me: number, tc: number): bigint => BigInt(Math.round(me * tc * 100));
 
 export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHistorico {
-  const { dua, factura, servicios, anticipos, pagoSpeCtms, pagoDespachanteCtms, fechaPagoDespachante, pagoDespachanteConfirmado, pagoAgencia, fechaReconocimiento, cotizacionReconocimiento, tcProvisional, unidadesPacking, etiqueta } = input;
+  const { dua, factura, servicios, anticipos, pagoSpeCtms, pagoDespachanteCtms, fechaPagoDespachante, pagoDespachanteConfirmado, pagoAgencia, fechaReconocimiento, cotizacionReconocimiento, tcProvisional, unidadesPacking, packingBultos, packingBultosDeclarados, liquidacionPreliminar, etiqueta } = input;
   const motivos: string[] = [];
   const et = etiqueta;
 
@@ -616,7 +641,14 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
   const movDespachante = asientos.reduce((s, a) => s + a.lineas.filter((l) => l.cuenta === 'despachantes').reduce((ss, l) => ss + l.debe - l.haber, 0n), 0n);
   const cargosDespachante = asientos.reduce((s, a) => s + a.lineas.filter((l) => l.cuenta === 'despachantes').reduce((ss, l) => ss + l.haber, 0n), 0n);
   const pagosDespachanteAs = asientos.reduce((s, a) => s + a.lineas.filter((l) => l.cuenta === 'despachantes').reduce((ss, l) => ss + l.debe, 0n), 0n);
-  const cuentaDespachante = (cargosDespachante > 0n || pagosDespachanteAs > 0n) ? { cargosUYU: cargosDespachante, pagosUYU: pagosDespachanteAs, saldoUYU: movDespachante, pagoConfirmado: !!pagoDespachanteConfirmado } : null;
+  // Pagos CONFIRMADOS = debe a Despachantes en asientos definitivos (egreso bancario
+  // verificado); PENDIENTES = debe a Despachantes en asientos provisorios (solo recibo
+  // de cobranza, sin comprobante de egreso).
+  const pagosConfirmadosDesp = asientos.filter((a) => a.definitivo).reduce((s, a) => s + a.lineas.filter((l) => l.cuenta === 'despachantes').reduce((ss, l) => ss + l.debe, 0n), 0n);
+  const pagosPendientesDesp = asientos.filter((a) => !a.definitivo).reduce((s, a) => s + a.lineas.filter((l) => l.cuenta === 'despachantes').reduce((ss, l) => ss + l.debe, 0n), 0n);
+  const cuentaDespachante = (cargosDespachante > 0n || pagosDespachanteAs > 0n)
+    ? { cargosUYU: cargosDespachante, pagosUYU: pagosDespachanteAs, pagosConfirmadosUYU: pagosConfirmadosDesp, pagosPendientesUYU: pagosPendientesDesp, saldoUYU: movDespachante, pagoConfirmado: !!pagoDespachanteConfirmado }
+    : null;
 
   // ── Conciliaciones ──
   // La cuenta del despachante se toma de los MISMOS asientos (cuentaDespachante),
@@ -629,19 +661,75 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
       if (ivaDesp > 0n) cargos.push({ concepto: 'IVA de servicios del despachante', monto: ivaDesp });
       const saldo = cuentaDespachante.saldoUYU; // debe − haber: >0 = a favor del importador (pagó de más)
       const conf = cuentaDespachante.pagoConfirmado ? '' : ' Pago SUJETO A CONFIRMACIÓN (solo consta el recibo de cobranza, falta el comprobante de egreso bancario).';
-      return { cargos, totalCargos: cuentaDespachante.cargosUYU, pagos: [{ concepto: 'Recibo de cobranza', monto: cuentaDespachante.pagosUYU }], totalPagos: cuentaDespachante.pagosUYU, saldo, nota: (saldo > 0n ? `Saldo a favor del importador de $ ${(Number(saldo) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2 })} (entrega a cuenta mayor; documentado en el recibo y la adenda).` : (saldo < 0n ? `Saldo pendiente con el despachante de $ ${(Number(-saldo) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2 })}.` : 'Cuenta saldada.')) + conf };
+      // Pagos diferenciados: confirmados (egreso verificado) vs pendientes de confirmación.
+      const pagos: Array<{ concepto: string; monto: bigint }> = [];
+      if (cuentaDespachante.pagosConfirmadosUYU > 0n) pagos.push({ concepto: 'Pagos confirmados (egreso bancario verificado)', monto: cuentaDespachante.pagosConfirmadosUYU });
+      if (cuentaDespachante.pagosPendientesUYU > 0n) pagos.push({ concepto: 'Pagos pendientes de confirmación (solo recibo de cobranza)', monto: cuentaDespachante.pagosPendientesUYU });
+      if (!pagos.length) pagos.push({ concepto: 'Sin pagos registrados', monto: 0n });
+      return { cargos, totalCargos: cuentaDespachante.cargosUYU, pagos, totalPagos: cuentaDespachante.pagosUYU, saldo, nota: (saldo > 0n ? `Saldo a favor del importador de $ ${(Number(saldo) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2 })} (entrega a cuenta mayor; documentado en el recibo y la adenda).` : (saldo < 0n ? `Saldo pendiente con el despachante de $ ${(Number(-saldo) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2 })}.` : 'Cuenta saldada.')) + conf };
     })() : null,
     tributos: (dua && pagoSpeCtms != null) ? { dua: totalTributos, spe: pagoSpeCtms, ok: (totalTributos - pagoSpeCtms < 0n ? pagoSpeCtms - totalTributos : totalTributos - pagoSpeCtms) <= 100n, detalle: tributos.map((t) => ({ codigo: t.codigo, nombre: (dua.tributos.find((x) => x.codigo === t.codigo)?.nombre) ?? t.codigo, monto: t.monto })) } : null,
-    unidades: { dua: dua ? null : null, factura: factura ? factura.articulos.reduce((s, a) => s + (a.cantidad || 0), 0) : 0, packing: unidadesPacking, ok: false, nota: '' },
+    unidades: { dua: dua ? null : null, factura: factura ? factura.articulos.reduce((s, a) => s + (a.cantidad || 0), 0) : 0, packing: unidadesPacking, packingBultos: packingBultos ?? null, packingBultosDeclarados: packingBultosDeclarados ?? null, ok: false, parseIncompleto: false, nota: '' },
     anticiposVsCif: factura ? { anticiposME, cifME, difME, nota: difME > 0 ? `Pagado de más ${difME.toFixed(2)} ${factura.moneda} sobre el CIF: NO se capitaliza (queda como crédito con el proveedor).` : (difME < 0 ? `Falta anticipar ${(-difME).toFixed(2)} ${factura.moneda}: el saldo se valúa al TC de reconocimiento.` : `Los anticipos cubren exactamente el CIF (${cifME.toFixed(2)} ${factura.moneda}).`) } : null,
+    liquidacionPreliminar: null,
   };
   // Unidades DUA (viene como número en el DUA).
   const duaUnidades = (dua as unknown as { unidadesComerciales?: number })?.unidadesComerciales ?? null;
   conc.unidades.dua = duaUnidades;
   conc.unidades.ok = duaUnidades != null ? duaUnidades === conc.unidades.factura : false;
-  conc.unidades.nota = duaUnidades != null
-    ? (conc.unidades.ok ? `Las ${duaUnidades} unidades del DUA coinciden con las cantidades de la factura.` : `DUA ${duaUnidades} vs factura ${conc.unidades.factura}: revisar.`)
-    : `Factura: ${conc.unidades.factura} unidades (el packing list describe bultos, no unidades).`;
+  // Conciliación de cantidades con el packing list. El packing puede traer menos
+  // unidades por un PARSEO INCOMPLETO (bultos con formato degradado en el PDF): se
+  // DETECTA (bultos parseados < bultos declarados, o unidades del packing < factura/DUA)
+  // y se SEÑALA honestamente, sin forzar ninguna cifra.
+  const refUnidades = duaUnidades ?? conc.unidades.factura; // referencia oficial (DUA; si no, factura)
+  const pk = conc.unidades.packing;
+  const pkBultos = conc.unidades.packingBultos;
+  const pkBultosDecl = conc.unidades.packingBultosDeclarados;
+  const parseIncompleto = (pkBultos != null && pkBultosDecl != null && pkBultos < pkBultosDecl)
+    || (pk != null && refUnidades > 0 && pk < refUnidades);
+  conc.unidades.parseIncompleto = parseIncompleto;
+  const notaDuaFac = duaUnidades != null
+    ? (conc.unidades.ok ? `DUA ${duaUnidades} = factura ${conc.unidades.factura} unidades.` : `DUA ${duaUnidades} vs factura ${conc.unidades.factura}: revisar.`)
+    : `Factura: ${conc.unidades.factura} unidades.`;
+  const notaPacking = pk != null
+    ? (parseIncompleto
+        ? `Packing list: ${pk} unidades en ${pkBultos ?? '—'} bulto(s) parseado(s)${pkBultosDecl != null ? ` de ${pkBultosDecl} declarado(s)` : ''}; NO coincide con ${refUnidades} (parseo incompleto — bultos con formato degradado en el PDF). La cantidad oficial es la del DUA/factura; el packing no capitaliza costo.`
+        : `Packing list: ${pk} unidades en ${pkBultos ?? '—'} bulto(s), consistente con ${refUnidades}.`)
+    : 'Sin packing list parseado (las cantidades oficiales son las del DUA/factura).';
+  conc.unidades.nota = `${notaDuaFac} ${notaPacking}`;
+
+  // ── Conciliación: liquidación preliminar del despachante vs tributos del DUA ──
+  // La hoja "Gastos del Embarque" (preliminar) estima los tributos antes de la
+  // liquidación aduanera. La diferencia contra el DUA (p. ej. la Tasa Escáner y los
+  // redondeos entre el % estimado y el importe liquidado) se EXPLICA, no se elimina.
+  if (liquidacionPreliminar && (liquidacionPreliminar.total != null || liquidacionPreliminar.conceptos.length)) {
+    // Conceptos de la liquidación preliminar que son TRIBUTOS del DUA (el resto —
+    // honorarios, gastos operativos, IVA de gastos, TCU exento — no se compara contra
+    // los tributos aduaneros). Las claves siguen el parser de la liquidación.
+    const CLAVES_TRIBUTO = new Set(['imaduni', 'recargo', 'tasaConsular', 'tsa', 'extraordinario', 'ivaImportacion', 'ivaAnticipado', 'guiaTransito', 'timbre', 'vuce', 'escaner']);
+    const sumaConceptos = liquidacionPreliminar.conceptos.reduce((s, c) => s + c.monto, 0n);
+    const sumaTributos = liquidacionPreliminar.conceptos.filter((c) => CLAVES_TRIBUTO.has(c.clave)).reduce((s, c) => s + c.monto, 0n);
+    const totalLiq = liquidacionPreliminar.total;
+    const difTotalConceptos = totalLiq != null ? totalLiq - sumaConceptos : 0n;
+    const difVsDua = sumaTributos - totalTributos; // tributos preliminares − liquidados del DUA
+    const absDua = difVsDua < 0n ? -difVsDua : difVsDua;
+    // Tasa Escáner del DUA (código 36 → TASA_SERVICIOS) a modo de referencia explícita.
+    const escaner = (dua?.tributos ?? []).filter((t) => t.codigo === '36').reduce((s, t) => s + P(t.monto), 0n);
+    const escanerLiq = liquidacionPreliminar.conceptos.find((c) => c.clave === 'escaner')?.monto ?? 0n;
+    const fmt = (v: bigint) => `$ ${(Number(v < 0n ? -v : v) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2 })}`;
+    const notas: string[] = [];
+    if (sumaTributos > 0n) notas.push(`Tributos de la liquidación preliminar ${fmt(sumaTributos)} vs tributos liquidados del DUA ${fmt(totalTributos)}.`);
+    if (escaner > 0n) notas.push(`La Tasa Escáner ${fmt(escaner)} integra ambos (${escanerLiq > 0n ? 'presente en la preliminar' : 'ausente en la preliminar'}); las fichas de costeo preliminares que la omiten difieren justamente en ese importe.`);
+    if (absDua > 0n) notas.push(`Diferencia ${fmt(absDua)} entre el estimado y el liquidado: se MANTIENE el importe liquidado del DUA; no se elimina ni se fuerza la conciliación.`);
+    else notas.push('Coincide con los tributos liquidados del DUA.');
+    if (difTotalConceptos !== 0n) notas.push(`El total declarado de la liquidación difiere de la suma de sus conceptos en ${fmt(difTotalConceptos)} (revisar lectura del documento).`);
+    conc.liquidacionPreliminar = {
+      total: totalLiq, sumaConceptos, difTotalConceptos,
+      sumaTributos, tributosDua: totalTributos, difVsDua,
+      detalle: liquidacionPreliminar.conceptos.map((c) => ({ concepto: c.clave, monto: c.monto })),
+      nota: notas.join(' '),
+    };
+  }
 
   // ── Verificación automática de consistencia (PASO 6) ──
   // Todas las cifras salen de ESTE motor (única fuente): costo de inventario,
