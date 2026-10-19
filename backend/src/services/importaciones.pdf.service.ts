@@ -147,13 +147,25 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
       doc.moveTo(M, y).lineTo(RIGHT, y).strokeColor('#1E5BFF').lineWidth(0.8).stroke();
       y += 8;
     };
-    // Subtítulo dentro de una sección (sin numeración).
+    // Subtítulo dentro de una sección (sin numeración). Avanza por la altura REAL
+    // (puede ocupar dos líneas si el texto es largo) para no superponer lo que sigue.
     const subheading = (txt: string) => {
-      ensure(18);
-      doc.fontSize(9.5).font('Helvetica-Bold').fillColor('#1E5BFF').text(txt, M, y);
-      y += 14;
+      doc.fontSize(9.5).font('Helvetica-Bold');
+      const h = Math.max(14, doc.heightOfString(txt, { width: W }) + 2);
+      ensure(h);
+      doc.fillColor('#1E5BFF').text(txt, M, y, { width: W });
+      y += h;
     };
     const nota = (txt: string) => { doc.fontSize(7.5).font('Helvetica-Oblique').fillColor('#777').text(txt, M + 2, y + 2, { width: W }); y += Math.max(12, doc.heightOfString(txt, { width: W })) + 2; };
+    // Línea de estado/nota medida (color y negrita opcionales): avanza por la altura real
+    // dentro del ancho útil, nunca un salto fijo, para que un texto largo no se superponga.
+    const notaCol = (txt: string, color: string, bold = false, size = 7.5) => {
+      doc.fontSize(size).font(bold ? 'Helvetica-Bold' : 'Helvetica-Oblique');
+      const h = Math.max(12, doc.heightOfString(txt, { width: W }));
+      ensure(h + 2);
+      doc.fillColor(color).text(txt, M + 2, y + 2, { width: W });
+      y += h + 2;
+    };
     const vacio = (txt: string) => { doc.fontSize(9).font('Helvetica').fillColor('#777').text(txt, M + 4, y); y += 14; };
     const kv = (label: string, val: string) => {
       const h = Math.max(13, doc.heightOfString(val, { width: W - 165 }));
@@ -163,11 +175,13 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
       y += h + 2;
     };
     const total2 = (a: string, b: string, bold = false) => {
-      ensure(14);
-      doc.fontSize(9.5).font(bold ? 'Helvetica-Bold' : 'Helvetica').fillColor('#000');
+      doc.fontSize(9.5).font(bold ? 'Helvetica-Bold' : 'Helvetica');
+      const h = Math.max(13, doc.heightOfString(a, { width: W - 150 }), doc.heightOfString(b, { width: 142 }));
+      ensure(h);
+      doc.fillColor('#000');
       doc.text(a, M + 4, y, { width: W - 150 });
       doc.text(b, RIGHT - 146, y, { width: 142, align: 'right' });
-      y += 13;
+      y += h;
     };
     // Tabla con salto de página y encabezado repetido.
     type Col = { w: number; title: string; align?: 'left' | 'right' };
@@ -193,13 +207,22 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
       }
     };
 
+    // Escribe una línea avanzando por la altura REAL (nunca un salto fijo), así un
+    // texto que se parte en dos líneas no se superpone con el siguiente.
+    const linea = (txt: string, size: number, font: string, color: string, gap = 2) => {
+      doc.fontSize(size).font(font);
+      const h = doc.heightOfString(txt, { width: W });
+      ensure(h + gap);
+      doc.fillColor(color).text(txt, M, y, { width: W });
+      y += h + gap;
+    };
+
     // ── Portada ──
-    doc.fontSize(20).font('Helvetica-Bold').fillColor('#0B1B3A').text('Informe de importación', M, y); y += 26;
-    doc.fontSize(11).font('Helvetica').fillColor('#333').text(empresa.razonSocial + (empresa.rut ? ` · RUT ${empresa.rut}` : ''), M, y); y += 16;
-    doc.fontSize(10).fillColor('#555')
-      .text(`Proveedor: ${imp.proveedorExterior ?? '—'}`, M, y); y += 14;
-    doc.text(`Expediente / DUA: ${imp.duaNumero ?? '—'}   ·   Régimen: ${REGIMEN[imp.regimen]}   ·   Estado: ${imp.estado}`, M, y); y += 14;
-    doc.text(`Fecha de elaboración: ${new Date().toISOString().slice(0, 10)}`, M, y); y += 10;
+    linea('Informe de importación', 20, 'Helvetica-Bold', '#0B1B3A', 6);
+    linea(empresa.razonSocial + (empresa.rut ? ` · RUT ${empresa.rut}` : ''), 11, 'Helvetica', '#333', 4);
+    linea(`Proveedor: ${imp.proveedorExterior ?? '—'}`, 10, 'Helvetica', '#555', 2);
+    linea(`Expediente / DUA: ${imp.duaNumero ?? '—'}   ·   Régimen: ${REGIMEN[imp.regimen]}   ·   Estado: ${imp.estado}`, 10, 'Helvetica', '#555', 2);
+    linea(`Fecha de elaboración: ${new Date().toISOString().slice(0, 10)}`, 10, 'Helvetica', '#555', 4);
     doc.moveTo(M, y).lineTo(RIGHT, y).strokeColor('#1E5BFF').lineWidth(1).stroke(); y += 14;
 
     // ── Resumen ejecutivo (recuadro con cifras clave) ──
@@ -214,26 +237,19 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     const tcsRaw: number[] = (det?.anticipos ?? []).map((a: any) => Number(a?.tcUsado)).filter((v: number) => Number.isFinite(v) && v > 0);
     const tcsContables: number[] = [...new Set<number>(tcsRaw)];
     const fmtTc = (v: number) => v.toLocaleString('es-UY', { minimumFractionDigits: 3, maximumFractionDigits: 4 });
+    // KPI breve: hasta dos cotizaciones se muestran; con más, "varias (ver anticipos)".
     const tcContableDisp = tcsContables.length
-      ? (tcsContables.length === 1 ? fmtTc(tcsContables[0]) : `${tcsContables.map(fmtTc).join(' / ')} (múltiples)`)
+      ? (tcsContables.length === 1 ? fmtTc(tcsContables[0]) : (tcsContables.length === 2 ? tcsContables.map(fmtTc).join(' / ') : 'varias'))
       : (imp.tcContable != null ? fmtTc(Number(imp.tcContable)) : '—');
-    // Pagos al despachante diferenciados: confirmados vs pendientes de confirmación.
+    // KPIs del despachante CONCISOS (el detalle confirmado/proyectado va en la sección de
+    // cuenta y en la conciliación): el saldo del KPI es el CONFIRMADO (posición real).
+    const fmtSaldoKpi = (v: number) => (v > 0 ? `${nMoney(v)} a favor` : (v < 0 ? `${nMoney(-v)} a pagar` : 'saldada'));
     const pagoDespDisp = cd0
-      ? (cd0.pagosPendientesUYU && Number(cd0.pagosPendientesUYU) > 0
-          ? `${nMoney(cd0.pagosPendientesUYU)} s/confirmar`
-          : (cd0.pagosConfirmadosUYU && Number(cd0.pagosConfirmadosUYU) > 0 ? `${nMoney(cd0.pagosConfirmadosUYU)} confirmado` : '—'))
+      ? (Number(cd0.pagosPendientesUYU ?? 0) > 0
+          ? `${nMoney(cd0.pagosPendientesUYU)} s/conf.`
+          : (Number(cd0.pagosConfirmadosUYU ?? 0) > 0 ? nMoney(cd0.pagosConfirmadosUYU) : '—'))
       : '—';
-    // Saldo del despachante: CONFIRMADO (real, mientras el pago no se acredita) y, si hay
-    // pagos sin confirmar, el PROYECTADO (si se acreditan).
-    const saldoDespDisp = (() => {
-      if (!cd0) return '—';
-      const fmt = (v: number) => (v > 0 ? `${nMoney(v)} a favor` : (v < 0 ? `${nMoney(-v)} a pagar` : 'saldada'));
-      const sc = Number(cd0.saldoConfirmadoUYU ?? cd0.saldoUYU);
-      const sp = Number(cd0.saldoProyectadoUYU ?? cd0.saldoUYU);
-      return (cd0.pagosPendientesUYU && Number(cd0.pagosPendientesUYU) > 0)
-        ? `confirmado ${fmt(sc)} · proyectado ${fmt(sp)}`
-        : fmt(sp);
-    })();
+    const saldoDespDisp = cd0 ? fmtSaldoKpi(Number(cd0.saldoConfirmadoUYU ?? cd0.saldoUYU)) : '—';
     // #1: TODAS las cifras del resumen salen del MISMO cálculo (costeoDetalle) que el
     // detalle y los asientos; nunca de columnas precalculadas que puedan diferir.
     const fig = figurasResumen(det, imp);
@@ -245,17 +261,30 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
       ['Total pagado al proveedor', money(totPagRes, 'US$')],
       ['TC contable (anticipos)', tcContableDisp],
       ['Cta. despachante (cargos)', cd0 ? nMoney(cd0.cargosUYU) : '—'],
-      ['Cta. despachante (saldo)', saldoDespDisp],
+      ['Cta. despachante (saldo confirmado)', saldoDespDisp],
       ['Pago al despachante', pagoDespDisp],
     ];
-    const boxH = 16 + Math.ceil(resumen.length / 2) * 15 + 8;
+    // Grid de 2 columnas con ALTURA por fila medida (nunca salto fijo): la fila crece si
+    // una celda ocupa dos líneas, así ninguna cifra se superpone con la de abajo.
+    const LBL_W = W / 2 - 120, VAL_W = 108;
+    const pairH = (p?: [string, string]): number => {
+      if (!p) return 0;
+      const lh = doc.fontSize(8.5).font('Helvetica').heightOfString(p[0], { width: LBL_W });
+      const vh = doc.fontSize(8.5).font('Helvetica-Bold').heightOfString(p[1], { width: VAL_W });
+      return Math.max(lh, vh);
+    };
+    const rowHeights: number[] = [];
+    for (let i = 0; i < resumen.length; i += 2) rowHeights.push(Math.max(15, pairH(resumen[i]), pairH(resumen[i + 1])));
+    const boxH = 16 + rowHeights.reduce((s, h) => s + h, 0) + 8;
+    ensure(boxH + 10);
     doc.save().rect(M, y, W, boxH).fill('#F3F6FF'); doc.restore();
     doc.fontSize(9).font('Helvetica-Bold').fillColor('#0B1B3A').text('RESUMEN EJECUTIVO', M + 8, y + 6);
     let ry = y + 22;
+    let ri = 0;
     for (let i = 0; i < resumen.length; i += 2) {
-      const col = (idx: number, cx: number) => { if (!resumen[idx]) return; doc.fontSize(8.5).font('Helvetica').fillColor('#555').text(resumen[idx][0], cx, ry, { width: W / 2 - 110 }); doc.font('Helvetica-Bold').fillColor('#0B1B3A').text(resumen[idx][1], cx + W / 2 - 110, ry, { width: 100, align: 'right' }); };
+      const col = (idx: number, cx: number) => { if (!resumen[idx]) return; doc.fontSize(8.5).font('Helvetica').fillColor('#555').text(resumen[idx][0], cx, ry, { width: LBL_W }); doc.font('Helvetica-Bold').fillColor('#0B1B3A').text(resumen[idx][1], cx + LBL_W + 4, ry, { width: VAL_W, align: 'right' }); };
       col(i, M + 8); col(i + 1, M + 8 + W / 2);
-      ry += 15;
+      ry += rowHeights[ri++];
     }
     y += boxH + 10;
 
@@ -388,7 +417,7 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
       if (liq0.gastosAgenciaExtra) total2('Gastos de agencia (en USD, aparte)', `US$ ${liq0.gastosAgenciaExtra.toLocaleString('es-UY', { minimumFractionDigits: 2 })}`);
       total2('Fondos entregados al despachante', money(0n, monD));
       total2('Saldo a pagar al despachante', money(liq0.total, monD), true);
-      doc.fontSize(7.5).font('Helvetica-Oblique').fillColor('#777').text('Una solicitud de fondos no constituye pago: el saldo refleja la liquidación menos los fondos efectivamente entregados y documentados.', M + 2, y + 2); y += 14;
+      notaCol('Una solicitud de fondos no constituye pago: el saldo refleja la liquidación menos los fondos efectivamente entregados y documentados.', '#777');
     } else { doc.fontSize(9).font('Helvetica').fillColor('#777').text('Sin liquidación del despachante registrada.', M + 4, y); y += 14; }
 
     // ── 6. Gastos y tributos (liquidación del despachante) ──
@@ -495,7 +524,7 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
       // Verificación: la suma de los costos por artículo cuadra con el costo total.
       const sumaArt = itemsDet.reduce((s, i) => s + BigInt(i.costo), 0n);
       const dif = (det?.costoInventario != null ? BigInt(det.costoInventario) : 0n) - sumaArt;
-      doc.fontSize(7.5).font('Helvetica-Oblique').fillColor(dif === 0n ? '#1a7f37' : '#c00').text(`Suma de costos por artículo: $ ${n2(sumaArt)} ${dif === 0n ? '= costo del inventario (OK)' : `(¡diferencia $ ${n2(dif)}!)`}.`, M + 2, y + 2); y += 14;
+      notaCol(`Suma de costos por artículo: $ ${n2(sumaArt)} ${dif === 0n ? '= costo del inventario (OK)' : `(¡diferencia $ ${n2(dif)}!)`}.`, dif === 0n ? '#1a7f37' : '#c00');
     } else if (fac && fac.articulos.length) {
       doc.fontSize(9).font('Helvetica').fillColor('#777').text('Costo por artículo PENDIENTE (falta completar el costo del inventario).', M + 4, y); y += 14;
     } else { doc.fontSize(9).font('Helvetica').fillColor('#777').text('Sin detalle de artículos (procesá la factura en "Datos extraídos").', M + 4, y); y += 14; }
@@ -508,7 +537,7 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
       total2('Suma de costos por artículo', `${nMoney(cons.sumaCostoArticulos)}   (dif ${nMoney(cons.difArticulos)})`);
       total2('Movimientos a Mercaderías en los asientos', `${nMoney(cons.movimientosMercaderia)}   (dif ${nMoney(cons.difAsientos)})`);
       total2('Adquisición contable vs del asiento', `${nMoney(cons.adquisicionContable)} vs ${nMoney(cons.adquisicionAsiento)}   (dif ${nMoney(cons.difAdquisicion)})`);
-      doc.fontSize(8).font('Helvetica-Bold').fillColor(cons.ok ? '#1a7f37' : '#c00').text(cons.ok ? 'OK — las tres igualdades se cumplen (sin diferencias).' : 'INCONSISTENTE — hay diferencias; expediente pendiente de aprobación.', M + 2, y + 2); y += 14;
+      notaCol(cons.ok ? 'OK — las tres igualdades se cumplen (sin diferencias).' : 'INCONSISTENTE — hay diferencias; expediente pendiente de aprobación.', cons.ok ? '#1a7f37' : '#c00', true, 8);
     }
 
     // ── Gastos de plaza (desglose contable) ──
@@ -545,7 +574,7 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     total2('Anticipo IVA importación', money(antIva));
     total2('Anticipo IRAE', money(antIrae));
     total2('Tributos no recuperables (integran el costo)', money(noRec > 0n ? noRec : 0n));
-    doc.fontSize(7.5).font('Helvetica-Oblique').fillColor('#777').text('El IVA importación, el IVA de servicios y los anticipos de IVA/IRAE no integran el costo (son crédito fiscal / pagos a cuenta).', M + 2, y + 2); y += 14;
+    notaCol('El IVA importación, el IVA de servicios y los anticipos de IVA/IRAE no integran el costo (son crédito fiscal / pagos a cuenta).', '#777');
 
     // ── 7. Asientos contables CRONOLÓGICOS (en pesos, con moneda original y refs) ──
     heading('Asientos contables cronológicos');
