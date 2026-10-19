@@ -218,7 +218,10 @@ export function construirCostoFiscalAdquisicion(input: CostoFiscalInput): CostoF
   // ── Distribución por artículo (misma clave que el contable: FOB; resto por último) ──
   const arts = factura?.articulos ?? [];
   const sumaFob = arts.reduce((s, a) => s + a.fobME, 0n);
-  const metodoAsig = (config?.politicaDistribucion ?? 'FOB');
+  // Hoy la distribución es por VALOR (FOB), igual que el contable. El procedimiento de
+  // existencias (PPP/última compra) es un criterio de valuación AL CIERRE, no una clave
+  // de distribución del costo de ingreso; por eso no se usa como etiqueta acá.
+  const metodoAsig = 'FOB (valor)';
   const contableItems = contable.items;
   const items: ItemCostoFiscal[] = [];
   let acumF = 0n;

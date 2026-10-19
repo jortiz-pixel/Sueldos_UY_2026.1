@@ -274,7 +274,7 @@ export async function reconstruirCosteoDesdeExtraccion(importacionId: string): P
         factura: factura ? { numero: factura.numero ?? null, fecha: iso(factura.fecha), articulos: factura.articulos.map((a) => ({ codigo: a.codigo, descripcion: a.descripcion || a.codigo || 'Ítem', cantidad: a.cantidad || 1, unidad: null, fobME: a.total })) } : null,
         fechas: { nacionalizacion: iso(duaDate), factura: iso(factura?.fecha ?? null) },
         duaNumero: sanitizarIdentificador(d.nroDua) ?? null,
-        config: fiscalConfig ? { validado: fiscalConfig.validado, metodoValuacionInventario: fiscalConfig.metodoValuacionInventario, criterioMonedaExtranjera: fiscalConfig.criterioMonedaExtranjera, criterioFechaOperacion: fiscalConfig.criterioFechaOperacion, tratamientoIva: fiscalConfig.tratamientoIva, porcentajeIvaNoRecuperable: fiscalConfig.porcentajeIvaNoRecuperable, politicaDistribucion: fiscalConfig.procedimientoExistencias ?? null } : null,
+        config: fiscalConfig ? { validado: fiscalConfig.validado, metodoValuacionInventario: fiscalConfig.metodoValuacionInventario, criterioMonedaExtranjera: fiscalConfig.criterioMonedaExtranjera, criterioFechaOperacion: fiscalConfig.criterioFechaOperacion, tratamientoIva: fiscalConfig.tratamientoIva, porcentajeIvaNoRecuperable: fiscalConfig.porcentajeIvaNoRecuperable, politicaDistribucion: null } : null,
         cotizacionFiscal: (f: string) => fiscalCache.get(f) ?? null,
       };
       return construirCostoFiscalAdquisicion(fiscalInput);
