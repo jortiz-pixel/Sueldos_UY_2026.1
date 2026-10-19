@@ -389,6 +389,9 @@ export interface Importacion {
   costoMercaderia: string;
   creditoFiscalIva: string;
   anticipos: string;
+  // Costeo documental (DUA). El costo DEFINITIVO de la mercadería sale de acá.
+  costeoEstado?: string | null;
+  costeoDetalle?: { costoInventario?: string | null } | null;
   notas?: string | null;
   creadoPor?: string | null;
   createdAt: string;

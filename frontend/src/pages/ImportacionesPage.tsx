@@ -45,6 +45,14 @@ const fmt = (ctms: string) =>
   '$ ' + (Number(ctms) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const c2p = (ctms: string) => Number(ctms) / 100;
 
+// Costo DEFINITIVO de la mercadería: sale del costeo documental (DUA) cuando existe
+// (misma fuente que el informe); recién si no hay, usa la columna guardada. Devuelve
+// centésimos como string.
+const costoMercaderiaDef = (imp: Importacion): string => {
+  const d = imp.costeoDetalle?.costoInventario;
+  return d != null && d !== '' ? String(d) : imp.costoMercaderia;
+};
+
 type ItemForm = { descripcion: string; ncm: string; cantidad: number; fobUnitario: number };
 type TributoForm = { tipo: TributoTipo; tasa: number; monto: number };
 type GastoForm = { concepto: GastoConcepto; descripcion: string; monto: number; gravadoIva: boolean; ivaGasto: number };
@@ -345,7 +353,7 @@ export default function ImportacionesPage() {
                       ))}
                     </select>
                   </td>
-                  <td className="px-3 py-2 text-right figure">{fmt(imp.costoMercaderia)}</td>
+                  <td className="px-3 py-2 text-right figure">{fmt(costoMercaderiaDef(imp))}</td>
                   <td className="px-3 py-2 text-right figure">{fmt(imp.creditoFiscalIva)}</td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">
                     <button
@@ -542,11 +550,11 @@ function FormImportacion({ companyId, inicial, importacion, onClose, onSaved, on
           <Resumen label="CIF" valor={money(costeo.cif)} />
           <Resumen label="Total tributos" valor={money(costeo.totalTributos)} />
           <Resumen label="Total gastos de plaza" valor={money(costeo.totalGastos)} />
-          <Resumen label="Costo de la mercadería" valor={money(costeo.costoMercaderia)} fuerte />
+          <Resumen label="Costo de la mercadería" valor={money(importacion?.costeoDetalle?.costoInventario ? c2p(importacion.costeoDetalle.costoInventario) : costeo.costoMercaderia)} fuerte />
           <Resumen label="Crédito fiscal IVA" valor={money(costeo.creditoFiscalIva)} />
           <Resumen label="Anticipos (pago a cuenta)" valor={money(costeo.anticipos)} />
         </div>
-        <p className="text-xs text-ink-subtle mt-3">El IVA importación y los anticipos no integran el costo (son crédito fiscal / pagos a cuenta).</p>
+        <p className="text-xs text-ink-subtle mt-3">{importacion?.costeoDetalle?.costoInventario ? 'El costo de la mercadería es el del costeo documental (DUA): Adquisición + Tributos no recuperables + Gastos atribuibles. ' : ''}El IVA importación y los anticipos no integran el costo (son crédito fiscal / pagos a cuenta).</p>
       </div>
 
       {importacion && (
