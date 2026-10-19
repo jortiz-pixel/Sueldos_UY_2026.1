@@ -218,7 +218,8 @@ describe('parsers — identificación saneada', () => {
 // gastos desglosados, conciliaciones. Se prueba con MARPOLOS y con OTRO expediente
 // distinto (EUR, un solo anticipo que NO cubre el CIF) para verificar generalidad.
 // ═════════════════════════════════════════════════════════════════════════════
-import { construirCosteoHistorico, CosteoHistoricoInput } from '../src/services/importaciones.costeo.service';
+import { construirCosteoHistorico, CosteoHistoricoInput, cotizacionRespaldada } from '../src/services/importaciones.costeo.service';
+import { figurasResumen } from '../src/services/importaciones.pdf.service';
 
 const et = (k: string) => k;
 
@@ -647,5 +648,122 @@ describe('construirCosteoHistorico — correcciones MARPOLOS', () => {
     expect(r.consistencia.difArticulos).toBe(0n);
     expect(r.consistencia.difAsientos).toBe(0n);
     expect(r.consistencia.difAdquisicion).toBe(0n);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CORRECCIONES 2ª RONDA MARPOLOS: fuente única del resumen (portada = detalle =
+// artículos = asientos), cotización sin respaldo = provisional, saldo del
+// despachante confirmado vs proyectado.
+// ═════════════════════════════════════════════════════════════════════════════
+
+// Simula el guardado real: el motor produce bigints; costeoDetalle se guarda como
+// JSON (bigint → string). El informe lee de ESE JSON. Round-trip para probarlo.
+const aJson = (r: unknown) => JSON.parse(JSON.stringify(r, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)));
+
+describe('informe — ÚNICA FUENTE del cálculo (portada = detalle = artículos = asientos)', () => {
+  // PRUEBA OBLIGATORIA pedida: las cuatro cifras deben ser idénticas en cada versión.
+  const casos: Array<[string, () => CosteoHistoricoInput]> = [
+    ['MARPOLOS', () => marpolos(40.512, 40.674)],
+    ['MARPOLOS (flujos)', () => marpolosFlujos()],
+  ];
+  it.each(casos)('%s: costo de portada = detalle = suma por artículos = movimientos netos', (_n, mk) => {
+    const r = construirCosteoHistorico(mk());
+    const det = aJson(r); // como se guarda y como lo lee el informe
+
+    // 1) Portada: sale del MISMO costeoDetalle (no de columnas en caché).
+    const impCol = { costoMercaderia: 999999_99n, creditoFiscalIva: 1n, anticipos: 2n, cif: 3n }; // columnas DESACTUALIZADAS a propósito
+    const portada = figurasResumen(det, impCol).costoInventario;
+
+    // 2) Detalle (costo del inventario del costeo).
+    const detalle = BigInt(det.costoInventario);
+
+    // 3) Suma por artículos.
+    const sumaArticulos = (det.items as Array<{ costo: string }>).reduce((s, i) => s + BigInt(i.costo), 0n);
+
+    // 4) Movimientos contables NETOS de Mercaderías importadas.
+    const movNetos = (det.asientos as Array<{ lineas: Array<{ cuenta: string; debe: string; haber: string }> }>)
+      .reduce((s, a) => s + a.lineas.filter((l) => l.cuenta === 'mercaderiasImportadas').reduce((ss, l) => ss + BigInt(l.debe) - BigInt(l.haber), 0n), 0n);
+
+    expect(portada).toBe(detalle);
+    expect(sumaArticulos).toBe(detalle);
+    expect(movNetos).toBe(detalle);
+    expect(portada).toBe(r.costoInventario); // y coincide con el cálculo en memoria
+  });
+
+  it('la portada NUNCA usa una columna precalculada cuando hay costeo histórico', () => {
+    const det = aJson(construirCosteoHistorico(marpolos(40.512, 40.674)));
+    // Columna en caché con un valor viejo distinto (255.712,57) ≠ costeo (255.651,11…).
+    const impCol = { costoMercaderia: C(255712.57), creditoFiscalIva: 0n, anticipos: 0n, cif: 0n };
+    const fig = figurasResumen(det, impCol);
+    expect(fig.fuente).toBe('costeo');
+    expect(fig.costoInventario).toBe(BigInt(det.costoInventario));
+    expect(fig.costoInventario).not.toBe(C(255712.57));
+  });
+
+  it('sin costeo histórico, la portada cae a las columnas (compatibilidad)', () => {
+    const impCol = { costoMercaderia: C(1000), creditoFiscalIva: C(50), anticipos: C(10), cif: C(900) };
+    const fig = figurasResumen(null, impCol);
+    expect(fig.fuente).toBe('columnas');
+    expect(fig.costoInventario).toBe(C(1000));
+  });
+});
+
+describe('cotización sin respaldo = PROVISIONAL (no definitiva)', () => {
+  it('cotizacionRespaldada acepta BCU/manual y rechaza el TC aduanero del DUA', () => {
+    expect(cotizacionRespaldada('BCU 2026-08-27 (venta)')).toBe(true);
+    expect(cotizacionRespaldada('MANUAL 2026-08-27')).toBe(true);
+    expect(cotizacionRespaldada('cotización cargada 2026-08-27')).toBe(true);
+    expect(cotizacionRespaldada('DUA (cotización oficial del día de la operación)')).toBe(false);
+    expect(cotizacionRespaldada('provisional (TC del DUA 40.266)')).toBe(false);
+    expect(cotizacionRespaldada('')).toBe(false);
+    expect(cotizacionRespaldada(null)).toBe(false);
+  });
+
+  it('KIXOLER con cotización respaldada por BCU queda DEFINITIVA (no provisional)', () => {
+    const r = construirCosteoHistorico(marpolosFlujos()); // KIXOLER trae fuente BCU
+    const kix = r.gastos.find((g) => g.documento.includes('24391'))!;
+    expect(kix.provisional).toBe(false);
+    expect(r.estado).toBe('OK');
+  });
+
+  it('KIXOLER con TC del DUA (sin respaldo) se marca PROVISIONAL y no se da por definitivo', () => {
+    const base = marpolosFlujos();
+    const conDua: CosteoHistoricoInput = {
+      ...base,
+      servicios: base.servicios.map((s) => s.numero === '24391'
+        ? { ...s, cotizacion: 40.266, fuenteCotizacion: 'DUA (cotización oficial del día de la operación)' }
+        : s),
+    };
+    const r = construirCosteoHistorico(conDua);
+    const kix = r.gastos.find((g) => g.documento.includes('24391'))!;
+    expect(kix.provisional).toBe(true);
+    expect(r.estado).toBe('PROVISIONAL');
+    expect(r.motivos.join(' ')).toMatch(/no tiene respaldo verificable/i);
+  });
+});
+
+describe('cuenta del despachante — saldo CONFIRMADO vs PROYECTADO', () => {
+  it('con el pago pendiente, el saldo confirmado es a pagar y el proyectado a favor', () => {
+    const r = construirCosteoHistorico(marpolosFlujos());
+    const cd = r.cuentaDespachante!;
+    // Proyectado (si se acredita el pago): +681 a favor del importador.
+    expect(cd.saldoProyectadoUYU).toBe(C(96137) - C(95456));
+    expect(cd.saldoUYU).toBe(cd.saldoProyectadoUYU); // saldoUYU = proyectado (compat)
+    // Confirmado (pago aún no acreditado): a pagar = −cargos = −95.456.
+    expect(cd.saldoConfirmadoUYU).toBe(-C(95456));
+    expect(cd.pagosPendientesUYU).toBe(C(96137));
+    expect(cd.pagosConfirmadosUYU).toBe(0n);
+    expect(r.conciliacion.despachante?.nota).toMatch(/CONFIRMADO/);
+    expect(r.conciliacion.despachante?.nota).toMatch(/PROYECTADO/);
+  });
+
+  it('con el pago confirmado, confirmado = proyectado (+681 a favor)', () => {
+    const r = construirCosteoHistorico({ ...marpolosFlujos(), pagoDespachanteConfirmado: true });
+    const cd = r.cuentaDespachante!;
+    expect(cd.saldoConfirmadoUYU).toBe(C(96137) - C(95456));
+    expect(cd.saldoProyectadoUYU).toBe(cd.saldoConfirmadoUYU);
+    expect(cd.pagosConfirmadosUYU).toBe(C(96137));
+    expect(cd.pagosPendientesUYU).toBe(0n);
   });
 });

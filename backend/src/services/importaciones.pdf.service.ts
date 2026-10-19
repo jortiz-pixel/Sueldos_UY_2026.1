@@ -84,6 +84,31 @@ export function costeoFilename(imp: ImportacionPdf): string {
   return `informe_importacion_${(imp.duaNumero || 'sindua').replace(/[^\w-]/g, '')}`;
 }
 
+/**
+ * ÚNICA FUENTE de las cifras del informe: cuando existe el costeo histórico
+ * (`costeoDetalle`), TODAS las cifras del resumen salen de ÉL (la misma versión del
+ * cálculo que el detalle, los artículos y los asientos). Solo si no hay costeo
+ * histórico se recurre a las columnas precalculadas de la importación. Así el resumen
+ * NUNCA puede diferir del detalle por un valor en caché.
+ */
+export function figurasResumen(
+  det: { costoInventario?: unknown; creditoFiscalIva?: unknown; anticiposFiscales?: unknown; adquisicionUYU?: unknown } | null | undefined,
+  imp: { costoMercaderia: bigint; creditoFiscalIva: bigint; anticipos: bigint; cif: bigint },
+): { costoInventario: bigint; creditoFiscalIva: bigint; anticiposFiscales: bigint; adquisicionUYU: bigint; fuente: 'costeo' | 'columnas' } {
+  const B = (v: unknown, fallback: bigint): bigint => {
+    if (det != null && v != null && v !== '') { try { return BigInt(String(v)); } catch { return fallback; } }
+    return fallback;
+  };
+  const usaCosteo = det != null && det.costoInventario != null && det.costoInventario !== '';
+  return {
+    costoInventario: B(det?.costoInventario, imp.costoMercaderia),
+    creditoFiscalIva: B(det?.creditoFiscalIva, imp.creditoFiscalIva),
+    anticiposFiscales: B(det?.anticiposFiscales, imp.anticipos),
+    adquisicionUYU: B(det?.adquisicionUYU, imp.cif),
+    fuente: usaCosteo ? 'costeo' : 'columnas',
+  };
+}
+
 export function generateInformePDF(input: InformeInput): Promise<Buffer> {
   const { empresa, imp, plan, facturas, liquidaciones, transferencias, documentos } = input;
   const asientos = input.asientos ?? [];
@@ -198,15 +223,29 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
           ? `${nMoney(cd0.pagosPendientesUYU)} s/confirmar`
           : (cd0.pagosConfirmadosUYU && Number(cd0.pagosConfirmadosUYU) > 0 ? `${nMoney(cd0.pagosConfirmadosUYU)} confirmado` : '—'))
       : '—';
+    // Saldo del despachante: CONFIRMADO (real, mientras el pago no se acredita) y, si hay
+    // pagos sin confirmar, el PROYECTADO (si se acreditan).
+    const saldoDespDisp = (() => {
+      if (!cd0) return '—';
+      const fmt = (v: number) => (v > 0 ? `${nMoney(v)} a favor` : (v < 0 ? `${nMoney(-v)} a pagar` : 'saldada'));
+      const sc = Number(cd0.saldoConfirmadoUYU ?? cd0.saldoUYU);
+      const sp = Number(cd0.saldoProyectadoUYU ?? cd0.saldoUYU);
+      return (cd0.pagosPendientesUYU && Number(cd0.pagosPendientesUYU) > 0)
+        ? `confirmado ${fmt(sc)} · proyectado ${fmt(sp)}`
+        : fmt(sp);
+    })();
+    // #1: TODAS las cifras del resumen salen del MISMO cálculo (costeoDetalle) que el
+    // detalle y los asientos; nunca de columnas precalculadas que puedan diferir.
+    const fig = figurasResumen(det, imp);
     const resumen: Array<[string, string]> = [
       ['CIF (factura)', fac0 ? money(fac0.cif, sym(fac0.moneda)) : money(imp.cif)],
-      ['Costo del inventario', pendiente ? 'PENDIENTE' : money(imp.costoMercaderia)],
-      ['Crédito fiscal IVA', money(imp.creditoFiscalIva)],
-      ['Anticipos (pago a cuenta)', money(imp.anticipos)],
+      ['Costo del inventario', pendiente ? 'PENDIENTE' : money(fig.costoInventario)],
+      ['Crédito fiscal IVA', money(fig.creditoFiscalIva)],
+      ['Anticipos (pago a cuenta)', money(fig.anticiposFiscales)],
       ['Total pagado al proveedor', money(totPagRes, 'US$')],
       ['TC contable (anticipos)', tcContableDisp],
       ['Cta. despachante (cargos)', cd0 ? nMoney(cd0.cargosUYU) : '—'],
-      ['Cta. despachante (saldo)', cd0 ? `${nMoney(cd0.saldoUYU)}${cd0.pagoConfirmado ? '' : ' (s/confirmar)'}` : '—'],
+      ['Cta. despachante (saldo)', saldoDespDisp],
       ['Pago al despachante', pagoDespDisp],
     ];
     const boxH = 16 + Math.ceil(resumen.length / 2) * 15 + 8;
@@ -474,15 +513,20 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
 
     // ── Gastos de plaza (desglose contable) ──
     heading('Gastos de plaza (desglose contable)');
-    const gastosDet: Array<{ documento: string; concepto: string; moneda: string; montoME: number; cotizacion: number; montoUYU: string; incluidoEnCosto: boolean; porCuentaDeTerceros: boolean; tratamiento: string }> = det?.gastos ?? [];
+    const gastosDet: Array<{ documento: string; concepto: string; moneda: string; montoME: number; cotizacion: number; montoUYU: string; incluidoEnCosto: boolean; porCuentaDeTerceros: boolean; tratamiento: string; provisional?: boolean; fuenteCotizacion?: string | null }> = det?.gastos ?? [];
     if (gastosDet.length) {
       tabla(
-        [{ w: 86, title: 'Documento' }, { w: W - 406, title: 'Concepto' }, { w: 40, title: 'Mon.' }, { w: 52, title: 'TC', align: 'right' }, { w: 92, title: 'Importe $', align: 'right' }, { w: 136, title: 'Tratamiento' }],
-        gastosDet.map((g) => [g.documento, g.concepto, g.moneda, g.moneda === 'UYU' ? '—' : String(g.cotizacion), g.incluidoEnCosto ? nMoney(g.montoUYU) : '(no suma)', g.tratamiento.length > 60 ? g.tratamiento.slice(0, 57) + '…' : g.tratamiento]),
+        [{ w: 80, title: 'Documento' }, { w: W - 430, title: 'Concepto' }, { w: 36, title: 'Mon.' }, { w: 46, title: 'TC', align: 'right' }, { w: 86, title: 'Importe $', align: 'right' }, { w: 182, title: 'Fuente del TC / tratamiento' }],
+        gastosDet.map((g) => {
+          const fuente = g.moneda === 'UYU' ? 'operación en pesos' : (g.provisional ? `PROVISIONAL — sin respaldo (${g.fuenteCotizacion ?? 'sin fuente'})` : (g.fuenteCotizacion ?? 'cotización contable'));
+          const col = fuente.length > 44 ? fuente.slice(0, 41) + '…' : fuente;
+          return [g.documento, g.concepto, g.moneda, g.moneda === 'UYU' ? '—' : `${String(g.cotizacion)}${g.provisional ? ' *' : ''}`, g.incluidoEnCosto ? nMoney(g.montoUYU) : '(no suma)', col];
+        }),
       );
       y += 4;
       total2('Total gastos de plaza que integran el costo', nMoney(det?.totalGastosUYU), true);
       total2('IVA de servicios (crédito fiscal)', nMoney(det?.ivaGastosUYU));
+      if (gastosDet.some((g) => g.provisional)) nota('(*) Cotización en ME SIN respaldo verificable (BCU/manual) para la fecha del comprobante: el importe se mantiene PROVISIONAL, no definitivo. Cargá la cotización de la fecha para confirmarlo.');
       nota('Se incluyen solo los gastos facturados AL IMPORTADOR. Los pagos por cuenta de terceros (TCU re-facturado por el despachante) se cuentan una sola vez; la factura del terminal emitida al despachante y el "no facturable" (tributos del DUA) NO se suman como gasto.');
     } else { vacio('Sin gastos de plaza desglosados (procesá los documentos).'); }
 
@@ -581,12 +625,15 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     if (conc?.liquidacionPreliminar) {
       const lp = conc.liquidacionPreliminar;
       const okLp = (lp.difVsDua ?? 0) === 0 || Math.abs(Number(lp.difVsDua) / 100) <= 700; // tolera estimado vs liquidado + escáner
-      check('Liquidación preliminar vs tributos del DUA', okLp, `preliminar ${nMoney(lp.sumaConceptos)} vs DUA ${nMoney(lp.tributosDua)} (dif ${nMoney(lp.difVsDua < 0 ? -lp.difVsDua : lp.difVsDua)}). ${lp.nota}`);
+      check('Liquidación preliminar vs tributos del DUA', okLp, `tributos preliminar ${nMoney(lp.sumaTributos ?? lp.sumaConceptos)} vs DUA ${nMoney(lp.tributosDua)} (dif ${nMoney(lp.difVsDua < 0 ? -lp.difVsDua : lp.difVsDua)}). ${lp.nota}`);
     }
     if (conc?.despachante) {
       const d0 = det?.cuentaDespachante ?? null;
+      const hayPend = d0 && Number(d0.pagosPendientesUYU ?? 0) > 0;
       const detPagos = d0 ? `confirmados ${nMoney(d0.pagosConfirmadosUYU)} · pendientes ${nMoney(d0.pagosPendientesUYU)}` : `pagos ${nMoney(conc.despachante.totalPagos)}`;
-      check('Cuenta del despachante', (conc.despachante.saldo ?? 0) >= 0 ? true : false, `cargos ${nMoney(conc.despachante.totalCargos)} · ${detPagos}. ${conc.despachante.nota}`);
+      // Con pagos pendientes de confirmar, se marca como advertencia (el saldo a favor es
+      // solo PROYECTADO): el saldo CONFIRMADO todavía es a pagar.
+      check('Cuenta del despachante', hayPend ? false : ((conc.despachante.saldo ?? 0) >= 0), `cargos ${nMoney(conc.despachante.totalCargos)} · ${detPagos}. ${conc.despachante.nota}`);
     }
 
     // ── Packing list / detalle logístico ──

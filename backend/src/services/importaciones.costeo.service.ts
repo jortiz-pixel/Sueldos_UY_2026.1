@@ -357,6 +357,9 @@ export interface GastoDesglosado {
   fecha?: string | null; fuenteCotizacion?: string | null;
   montoME: number; cotizacion: number; montoUYU: bigint; ivaUYU: bigint;
   gravado: boolean; porCuentaDeTerceros: boolean; incluidoEnCosto: boolean; esDelDespachante: boolean; tratamiento: string;
+  // true si la cotización del gasto en ME no tiene respaldo verificable (p. ej. quedó
+  // con el TC del DUA): el importe no es definitivo.
+  provisional?: boolean;
 }
 
 export interface CosteoHistorico {
@@ -378,7 +381,11 @@ export interface CosteoHistorico {
   cuentaDespachante: {
     cargosUYU: bigint; pagosUYU: bigint;
     pagosConfirmadosUYU: bigint; pagosPendientesUYU: bigint;
-    saldoUYU: bigint; pagoConfirmado: boolean;
+    // saldoUYU = saldo PROYECTADO (neto de todos los movimientos, incluido el pago sin
+    // confirmar). saldoConfirmadoUYU = solo movimientos CONFIRMADOS (asientos definitivos):
+    // el saldo real mientras el pago no se acredite. saldoProyectadoUYU = con el pago.
+    saldoUYU: bigint; saldoConfirmadoUYU: bigint; saldoProyectadoUYU: bigint;
+    pagoConfirmado: boolean;
   } | null;
   asientos: AsientoHist[];
   // Verificación automática de consistencia (PASO 6): todas las igualdades deben dar 0.
@@ -435,6 +442,18 @@ export interface CosteoHistoricoInput {
 }
 
 const cents = (me: number, tc: number): bigint => BigInt(Math.round(me * tc * 100));
+
+/** Una cotización es DEFINITIVA solo si su fuente es verificable: BCU, carga manual
+ *  o una cotización contable cargada. El tipo de cambio ADUANERO del DUA NO respalda
+ *  el criterio contable/fiscal: si una partida en ME quedó valuada con una fuente así
+ *  (o sin fuente), se mantiene PROVISIONAL, no definitiva. */
+export function cotizacionRespaldada(fuente?: string | null): boolean {
+  const f = (fuente ?? '').trim();
+  if (!f) return false;
+  if (/\bDUA\b|aduaner/i.test(f)) return false;                 // el TC del DUA no respalda
+  if (/provisional/i.test(f)) return false;
+  return /^(BCU|MANUAL|cotizaci[oó]n cargada|cargada|operaci[oó]n en pesos)/i.test(f);
+}
 
 export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHistorico {
   const { dua, factura, servicios, anticipos, pagoSpeCtms, pagoDespachanteCtms, fechaPagoDespachante, pagoDespachanteConfirmado, pagoAgencia, fechaReconocimiento, cotizacionReconocimiento, tcProvisional, unidadesPacking, packingBultos, packingBultosDeclarados, liquidacionPreliminar, etiqueta } = input;
@@ -494,30 +513,38 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
   const importadorRut = dua?.importadorRut ?? null;
   const rutDespachante = dua?.declaranteRut ?? null;
   const gastos: GastoDesglosado[] = [];
+  // Cada gasto de la iteración se marca provisional si su cotización en ME no es
+  // definitiva (sin respaldo BCU/manual, p. ej. quedó con el TC del DUA).
+  let gastoProvisional = false;
+  const pushG = (g: GastoDesglosado) => gastos.push({ ...g, provisional: g.provisional ?? gastoProvisional });
   for (const s of servicios) {
     const esUsd = (s.moneda ?? '').toUpperCase() === 'USD';
+    const cotOk = validarTipoCambio(s.cotizacion).valido;
+    const respaldada = !esUsd || cotizacionRespaldada(s.fuenteCotizacion);
     const tcS = esUsd ? (validarTipoCambio(s.cotizacion).valor ?? validarTipoCambio(tcProvisional).valor) : 1;
-    if (esUsd && !validarTipoCambio(s.cotizacion).valido) { provisionalCosto = true; motivos.push(`Falta la cotización del servicio ${s.emisor ?? ''} (${s.serie ?? ''}${s.numero ?? ''}) para convertir ${s.moneda} (provisional).`); }
+    gastoProvisional = esUsd && (!cotOk || !respaldada);
+    if (esUsd && !cotOk) { provisionalCosto = true; motivos.push(`Falta la cotización del servicio ${s.emisor ?? ''} (${s.serie ?? ''}${s.numero ?? ''}) para convertir ${s.moneda} (provisional).`); }
+    else if (esUsd && !respaldada) { provisionalCosto = true; motivos.push(`La cotización del servicio ${s.emisor ?? ''} (${s.serie ?? ''}${s.numero ?? ''}) no tiene respaldo verificable (fuente: ${s.fuenteCotizacion ?? 'sin fuente'}): se mantiene PROVISIONAL, no se considera definitiva.`); }
     const doc = `${s.emisor ?? 'Servicio'} ${s.serie ?? ''}${s.numero ?? ''}`.trim();
     const facturadoATercero = !!(importadorRut && s.rutComprador && s.rutComprador !== importadorRut);
     const hon = Number(s.honorarios) || 0;
     const gop = Number(s.gastosOperativos) || 0;
     if (facturadoATercero) {
       // No es costo del importador: lo re-cobra el despachante (evita duplicar).
-      gastos.push({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, fecha: s.fecha ?? null, fuenteCotizacion: s.fuenteCotizacion ?? null, esDelDespachante: rutDespachante ? (s.rutEmisor === rutDespachante) : false, concepto: 'Servicio facturado al despachante', moneda: s.moneda ?? 'UYU', montoME: Number(s.total) || 0, cotizacion: tcS ?? 1, montoUYU: 0n, ivaUYU: 0n, gravado: false, porCuentaDeTerceros: true, incluidoEnCosto: false, tratamiento: 'Facturado a un tercero (el despachante); se evita duplicar — el costo entra por su re-facturación.' });
+      pushG({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, fecha: s.fecha ?? null, fuenteCotizacion: s.fuenteCotizacion ?? null, esDelDespachante: rutDespachante ? (s.rutEmisor === rutDespachante) : false, concepto: 'Servicio facturado al despachante', moneda: s.moneda ?? 'UYU', montoME: Number(s.total) || 0, cotizacion: tcS ?? 1, montoUYU: 0n, ivaUYU: 0n, gravado: false, porCuentaDeTerceros: true, incluidoEnCosto: false, tratamiento: 'Facturado a un tercero (el despachante); se evita duplicar — el costo entra por su re-facturación.' });
       continue;
     }
     if (hon || gop) {
-      if (hon) gastos.push({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, fecha: s.fecha ?? null, fuenteCotizacion: s.fuenteCotizacion ?? null, esDelDespachante: rutDespachante ? (s.rutEmisor === rutDespachante) : false, concepto: 'Honorarios del despachante', moneda: s.moneda ?? 'UYU', montoME: hon, cotizacion: tcS ?? 1, montoUYU: cents(hon, tcS ?? 1), ivaUYU: cents(Math.round(hon * 0.22 * 100) / 100, tcS ?? 1), gravado: true, porCuentaDeTerceros: false, incluidoEnCosto: true, tratamiento: 'Gasto directamente atribuible (gravado 22%, IVA crédito).' });
-      if (gop) gastos.push({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, fecha: s.fecha ?? null, fuenteCotizacion: s.fuenteCotizacion ?? null, esDelDespachante: rutDespachante ? (s.rutEmisor === rutDespachante) : false, concepto: 'Gastos operativos', moneda: s.moneda ?? 'UYU', montoME: gop, cotizacion: tcS ?? 1, montoUYU: cents(gop, tcS ?? 1), ivaUYU: cents(Math.round(gop * 0.22 * 100) / 100, tcS ?? 1), gravado: true, porCuentaDeTerceros: false, incluidoEnCosto: true, tratamiento: 'Gasto directamente atribuible (gravado 22%, IVA crédito).' });
+      if (hon) pushG({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, fecha: s.fecha ?? null, fuenteCotizacion: s.fuenteCotizacion ?? null, esDelDespachante: rutDespachante ? (s.rutEmisor === rutDespachante) : false, concepto: 'Honorarios del despachante', moneda: s.moneda ?? 'UYU', montoME: hon, cotizacion: tcS ?? 1, montoUYU: cents(hon, tcS ?? 1), ivaUYU: cents(Math.round(hon * 0.22 * 100) / 100, tcS ?? 1), gravado: true, porCuentaDeTerceros: false, incluidoEnCosto: true, tratamiento: 'Gasto directamente atribuible (gravado 22%, IVA crédito).' });
+      if (gop) pushG({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, fecha: s.fecha ?? null, fuenteCotizacion: s.fuenteCotizacion ?? null, esDelDespachante: rutDespachante ? (s.rutEmisor === rutDespachante) : false, concepto: 'Gastos operativos', moneda: s.moneda ?? 'UYU', montoME: gop, cotizacion: tcS ?? 1, montoUYU: cents(gop, tcS ?? 1), ivaUYU: cents(Math.round(gop * 0.22 * 100) / 100, tcS ?? 1), gravado: true, porCuentaDeTerceros: false, incluidoEnCosto: true, tratamiento: 'Gasto directamente atribuible (gravado 22%, IVA crédito).' });
       // El "no facturable" de la e-factura del despachante = tributos del DUA (NO es gasto).
       const noFac = Number(s.noFacturable) || 0;
-      if (noFac) gastos.push({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, fecha: s.fecha ?? null, fuenteCotizacion: s.fuenteCotizacion ?? null, esDelDespachante: rutDespachante ? (s.rutEmisor === rutDespachante) : false, concepto: 'Pagos por cuenta del importador (tributos / tasas oficiales)', moneda: s.moneda ?? 'UYU', montoME: noFac, cotizacion: 1, montoUYU: 0n, ivaUYU: 0n, gravado: false, porCuentaDeTerceros: false, incluidoEnCosto: false, tratamiento: 'No es gasto: son los tributos del DUA pagados por cuenta; ya se cuentan en la liquidación aduanera.' });
+      if (noFac) pushG({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, fecha: s.fecha ?? null, fuenteCotizacion: s.fuenteCotizacion ?? null, esDelDespachante: rutDespachante ? (s.rutEmisor === rutDespachante) : false, concepto: 'Pagos por cuenta del importador (tributos / tasas oficiales)', moneda: s.moneda ?? 'UYU', montoME: noFac, cotizacion: 1, montoUYU: 0n, ivaUYU: 0n, gravado: false, porCuentaDeTerceros: false, incluidoEnCosto: false, tratamiento: 'No es gasto: son los tributos del DUA pagados por cuenta; ya se cuentan en la liquidación aduanera.' });
     } else {
       const total = Number(s.total) || 0;
       if (total > 0) {
         const esReembolso = /terceros|terminal/i.test(doc) || /terceros|terminal/i.test(String(s.concepto ?? ''));
-        gastos.push({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, fecha: s.fecha ?? null, fuenteCotizacion: s.fuenteCotizacion ?? null, esDelDespachante: rutDespachante ? (s.rutEmisor === rutDespachante) : false, concepto: esReembolso ? 'Reembolso de gasto de terminal (por cuenta de terceros)' : 'Servicio de plaza', moneda: s.moneda ?? 'UYU', montoME: total, cotizacion: tcS ?? 1, montoUYU: cents(total, tcS ?? 1), ivaUYU: 0n, gravado: (Number(s.iva) || 0) > 0, porCuentaDeTerceros: esReembolso, incluidoEnCosto: true, tratamiento: esReembolso ? 'Costo del importador (reembolso del gasto de terminal que el despachante pagó por su cuenta).' : 'Gasto directamente atribuible.' });
+        pushG({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, fecha: s.fecha ?? null, fuenteCotizacion: s.fuenteCotizacion ?? null, esDelDespachante: rutDespachante ? (s.rutEmisor === rutDespachante) : false, concepto: esReembolso ? 'Reembolso de gasto de terminal (por cuenta de terceros)' : 'Servicio de plaza', moneda: s.moneda ?? 'UYU', montoME: total, cotizacion: tcS ?? 1, montoUYU: cents(total, tcS ?? 1), ivaUYU: 0n, gravado: (Number(s.iva) || 0) > 0, porCuentaDeTerceros: esReembolso, incluidoEnCosto: true, tratamiento: esReembolso ? 'Costo del importador (reembolso del gasto de terminal que el despachante pagó por su cuenta).' : 'Gasto directamente atribuible.' });
       }
     }
   }
@@ -646,8 +673,11 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
   // de cobranza, sin comprobante de egreso).
   const pagosConfirmadosDesp = asientos.filter((a) => a.definitivo).reduce((s, a) => s + a.lineas.filter((l) => l.cuenta === 'despachantes').reduce((ss, l) => ss + l.debe, 0n), 0n);
   const pagosPendientesDesp = asientos.filter((a) => !a.definitivo).reduce((s, a) => s + a.lineas.filter((l) => l.cuenta === 'despachantes').reduce((ss, l) => ss + l.debe, 0n), 0n);
+  // Saldo CONFIRMADO = neto de los movimientos de asientos DEFINITIVOS (el pago sin
+  // confirmar no cuenta). Saldo PROYECTADO = neto de todos (como si el pago se acreditara).
+  const saldoConfirmadoDesp = asientos.filter((a) => a.definitivo).reduce((s, a) => s + a.lineas.filter((l) => l.cuenta === 'despachantes').reduce((ss, l) => ss + l.debe - l.haber, 0n), 0n);
   const cuentaDespachante = (cargosDespachante > 0n || pagosDespachanteAs > 0n)
-    ? { cargosUYU: cargosDespachante, pagosUYU: pagosDespachanteAs, pagosConfirmadosUYU: pagosConfirmadosDesp, pagosPendientesUYU: pagosPendientesDesp, saldoUYU: movDespachante, pagoConfirmado: !!pagoDespachanteConfirmado }
+    ? { cargosUYU: cargosDespachante, pagosUYU: pagosDespachanteAs, pagosConfirmadosUYU: pagosConfirmadosDesp, pagosPendientesUYU: pagosPendientesDesp, saldoUYU: movDespachante, saldoConfirmadoUYU: saldoConfirmadoDesp, saldoProyectadoUYU: movDespachante, pagoConfirmado: !!pagoDespachanteConfirmado }
     : null;
 
   // ── Conciliaciones ──
@@ -666,7 +696,14 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
       if (cuentaDespachante.pagosConfirmadosUYU > 0n) pagos.push({ concepto: 'Pagos confirmados (egreso bancario verificado)', monto: cuentaDespachante.pagosConfirmadosUYU });
       if (cuentaDespachante.pagosPendientesUYU > 0n) pagos.push({ concepto: 'Pagos pendientes de confirmación (solo recibo de cobranza)', monto: cuentaDespachante.pagosPendientesUYU });
       if (!pagos.length) pagos.push({ concepto: 'Sin pagos registrados', monto: 0n });
-      return { cargos, totalCargos: cuentaDespachante.cargosUYU, pagos, totalPagos: cuentaDespachante.pagosUYU, saldo, nota: (saldo > 0n ? `Saldo a favor del importador de $ ${(Number(saldo) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2 })} (entrega a cuenta mayor; documentado en el recibo y la adenda).` : (saldo < 0n ? `Saldo pendiente con el despachante de $ ${(Number(-saldo) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2 })}.` : 'Cuenta saldada.')) + conf };
+      const sC = cuentaDespachante.saldoConfirmadoUYU; // saldo real mientras el pago no se acredita
+      const sP = cuentaDespachante.saldoProyectadoUYU; // saldo si el pago se acredita
+      const fmtSaldo = (v: bigint) => (v > 0n ? `$ ${(Number(v) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2 })} a favor del importador` : (v < 0n ? `$ ${(Number(-v) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2 })} a pagar al despachante` : 'saldada'));
+      // Diferencia explícita entre el saldo CONFIRMADO y el PROYECTADO (si hay pagos sin confirmar).
+      const nota = cuentaDespachante.pagosPendientesUYU > 0n
+        ? `Saldo CONFIRMADO: ${fmtSaldo(sC)} (el pago de $ ${(Number(cuentaDespachante.pagosPendientesUYU) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2 })} aún NO está acreditado). Saldo PROYECTADO si se acredita ese pago: ${fmtSaldo(sP)}.${conf}`
+        : (saldo > 0n ? `Saldo a favor del importador de $ ${(Number(saldo) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2 })} (entrega a cuenta mayor; documentado en el recibo y la adenda).` : (saldo < 0n ? `Saldo pendiente con el despachante de $ ${(Number(-saldo) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2 })}.` : 'Cuenta saldada.')) + conf;
+      return { cargos, totalCargos: cuentaDespachante.cargosUYU, pagos, totalPagos: cuentaDespachante.pagosUYU, saldo, nota };
     })() : null,
     tributos: (dua && pagoSpeCtms != null) ? { dua: totalTributos, spe: pagoSpeCtms, ok: (totalTributos - pagoSpeCtms < 0n ? pagoSpeCtms - totalTributos : totalTributos - pagoSpeCtms) <= 100n, detalle: tributos.map((t) => ({ codigo: t.codigo, nombre: (dua.tributos.find((x) => x.codigo === t.codigo)?.nombre) ?? t.codigo, monto: t.monto })) } : null,
     unidades: { dua: dua ? null : null, factura: factura ? factura.articulos.reduce((s, a) => s + (a.cantidad || 0), 0) : 0, packing: unidadesPacking, packingBultos: packingBultos ?? null, packingBultosDeclarados: packingBultosDeclarados ?? null, ok: false, parseIncompleto: false, nota: '' },
