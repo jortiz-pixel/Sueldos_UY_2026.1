@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { randomUUID } from 'crypto';
 import jwt from 'jsonwebtoken';
 import { UserRole } from '@prisma/client';
 
@@ -182,8 +183,11 @@ export function generateAccessToken(payload: JwtPayload): string {
 export function generateRefreshToken(userId: string): string {
   const secret = process.env.JWT_REFRESH_SECRET;
   if (!secret) throw new Error('JWT_REFRESH_SECRET no configurado');
+  // jwtid aleatorio: sin él, dos sesiones del mismo usuario en el mismo
+  // segundo daban el MISMO token y chocaban con el índice único (doble clic).
   return jwt.sign({ userId }, secret, {
     expiresIn: (process.env.JWT_REFRESH_EXPIRES_IN || '7d') as jwt.SignOptions['expiresIn'],
+    jwtid: randomUUID(),
   });
 }
 

@@ -253,19 +253,7 @@ authRouter.post('/efactura', async (req: Request, res: Response, next: NextFunct
     const { resolverAccesoEfactura } = await import('../services/efactura.service');
     const { user, companyId } = await resolverAccesoEfactura(token);
 
-    // Dos sesiones del mismo usuario en el mismo segundo generan el mismo
-    // refresh token (JWT idéntico) y chocan con el índice único: se reintenta
-    // una vez pasado el segundo. Pasa más al entrar desde e-Factura (cada
-    // apertura del panel inicia sesión).
-    let sesion: { accessToken: string; refreshToken: string };
-    try {
-      sesion = await emitirSesion(user);
-    } catch (e) {
-      if ((e as { code?: string }).code !== 'P2002') throw e;
-      await new Promise((r) => setTimeout(r, 1100));
-      sesion = await emitirSesion(user);
-    }
-    const { accessToken, refreshToken } = sesion;
+    const { accessToken, refreshToken } = await emitirSesion(user);
     await recordAudit({ action: 'LOGIN', entity: 'auth', userId: user.id, companyId: companyId ?? user.companyId, newData: { email: user.email, metodo: 'efactura' }, req });
     res.json({
       accessToken,
