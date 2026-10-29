@@ -241,3 +241,40 @@ authRouter.put('/change-password', authenticate, async (req: Request, res: Respo
     next(err);
   }
 });
+
+// POST /api/auth/efactura  { token }
+//   Ingreso desde AsysTax e-Factura: el facturador muestra Sueldos en su panel
+//   y presenta un pase de un solo uso del usuario y la empresa activos. Solo
+//   inicia sesión si el MISMO email ya existe (y está activo) en Sueldos.
+//   Devuelve además la empresa (por RUT) si el usuario tiene acceso a ella.
+authRouter.post('/efactura', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { token } = z.object({ token: z.string().min(1).max(100) }).parse(req.body);
+    const { resolverAccesoEfactura } = await import('../services/efactura.service');
+    const { user, companyId } = await resolverAccesoEfactura(token);
+
+    // Dos sesiones del mismo usuario en el mismo segundo generan el mismo
+    // refresh token (JWT idéntico) y chocan con el índice único: se reintenta
+    // una vez pasado el segundo. Pasa más al entrar desde e-Factura (cada
+    // apertura del panel inicia sesión).
+    let sesion: { accessToken: string; refreshToken: string };
+    try {
+      sesion = await emitirSesion(user);
+    } catch (e) {
+      if ((e as { code?: string }).code !== 'P2002') throw e;
+      await new Promise((r) => setTimeout(r, 1100));
+      sesion = await emitirSesion(user);
+    }
+    const { accessToken, refreshToken } = sesion;
+    await recordAudit({ action: 'LOGIN', entity: 'auth', userId: user.id, companyId: companyId ?? user.companyId, newData: { email: user.email, metodo: 'efactura' }, req });
+    res.json({
+      accessToken,
+      refreshToken,
+      companyId,
+      user: {
+        id: user.id, email: user.email, nombre: user.nombre,
+        apellido: user.apellido, role: user.role, companyId: user.companyId,
+      },
+    });
+  } catch (err) { next(err); }
+});

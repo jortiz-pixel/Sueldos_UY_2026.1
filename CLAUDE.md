@@ -278,6 +278,30 @@ nómina, BPS, IRPF) · Accesos · Auditoría (solo ADMIN) · Parámetros.
   contratos, eliminar persona, eliminar/anular liquidación, cambio de parámetro).
   Lectura en `GET /api/audit` (solo ADMIN) → menú "Auditoría" (`/audit`).
 
+## Integración con AsysTax e-Factura (no romper)
+
+El facturador (efactura.gro.com.uy, repo `jortiz-pixel/gro-efactura`) muestra
+Sueldos dentro de su panel (sección «Sueldos», iframe) y lleva el asiento de
+sueldos a su contabilidad. Todo es ADITIVO; Sueldos funciona igual sin él.
+- **Ingreso directo**: el facturador abre `https://sueldos.gro.com.uy/#efactura=<pase>`
+  (pase de un solo uso, 2 min). `frontend/src/main.tsx` lo canjea ANTES de
+  montar la app en `POST /api/auth/efactura` (auth.routes.ts), que lo verifica
+  con `POST https://efactura.gro.com.uy/api/sso/verificar` → email + RUT
+  (`services/efactura.service.ts`). Solo abre sesión si el MISMO email existe
+  activo en Sueldos (sin altas automáticas) y elige la empresa por RUT si el
+  usuario tiene acceso. Si falla, queda el login normal.
+- **Asiento**: `GET /api/integracion/efactura/asiento?year=&month=` con header
+  `x-efactura-token` devuelve `asientoContable()` (pagos.service.ts). El
+  facturador reconoce las líneas POR SU NOMBRE (prefijos "Sueldos y jornales",
+  "Cargas sociales patronales", "Cargas sociales — BSE", "Remuneraciones a
+  pagar", "BPS a pagar (aportes obreros", "BPS a pagar (aportes patronales",
+  "BSE a pagar", "IRPF a pagar", "Adelantos al personal", "Otras retenciones",
+  "Indemnizaciones por despido"): si se renombra o agrega una línea en
+  asientoContable, avisar para actualizar `apps/api/src/services/sueldos.ts`
+  del facturador (si no, la importación del asiento da error, sin registrar).
+- Variables opcionales: `EFACTURA_INTEGRACION=0` la apaga ·
+  `EFACTURA_SSO_URL` cambia la URL de verificación.
+
 ## Pendientes conocidos (roadmap acordado)
 
 1. Consolidado multi-empresa (fin de mes del estudio en una pantalla).
