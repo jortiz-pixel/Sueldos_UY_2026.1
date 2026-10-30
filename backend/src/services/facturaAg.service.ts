@@ -31,15 +31,12 @@ function parseMoney(s: string): bigint {
 }
 
 // Tasas de los fondos patronales de la construcción (base 1: fracción).
-// Las BASES (gravado) mostradas ya son correctas y NO se tocan: el Fondo Social
-// y el Fondo Vivienda van sobre la base "ApliAFondos" del ítem FONDO_SOCIAL
-// (12.459,48 en la muestra); la cesantía y el FGCL sobre la materia gravada
-// (base del FONASA obrero, 13.449,54 en la muestra). Solo se corrigen las TASAS.
-// Fondo Social/Vivienda calibrados contra la factura AutoGestionada real de GNS
-// (09/2026, José Lambrechts): sobre 12.459,48 dan 582,31 y 13,17.
-const RATE_FONDO_SOCIAL = 0.046736;    // 4,6736% (GNS: 582.31 / 12459.48)
-const RATE_FONDO_VIVIENDA = 0.001057;  // 0,1057% (GNS: 13.17 / 12459.48)
-const RATE_FGCL = 0.00025;             // 0,025% (validado: 2.24 / 8966.36)
+// Fondo Social 1,85% y Fondo Vivienda 0,05% sobre la BASE DE FONDOS (ver abajo);
+// FGCL 0,025% sobre la materia gravada. Validado contra la factura AutoGestionada
+// real de GNS (DEMARIA FAJARDO, obra 740423894, 10/2026): 3448,50 / 93,20 / 43,28.
+const RATE_FONDO_SOCIAL = 0.0185;      // 1,85%  (GNS: 3448,50 / 186404,84)
+const RATE_FONDO_VIVIENDA = 0.0005;    // 0,05%  (GNS: 93,20 / 186404,84)
+const RATE_FGCL = 0.00025;             // 0,025% (GNS por trabajador: 43,28)
 // La cesantía patronal se toma directo del total FOCER (coincide con GNS).
 
 function aplicar(baseCent: bigint, rate: number): bigint {
@@ -134,15 +131,20 @@ export async function generarFacturaAg(companyId: string, year: number, month: n
     // es la base y la cantidad del S.N.I.S. (solo esos trabajadores).
     const fonasaItem = items.find((i) => i.itemType === ItemType.DESCUENTO_OBRERO && i.concepto === 'FONASA');
     const baseFonasa = fonasaItem?.baseCalculo ?? 0n;
-    // Base "ApliAFondos" (la del ítem FONDO_SOCIAL obrero): base de los fondos.
-    const baseFondo = get('FONDO_SOCIAL')?.baseCalculo ?? 0n;
-
-    // Fondos del empleador (gravado = ApliAFondos). Solo se acumula la base; el
-    // total se calcula al final por tasa. (La base "Gravado" que muestra GNS para
-    // los fondos es mayor que ApliAFondos —materia gravada + incidencias—: queda
-    // PENDIENTE de confirmar la fórmula; por ahora no se toca para no romper las
-    // empresas ya validadas.)
-    if (baseFondo > 0n) { acc.fondoSocial.cant++; acc.fondoSocial.base += baseFondo; acc.fondoVivienda.cant++; acc.fondoVivienda.base += baseFondo; }
+    // BASE DE FONDOS (criterio Fondo Social de la Construcción): haberes gravados
+    // y no gravados (incluidos los tickets de alimentación) MENOS los aportes
+    // personales FONASA, FRL e IRPF — SIN descontar el montepío (jubilatorio).
+    // Nuestra base "ApliAFondos" (ítem FONDO_SOCIAL) ya resta jubilatorio + FONASA
+    // + FRL + IRPF, así que se le vuelve a sumar el jubilatorio para obtenerla.
+    // Verificado contra GNS (DEMARIA 10/2026): 173.180,84 + exentos − FONASA − FRL
+    // − IRPF = 186.404,84. Se calcula y redondea POR TRABAJADOR (como hace GNS).
+    const baseApliAFondos = get('FONDO_SOCIAL')?.baseCalculo ?? 0n;
+    const jubilatorio = get('BPS_JUBILATORIO')?.amount ?? 0n;
+    const baseFondo = baseApliAFondos > 0n ? baseApliAFondos + jubilatorio : 0n;
+    if (baseFondo > 0n) {
+      acc.fondoSocial.cant++; acc.fondoSocial.base += baseFondo; acc.fondoSocial.total += aplicar(baseFondo, RATE_FONDO_SOCIAL);
+      acc.fondoVivienda.cant++; acc.fondoVivienda.base += baseFondo; acc.fondoVivienda.total += aplicar(baseFondo, RATE_FONDO_VIVIENDA);
+    }
 
     // FRL: obrero (0,1%) + patronal, sumados de los ítems reales.
     const frlObrero = get('FRL');
@@ -159,9 +161,7 @@ export async function generarFacturaAg(companyId: string, year: number, month: n
     if (irpf > 0n) { acc.irpf.cant++; acc.irpf.base += get('IRPF')?.baseCalculo ?? 0n; acc.irpf.total += irpf; }
   }
 
-  // Fondos sociales: por tasa sobre ApliAFondos (PENDIENTE: ver nota arriba).
-  acc.fondoSocial.total = aplicar(acc.fondoSocial.base, RATE_FONDO_SOCIAL);
-  acc.fondoVivienda.total = aplicar(acc.fondoVivienda.base, RATE_FONDO_VIVIENDA);
+  // (Los totales de los fondos sociales ya se acumularon por trabajador arriba.)
 
   // Cesantía patronal: total DIRECTO del FOCER (validado byte a byte contra GNS).
   // Base y cantidad = materia gravada FOCER (todos los trabajadores con base > 0).
@@ -184,8 +184,8 @@ export async function generarFacturaAg(companyId: string, year: number, month: n
   });
 
   const lineas: FacturaAgLinea[] = [
-    L('fondoSocial', 'Fondo Social', 'En revisión: GNS usa 1,85% sobre la base de fondos'),
-    L('fondoVivienda', 'Fondo Vivienda', 'En revisión: GNS usa 0,05% sobre la base de fondos'),
+    L('fondoSocial', 'Fondo Social', '1,85% (haberes − FONASA − FRL − IRPF)'),
+    L('fondoVivienda', 'Fondo Vivienda', '0,05% (haberes − FONASA − FRL − IRPF)'),
     L('cesantiaPatronal', 'F. Cesantía Patronal', 'Total FOCER a pagar (5% de la materia gravada)'),
     L('cesantiaPersonal', 'F. Cesantía Personal', '0,5% (trabajadores a prueba)'),
     L('frl', 'F.R.L.', '0,2% de la materia gravada (obrero + patronal)'),
