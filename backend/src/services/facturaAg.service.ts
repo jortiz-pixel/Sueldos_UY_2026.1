@@ -100,6 +100,27 @@ export async function generarFacturaAg(companyId: string, year: number, month: n
     irpf: { cant: 0, base: 0n, total: 0n },
   };
 
+  // ── Materia gravada por trabajador (criterio FOCER / nómina ATYR) ───
+  // El FOCER ya calcula, POR TRABAJADOR, la MATERIA GRAVADA con el mismo criterio
+  // que el concepto 1 de la nómina (neta de faltas, sin los exentos del laudo ni
+  // el salario vacacional). Es la base de la Cesantía, el F.R.L. y el F.G.C.L.,
+  // y la cantidad = trabajadores con base > 0. Se reutiliza en vez de la base del
+  // FONASA, que dejaba afuera a quien no aporta FONASA (seguro 9 / pocos jornales)
+  // y daba una base y una cantidad equivocadas (GNS Demaria: 6 trabajadores sobre
+  // 173.180,84, no 4 sobre 155.198,40).
+  let focer: Awaited<ReturnType<typeof generarFocer>> | null = null;
+  try {
+    focer = await generarFocer(companyId, year, month);
+    for (const a of focer.advertencias) if (!advertencias.includes(a)) advertencias.push(a);
+  } catch {
+    advertencias.push('No se pudo calcular la materia gravada / cesantía FOCER de la construcción.');
+  }
+  const gravadosFocer = (focer?.empleados ?? [])
+    .map((x) => parseMoney(x.totalGravado))
+    .filter((g) => g > 0n);
+  const baseMateriaGravada = gravadosFocer.reduce((s, g) => s + g, 0n);
+  const cantMateriaGravada = gravadosFocer.length;
+
   for (const liq of liqs) {
     // El TITULAR / socio sin remuneración NO va en la factura: aporta por su
     // ficto (FONASA sobre 6,5 BPC) en su propio régimen, no sobre materia gravada
@@ -109,60 +130,65 @@ export async function generarFacturaAg(companyId: string, year: number, month: n
 
     const items = liq.items;
     const get = (concepto: string) => items.find((i) => i.concepto === concepto);
-    // Base del FONASA obrero = materia gravada (base de cesantía y FGCL).
+    // Base del FONASA obrero = materia gravada del trabajador que aporta FONASA:
+    // es la base y la cantidad del S.N.I.S. (solo esos trabajadores).
     const fonasaItem = items.find((i) => i.itemType === ItemType.DESCUENTO_OBRERO && i.concepto === 'FONASA');
-    const baseGravada = fonasaItem?.baseCalculo ?? 0n;
+    const baseFonasa = fonasaItem?.baseCalculo ?? 0n;
     // Base "ApliAFondos" (la del ítem FONDO_SOCIAL obrero): base de los fondos.
     const baseFondo = get('FONDO_SOCIAL')?.baseCalculo ?? 0n;
 
-    // Fondos del empleador (gravado = ApliAFondos) y cesantía/FGCL (gravado =
-    // materia gravada). Solo se acumulan las BASES; los totales se calculan al
-    // final (fondos por tasa, cesantía desde el total FOCER).
+    // Fondos del empleador (gravado = ApliAFondos). Solo se acumula la base; el
+    // total se calcula al final por tasa. (La base "Gravado" que muestra GNS para
+    // los fondos es mayor que ApliAFondos —materia gravada + incidencias—: queda
+    // PENDIENTE de confirmar la fórmula; por ahora no se toca para no romper las
+    // empresas ya validadas.)
     if (baseFondo > 0n) { acc.fondoSocial.cant++; acc.fondoSocial.base += baseFondo; acc.fondoVivienda.cant++; acc.fondoVivienda.base += baseFondo; }
-    if (baseGravada > 0n) { acc.cesantiaPatronal.cant++; acc.cesantiaPatronal.base += baseGravada; acc.fgcl.cant++; acc.fgcl.base += baseGravada; }
 
     // FRL: obrero (0,1%) + patronal, sumados de los ítems reales.
     const frlObrero = get('FRL');
     const frlPatronal = items.find((i) => i.itemType === ItemType.APORTE_PATRONAL && /FRL/.test(i.concepto));
     const frlTotal = (frlObrero?.amount ?? 0n) + (frlPatronal?.amount ?? 0n);
-    if (frlTotal > 0n) { acc.frl.cant++; acc.frl.base += frlObrero?.baseCalculo ?? 0n; acc.frl.total += frlTotal; }
+    if (frlTotal > 0n) { acc.frl.total += frlTotal; }
 
     // S.N.I.S. (FONASA obrero: seguro + adicional), sumado de los ítems reales.
     const snisTotal = (get('FONASA')?.amount ?? 0n) + (get('FONASA_ADICIONAL')?.amount ?? 0n);
-    if (snisTotal > 0n) { acc.snis.cant++; acc.snis.base += baseGravada; acc.snis.total += snisTotal; }
+    if (snisTotal > 0n) { acc.snis.cant++; acc.snis.base += baseFonasa; acc.snis.total += snisTotal; }
 
     // IRPF, sumado de los ítems reales.
     const irpf = get('IRPF')?.amount ?? 0n;
     if (irpf > 0n) { acc.irpf.cant++; acc.irpf.base += get('IRPF')?.baseCalculo ?? 0n; acc.irpf.total += irpf; }
   }
 
-  // Totales de los aportes patronales de la construcción (bases ya acumuladas):
-  // fondos por tasa sobre ApliAFondos; FGCL por tasa sobre la materia gravada.
+  // Fondos sociales: por tasa sobre ApliAFondos (PENDIENTE: ver nota arriba).
   acc.fondoSocial.total = aplicar(acc.fondoSocial.base, RATE_FONDO_SOCIAL);
   acc.fondoVivienda.total = aplicar(acc.fondoVivienda.base, RATE_FONDO_VIVIENDA);
-  acc.fgcl.total = aplicar(acc.fgcl.base, RATE_FGCL);
 
-  // Cesantía patronal: se toma DIRECTO del total FOCER para que coincida con el
-  // archivo FOCER (validado contra GNS). El gravado mostrado sigue siendo la
-  // materia gravada ya acumulada arriba.
-  try {
-    const focer = await generarFocer(companyId, year, month);
-    acc.cesantiaPatronal.total = parseMoney(focer.totalFocer);
-    for (const a of focer.advertencias) if (!advertencias.includes(a)) advertencias.push(a);
-  } catch {
-    advertencias.push('No se pudo calcular la cesantía FOCER de la construcción.');
-  }
+  // Cesantía patronal: total DIRECTO del FOCER (validado byte a byte contra GNS).
+  // Base y cantidad = materia gravada FOCER (todos los trabajadores con base > 0).
+  acc.cesantiaPatronal = { cant: cantMateriaGravada, base: baseMateriaGravada, total: focer ? parseMoney(focer.totalFocer) : 0n };
+
+  // F.G.C.L.: 0,025% POR TRABAJADOR sobre su materia gravada (GNS redondea por
+  // línea y suma: da 43,28, no 43,30 del agregado). Base/cantidad = materia gravada.
+  acc.fgcl = {
+    cant: cantMateriaGravada,
+    base: baseMateriaGravada,
+    total: gravadosFocer.reduce((s, g) => s + aplicar(g, RATE_FGCL), 0n),
+  };
+
+  // F.R.L.: total ya sumado de los ítems reales; base y cantidad = materia gravada.
+  acc.frl.cant = cantMateriaGravada;
+  acc.frl.base = baseMateriaGravada;
 
   const L = (key: string, label: string, nota: string): FacturaAgLinea => ({
     key, label, cantidad: acc[key].cant, gravado: money(acc[key].base), total: money(acc[key].total), nota,
   });
 
   const lineas: FacturaAgLinea[] = [
-    L('fondoSocial', 'Fondo Social', '4,6736% (ApliAFondos)'),
-    L('fondoVivienda', 'Fondo Vivienda', '0,1057% (ApliAFondos)'),
-    L('cesantiaPatronal', 'F. Cesantía Patronal', 'Total FOCER a pagar'),
+    L('fondoSocial', 'Fondo Social', 'En revisión: GNS usa 1,85% sobre la base de fondos'),
+    L('fondoVivienda', 'Fondo Vivienda', 'En revisión: GNS usa 0,05% sobre la base de fondos'),
+    L('cesantiaPatronal', 'F. Cesantía Patronal', 'Total FOCER a pagar (5% de la materia gravada)'),
     L('cesantiaPersonal', 'F. Cesantía Personal', '0,5% (trabajadores a prueba)'),
-    L('frl', 'F.R.L.', 'Suma de FRL obrero + patronal'),
+    L('frl', 'F.R.L.', '0,2% de la materia gravada (obrero + patronal)'),
     L('snis', 'S.N.I.S.', 'Suma de FONASA (seguro + adicional)'),
     L('fgcl', 'F.G.C.L.', '0,025% de la materia gravada'),
     L('irpf', 'I.R.P.F.', 'Suma de IRPF retenido'),
