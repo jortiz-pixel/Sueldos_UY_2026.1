@@ -17,7 +17,7 @@ import { prisma } from '../utils/prisma';
 import { LiquidationStatus, LiquidationType, PeriodStatus, ItemType } from '@prisma/client';
 import { esEmpresaConstruccion, TIPO_APORTE_CONSTRUCCION } from './construccion.service';
 import { fonasaCargasDeSeguroSalud } from './bps.service';
-import { salarioProporcional } from '../utils/money';
+import { salarioProporcional, divRoundHalfUp } from '../utils/money';
 import { generarLiquidacionMensual } from './liquidation.service';
 
 // ── Formateo ─────────────────────────────────────────────────────
@@ -490,10 +490,22 @@ export async function generarNominaBps(companyId: string, year: number, month: n
     for (const [code, amount] of conceptosOrdenados) {
       if (!siempreDeclarados.has(code) && amount === 0n) continue;
       if (esCT && code === 1) {
-        let jornal = jornalGravadoCt > amount ? amount : jornalGravadoCt;
-        if (jornal < 0n) jornal = 0n;
-        const resto = amount - jornal;
-        bloque.push(['7', '', String(paisDoc), tipoDoc, doc, String(al), '1', monto7(amount), monto7(jornal), monto7(resto)].join('|'));
+        // El concepto 1 de CT lleva tres importes: materia gravada · JORNAL AL
+        // LAUDO · resto. OJO: BPS/GNS declaran el jornal al laudo como valor
+        // DIARIO (unitario), NO el total — BPS reconstruye el total multiplicando
+        // por los días del registro 6. El invariante que valida ATYR es:
+        //   materia gravada (campo1) = jornal_diario (campo2) × días + resto (campo3)
+        // donde el "resto" es la materia gravada que excede el total de jornales
+        // al laudo (lo que antes poníamos como total en el campo 2 era el error:
+        // BPS lo multiplicaba de nuevo por los días). `jornalGravadoCt` es el
+        // TOTAL de jornales al laudo del mes (base HORAS_LAUDO del presentismo).
+        let totalJornalLaudo = jornalGravadoCt > amount ? amount : jornalGravadoCt;
+        if (totalJornalLaudo < 0n) totalJornalLaudo = 0n;
+        const jornalDiario = diasTrabajados > 0
+          ? divRoundHalfUp(totalJornalLaudo, BigInt(diasTrabajados))
+          : 0n;
+        const resto = amount - jornalDiario * BigInt(diasTrabajados);
+        bloque.push(['7', '', String(paisDoc), tipoDoc, doc, String(al), '1', monto7(amount), monto7(jornalDiario), monto7(resto)].join('|'));
       } else {
         bloque.push(['7', '', String(paisDoc), tipoDoc, doc, String(al), String(code), monto7(amount), '', ''].join('|'));
       }
