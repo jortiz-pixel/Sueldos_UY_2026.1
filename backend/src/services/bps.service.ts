@@ -3,10 +3,14 @@
  *
  * APORTES OBREROS (descuentos al empleado):
  * - BPS Jubilatorio:       15% del salario nominal
- * - FONASA/DISSE:          escalonado según ingreso y cargas familiares:
+ * - FONASA/DISSE:          escalonado según ingreso y cargas familiares
+ *     (tabla oficial de tasas FONASA del BPS):
  *     base 3% (ingreso <= 2.5 BPC) o 4.5% (ingreso > 2.5 BPC)
- *     +1.5% si tiene hijos a cargo
- *     +2%   si tiene cónyuge a cargo
+ *     +2%   si tiene cónyuge a cargo (en AMBAS franjas)
+ *     +1.5% si tiene hijos a cargo, SOLO en la franja superior (> 2.5 BPC):
+ *           hasta 2,5 BPC los hijos NO modifican la tasa.
+ *     Ej.: >2,5 BPC → sin cargas 4,5% · con hijos 6% · con cónyuge 6,5% ·
+ *          con ambos 8%. Hasta 2,5 BPC → sin cónyuge 3% · con cónyuge 5%.
  * - FRL (obrero):          0.10% del salario nominal (2026)
  *
  * APORTES PATRONALES (a cargo del empleador):
@@ -25,8 +29,14 @@ export interface AportesInput {
   salarioNominal: bigint;
   params: PayrollParameters;
   bseRateEmpresa: number;       // BSE rate en basis points (específico de empresa)
-  hijosACargo?: number;         // FONASA: +1.5% si > 0
-  conyugeACargo?: boolean;      // FONASA: +2% si true
+  hijosACargo?: number;         // FONASA: +1.5% si > 0 (solo en franja > 2.5 BPC)
+  conyugeACargo?: boolean;      // FONASA: +2% si true (ambas franjas)
+  // Remuneración mensual gravada para determinar la FRANJA (≤ o > 2,5 BPC). Se
+  // separa del salarioNominal (la base del cálculo) porque la franja usa el
+  // ACUMULADO MENSUAL del trabajador (sin aguinaldo): si hay varias liquidaciones
+  // del mismo mes, el llamador pasa acá la suma para no fraccionar el umbral.
+  // Si no se pasa, se usa salarioNominal (caso de una sola liquidación mensual).
+  fonasaRemuneracionFranja?: bigint;
   fonasaFamilia?: boolean;      // (compat) si true y no se pasan hijos/cónyuge -> +1.5%
   fonasaPatronalRate?: number;  // FONASA patronal (si es distinto a default)
   // Base adicional para el ADICIONAL de FONASA (complemento por encima del 3%).
@@ -103,14 +113,21 @@ export function calcularTasaFonasa(input: AportesInput): {
   rateTotal: number; baseRate: number; hijosRate: number; conyugeRate: number;
 } {
   const { salarioNominal, params } = input;
-  // Umbral en centésimos = umbral_BPC * BPC
+  // Umbral MENSUAL = 2,5 BPC (NO se prorratea por días/jornales trabajados).
   const umbralCtms = (params.bpc * BigInt(Math.round(params.fonasaThresholdBpc * 100))) / 100n;
-  const baseRate = salarioNominal > umbralCtms ? params.fonasaBasicHighRate : params.fonasaBasicRate;
+  // La franja se determina con la remuneración mensual gravada (sin aguinaldo);
+  // si hay varias liquidaciones del mes, el llamador pasa el acumulado mensual.
+  const remuneracionFranja = input.fonasaRemuneracionFranja ?? salarioNominal;
+  const superaUmbral = remuneracionFranja > umbralCtms;
+  const baseRate = superaUmbral ? params.fonasaBasicHighRate : params.fonasaBasicRate;
 
   const tieneHijos = (input.hijosACargo ?? 0) > 0 || (input.fonasaFamilia ?? false);
   const tieneConyuge = input.conyugeACargo ?? false;
 
-  const hijosRate = tieneHijos ? params.fonasaHijosRate : 0;
+  // Adicional por HIJOS a cargo (1,5%): SOLO en la franja superior (> 2,5 BPC).
+  // Hasta 2,5 BPC los hijos no modifican la tasa (tabla oficial de tasas FONASA
+  // del BPS). El adicional por CÓNYUGE (2%) rige en ambas franjas.
+  const hijosRate = tieneHijos && superaUmbral ? params.fonasaHijosRate : 0;
   const conyugeRate = tieneConyuge ? params.fonasaConyugeRate : 0;
 
   return { rateTotal: baseRate + hijosRate + conyugeRate, baseRate, hijosRate, conyugeRate };
