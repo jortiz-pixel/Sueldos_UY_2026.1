@@ -16,6 +16,7 @@ import { LiquidationStatus, ItemType } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { divRoundHalfUp } from '../utils/money';
 import { esEmpresaFocer, generarFocer } from './focer.service';
+import { parametersService } from './parameters.service';
 
 function money(cents: bigint): string {
   const neg = cents < 0n; const c = neg ? -cents : cents;
@@ -89,6 +90,13 @@ export async function generarFacturaAg(companyId: string, year: number, month: n
     : [];
   if (period && liqs.length === 0) advertencias.push('No hay liquidaciones confirmadas en el mes.');
 
+  // Umbral del S.N.I.S.: GNS declara en el S.N.I.S. SOLO a los trabajadores cuya
+  // materia gravada del mes supera 2,5 BPC (franja superior de FONASA). Los de
+  // franja inferior (≤ 2,5 BPC) quedan afuera. Validado contra GNS en DEMARIA
+  // (4 de 6) y Lambrechts (el dependiente de 2 jornales queda afuera).
+  const params = await parametersService.getPayrollParameters(new Date(Date.UTC(year, month - 1, 1)));
+  const umbralSnis = (params.bpc * 25n) / 10n; // 2,5 BPC
+
   // Acumuladores por línea: [cantidad, baseCent, totalCent]
   const acc: Record<string, { cant: number; base: bigint; total: bigint }> = {
     fondoSocial: { cant: 0, base: 0n, total: 0n },
@@ -154,10 +162,11 @@ export async function generarFacturaAg(companyId: string, year: number, month: n
       }
       continue;
     }
-    // Base del FONASA obrero = materia gravada del trabajador que aporta FONASA:
-    // es la base y la cantidad del S.N.I.S. (solo esos trabajadores).
+    // Base del FONASA obrero = materia gravada del trabajador. En IC está en el
+    // ítem FONASA (seguro); en CT no hay seguro, así que se toma la del adicional
+    // (misma base = nominal gravado). Es la base del S.N.I.S. y la del umbral.
     const fonasaItem = items.find((i) => i.itemType === ItemType.DESCUENTO_OBRERO && i.concepto === 'FONASA');
-    const baseFonasa = fonasaItem?.baseCalculo ?? 0n;
+    const baseFonasa = (fonasaItem?.baseCalculo ?? get('FONASA_ADICIONAL')?.baseCalculo) ?? 0n;
     // BASE DE FONDOS = base "ApliAFondos" del recibo (ítem FONDO_SOCIAL): los
     // haberes gravados y no gravados (incluidos los tickets) MENOS los aportes
     // personales REALES del recibo − IRPF. El criterio es uniforme; lo que cambia
@@ -177,9 +186,10 @@ export async function generarFacturaAg(companyId: string, year: number, month: n
     const frlTotal = (frlObrero?.amount ?? 0n) + (frlPatronal?.amount ?? 0n);
     if (frlTotal > 0n) { acc.frl.total += frlTotal; }
 
-    // S.N.I.S. (FONASA obrero: seguro + adicional), sumado de los ítems reales.
+    // S.N.I.S. (FONASA obrero: seguro + adicional): SOLO trabajadores con materia
+    // gravada > 2,5 BPC (los de franja inferior no se declaran acá, criterio GNS).
     const snisTotal = (get('FONASA')?.amount ?? 0n) + (get('FONASA_ADICIONAL')?.amount ?? 0n);
-    if (snisTotal > 0n) { acc.snis.cant++; acc.snis.base += baseFonasa; acc.snis.total += snisTotal; }
+    if (snisTotal > 0n && baseFonasa > umbralSnis) { acc.snis.cant++; acc.snis.base += baseFonasa; acc.snis.total += snisTotal; }
 
     // IRPF, sumado de los ítems reales.
     const irpf = get('IRPF')?.amount ?? 0n;
