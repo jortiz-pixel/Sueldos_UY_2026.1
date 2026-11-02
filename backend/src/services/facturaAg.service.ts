@@ -131,16 +131,14 @@ export async function generarFacturaAg(companyId: string, year: number, month: n
     // es la base y la cantidad del S.N.I.S. (solo esos trabajadores).
     const fonasaItem = items.find((i) => i.itemType === ItemType.DESCUENTO_OBRERO && i.concepto === 'FONASA');
     const baseFonasa = fonasaItem?.baseCalculo ?? 0n;
-    // BASE DE FONDOS (criterio Fondo Social de la Construcción): haberes gravados
-    // y no gravados (incluidos los tickets de alimentación) MENOS los aportes
-    // personales FONASA, FRL e IRPF — SIN descontar el montepío (jubilatorio).
-    // Nuestra base "ApliAFondos" (ítem FONDO_SOCIAL) ya resta jubilatorio + FONASA
-    // + FRL + IRPF, así que se le vuelve a sumar el jubilatorio para obtenerla.
-    // Verificado contra GNS (DEMARIA 10/2026): 173.180,84 + exentos − FONASA − FRL
-    // − IRPF = 186.404,84. Se calcula y redondea POR TRABAJADOR (como hace GNS).
-    const baseApliAFondos = get('FONDO_SOCIAL')?.baseCalculo ?? 0n;
-    const jubilatorio = get('BPS_JUBILATORIO')?.amount ?? 0n;
-    const baseFondo = baseApliAFondos > 0n ? baseApliAFondos + jubilatorio : 0n;
+    // BASE DE FONDOS = base "ApliAFondos" del recibo (ítem FONDO_SOCIAL): los
+    // haberes gravados y no gravados (incluidos los tickets) MENOS los aportes
+    // personales REALES del recibo − IRPF. El criterio es uniforme; lo que cambia
+    // por régimen es qué aportes descuenta el recibo:
+    //   CT  (Demaria): sin jubilatorio ni FONASA seguro → base 186.404,84
+    //   IC  (Lambrechts): con jubilatorio + FONASA seguro → base 8.306,26
+    // Verificado contra GNS en ambos. Se calcula y redondea POR TRABAJADOR.
+    const baseFondo = get('FONDO_SOCIAL')?.baseCalculo ?? 0n;
     if (baseFondo > 0n) {
       acc.fondoSocial.cant++; acc.fondoSocial.base += baseFondo; acc.fondoSocial.total += aplicar(baseFondo, RATE_FONDO_SOCIAL);
       acc.fondoVivienda.cant++; acc.fondoVivienda.base += baseFondo; acc.fondoVivienda.total += aplicar(baseFondo, RATE_FONDO_VIVIENDA);
