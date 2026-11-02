@@ -605,6 +605,12 @@ export async function generarLiquidacionMensual(
   const cargasFonasa = fonasaCargasDeSeguroSalud(contrato?.seguroSalud);
   const fonasaHijosACargo = cargasFonasa ? (cargasFonasa.hijos ? 1 : 0) : employee.hijosACargo;
   const fonasaConyugeACargo = cargasFonasa ? cargasFonasa.conyuge : employee.conyugeACargo;
+  // Trazabilidad FONASA (umbral mensual 2,5 BPC) y control anti-silencioso: si el
+  // contrato tiene un código de seguro de salud que NO está parametrizado, las
+  // cargas se toman de la ficha del empleado — se deja registrado el origen y
+  // `seguroSaludReconocido=false` para que no pase inadvertido en el recibo/auditoría.
+  const fonasaUmbral = (params.bpc * BigInt(Math.round(params.fonasaThresholdBpc * 100))) / 100n;
+  const seguroSaludReconocido = contrato?.seguroSalud == null ? true : cargasFonasa != null;
 
   const aportesObreros = calcularAportesObreros({
     salarioNominal: baseGravada,
@@ -663,6 +669,12 @@ export async function generarLiquidacionMensual(
       hijosACargo: fonasaHijosACargo,
       conyugeACargo: fonasaConyugeACargo,
       seguroSalud: contrato?.seguroSalud ?? null,
+      // Trazabilidad del escalón y control de parametrización (spec FONASA §6).
+      bpc: params.bpc.toString(),
+      umbral: fonasaUmbral.toString(),
+      remuneracionFranja: baseGravada.toString(),
+      cargasOrigen: cargasFonasa ? 'codigo_seguro' : 'empleado',
+      seguroSaludReconocido,
     } as unknown as Prisma.JsonValue,
   });
 
