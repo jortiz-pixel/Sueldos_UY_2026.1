@@ -37,6 +37,10 @@ function parseMoney(s: string): bigint {
 const RATE_FONDO_SOCIAL = 0.0185;      // 1,85%  (GNS: 3448,50 / 186404,84)
 const RATE_FONDO_VIVIENDA = 0.0005;    // 0,05%  (GNS: 93,20 / 186404,84)
 const RATE_FGCL = 0.00025;             // 0,025% (GNS por trabajador: 43,28)
+// TITULAR unipersonal de construcción (IC): aporta a los fondos sobre su FICTO,
+// con tasas propias (confirmado por el usuario contra GNS José Lambrechts 10/2026).
+const RATE_FONDO_SOCIAL_TITULAR = 0.012691;   // 1,2691% sobre el ficto
+const RATE_FONDO_VIVIENDA_TITULAR = 0.00025;  // 0,025%  sobre el ficto
 // La cesantía patronal se toma directo del total FOCER (coincide con GNS).
 
 function aplicar(baseCent: bigint, rate: number): bigint {
@@ -118,15 +122,38 @@ export async function generarFacturaAg(companyId: string, year: number, month: n
   const baseMateriaGravada = gravadosFocer.reduce((s, g) => s + g, 0n);
   const cantMateriaGravada = gravadosFocer.length;
 
-  for (const liq of liqs) {
-    // El TITULAR / socio sin remuneración NO va en la factura: aporta por su
-    // ficto (FONASA sobre 6,5 BPC) en su propio régimen, no sobre materia gravada
-    // de la construcción. Sin jornales de los trabajadores, la factura queda en 0.
-    const snap = liq.parametersSnapshot as { titularUnipersonal?: boolean } | null;
-    if (snap?.titularUnipersonal) continue;
+  // El F.R.L. del titular se suma aparte (su base es el ficto, no la materia
+  // gravada): se acumula acá y se agrega a la línea F.R.L. al final.
+  let titularFrlBase = 0n;
+  let titularFrlCant = 0;
 
+  for (const liq of liqs) {
     const items = liq.items;
     const get = (concepto: string) => items.find((i) => i.concepto === concepto);
+
+    // El TITULAR unipersonal de construcción (IC) SÍ aporta a los Fondos de la
+    // Construcción, sobre su FICTO: Fondo Social 1,2691% · Fondo Vivienda 0,025%
+    // · F.R.L. 0,1% (de su recibo) · S.N.I.S. = su FONASA Seguro (3% sobre 6,5
+    // BPC). NO va en Cesantía ni F.G.C.L. (son de los dependientes). Validado
+    // contra GNS (José Lambrechts 10/2026).
+    const snap = liq.parametersSnapshot as { titularUnipersonal?: boolean } | null;
+    if (snap?.titularUnipersonal) {
+      const ficto = get('SUELDO_FICTO')?.amount ?? 0n;
+      if (ficto > 0n) {
+        // GNS muestra el "Gravado" de los fondos solo con la base del dependiente
+        // (no suma el ficto del titular), aunque la cantidad y el total sí lo
+        // incluyan. Por eso acá se suman cantidad y total, pero NO la base.
+        acc.fondoSocial.cant++; acc.fondoSocial.total += aplicar(ficto, RATE_FONDO_SOCIAL_TITULAR);
+        acc.fondoVivienda.cant++; acc.fondoVivienda.total += aplicar(ficto, RATE_FONDO_VIVIENDA_TITULAR);
+      }
+      const frlTit = get('FRL')?.amount ?? 0n;
+      if (frlTit > 0n) { acc.frl.total += frlTit; titularFrlBase += ficto; titularFrlCant++; }
+      const fonasaTit = items.find((i) => i.itemType === ItemType.DESCUENTO_OBRERO && i.concepto === 'FONASA');
+      if ((fonasaTit?.amount ?? 0n) > 0n) {
+        acc.snis.cant++; acc.snis.base += fonasaTit!.baseCalculo ?? 0n; acc.snis.total += fonasaTit!.amount;
+      }
+      continue;
+    }
     // Base del FONASA obrero = materia gravada del trabajador que aporta FONASA:
     // es la base y la cantidad del S.N.I.S. (solo esos trabajadores).
     const fonasaItem = items.find((i) => i.itemType === ItemType.DESCUENTO_OBRERO && i.concepto === 'FONASA');
@@ -173,9 +200,10 @@ export async function generarFacturaAg(companyId: string, year: number, month: n
     total: gravadosFocer.reduce((s, g) => s + aplicar(g, RATE_FGCL), 0n),
   };
 
-  // F.R.L.: total ya sumado de los ítems reales; base y cantidad = materia gravada.
-  acc.frl.cant = cantMateriaGravada;
-  acc.frl.base = baseMateriaGravada;
+  // F.R.L.: total ya sumado de los ítems reales (incluye el F.R.L. del titular);
+  // base y cantidad = materia gravada de los dependientes + ficto del titular.
+  acc.frl.cant = cantMateriaGravada + titularFrlCant;
+  acc.frl.base = baseMateriaGravada + titularFrlBase;
 
   const L = (key: string, label: string, nota: string): FacturaAgLinea => ({
     key, label, cantidad: acc[key].cant, gravado: money(acc[key].base), total: money(acc[key].total), nota,
