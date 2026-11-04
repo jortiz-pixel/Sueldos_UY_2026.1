@@ -27,16 +27,23 @@ import { divRoundHalfUp, salarioProporcional } from '../utils/money';
 import { esEmpresaConstruccion, grupoConsejoDeEmpresa, TIPO_APORTE_CONSTRUCCION } from './construccion.service';
 
 // Tasa FOCER (aporte patronal al Fondo de Cesantía y Retiro). La determina el
-// TIPO DE CONTRATO (focerTipoContrato: 1 indefinido · 2 a prueba · 3 a término ·
-// 4 suplencia), no el "tipo de FOCER" declarado:
-//   - A TÉRMINO (3) → 1% (100 bp). Validado contra el control de BPS (DEMARIA
-//     10/2026: 64.156,92 × 1% = 641,57).
-//   - Resto: según el "tipo de FOCER" del contrato → 0,5% (tipo 1) o 5% (tipo 2,
-//     default). Validado: 8525.57 × 5% = 426.28.
-// (Reg. 4, posición 206 sigue llevando el "tipo de FOCER" declarado.)
-function focerRateBp(focerTipo: number | null | undefined, focerTipoContrato?: number | null): number {
+// TIPO DE CONTRATO del vínculo (focerTipoContrato):
+//   1 indefinido → 5% (500 bp) · 2 a prueba → 0,5% (50 bp) · 3 a término → 1%
+//   (100 bp) · 4 suplencia → 1% (asumido). Validado contra el control de BPS
+//   (DEMARIA 10/2026: 64.156,92 × 1% = 641,57 · a prueba Lambrechts 0,5%).
+function focerRateBp(focerTipoContrato?: number | null): number {
+  if (focerTipoContrato === 2) return 50;  // a prueba → 0,5%
   if (focerTipoContrato === 3) return 100; // a término → 1%
-  return focerTipo === 1 ? 50 : 500;
+  if (focerTipoContrato === 4) return 100; // suplencia → 1% (asumido)
+  return 500;                              // indefinido / sin dato → 5%
+}
+
+// Código que va en la declaración (reg. 4) tanto para el TIPO DE CONTRATO (pos.
+// 206) como para el TIPO DE FOCER (pos. 208): indefinido → 1; a prueba / a
+// término / suplencia → 2. (Criterio GNS confirmado por el usuario: la
+// declaración se arma con el tipo de contrato del vínculo.)
+function focerCodigoDeclaracion(focerTipoContrato?: number | null): number {
+  return focerTipoContrato === 1 ? 1 : 2;
 }
 
 // El TITULAR / socio SIN REMUNERACIÓN (vínculo funcional 1 o "Aporta por" ficto/
@@ -93,7 +100,7 @@ export interface FocerEmpleadoLinea {
   apellido: string; apellido2: string | null; nombre: string; nombre2: string | null;
   fechaNacimiento: Date | null; sexoF: boolean; jornales: number | null;
   gravadoJornales: bigint; restoGravado: bigint; materiaGravada: bigint; focer: bigint;
-  focerTipo: number; focerTipoContrato: number;
+  focerTipo?: number; focerTipoContrato: number; // focerTipo quedó en desuso (la declaración se deriva del tipo de contrato)
   direccion: string; departamento: string; telefono: string; fechaIngreso: Date | null;
   // Aportación CONSTRUCCIÓN (CT): el bloque del registro 4 cambia respecto a IC.
   // [155] = 4 (CT) en vez de 1 · [157] = forma de realización de la obra ·
@@ -152,10 +159,12 @@ export function buildFocerReg4(p: FocerEmpleadoLinea): string {
   placeR(b, 185, money(p.restoGravado));
   placeR(b, 195, money(p.materiaGravada));
   placeR(b, 205, money(p.focer));
-  // 206 = tipo de FOCER (1 = 0,5% · 2 = 5%) · 208 = tipo de contrato
-  // (1 indefinido · 2 a prueba · 3 a término · 4 suplencia).
-  b[206] = String(p.focerTipo);
-  b[208] = String(p.focerTipoContrato);
+  // PRIMERO el tipo de contrato (206), DESPUÉS el tipo de focer (208). Ambos se
+  // derivan del tipo de contrato del vínculo: indefinido → 1; a prueba / a
+  // término / suplencia → 2 (criterio GNS confirmado por el usuario).
+  const codigo = String(focerCodigoDeclaracion(p.focerTipoContrato));
+  b[206] = codigo; // tipo de contrato declarado
+  b[208] = codigo; // tipo de focer declarado
   place(b, 215, '0.00');
   return b.join('');
 }
@@ -347,9 +356,8 @@ export async function generarFocer(companyId: string, year: number, month: numbe
     if (materiaGravada < 0n) materiaGravada = 0n;
     if (gravadoJornales > materiaGravada) gravadoJornales = materiaGravada;
     const restoGravado = materiaGravada - gravadoJornales;
-    const focerTipo = contrato.focerTipo ?? 2; // default 5%
     const focerTipoContrato = contrato.focerTipoContrato ?? 1; // default indefinido
-    const focer = divRoundHalfUp(materiaGravada * BigInt(focerRateBp(focerTipo, focerTipoContrato)), 10000n);
+    const focer = divRoundHalfUp(materiaGravada * BigInt(focerRateBp(focerTipoContrato)), 10000n);
 
     // Jornales trabajados (mismo cálculo que los días del registro 6 de la nómina).
     const liqConDias = liqsPersona.find((l) => l.type === 'MENSUAL') ?? liqsPersona.find((l) => l.type === 'LIQUIDACION_FINAL');
@@ -394,7 +402,7 @@ export async function generarFocer(companyId: string, year: number, month: numbe
       apellido: e.apellido, apellido2: e.apellido2, nombre: e.nombre, nombre2: e.nombre2,
       fechaNacimiento: e.fechaNacimiento, sexoF: e.sexo === 'F', jornales,
       gravadoJornales, restoGravado, materiaGravada, focer,
-      focerTipo, focerTipoContrato: contrato.focerTipoContrato ?? 1,
+      focerTipoContrato: contrato.focerTipoContrato ?? 1,
       direccion, departamento, telefono, fechaIngreso: e.fechaIngreso,
       esCT, categoriaCt: contrato.categoriaCtCod, formaRealizacion: obraTrab?.fRealizacion ?? null,
       causalEgreso, fechaEgreso: tieneEgreso ? finEg : null,

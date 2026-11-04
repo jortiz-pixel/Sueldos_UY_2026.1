@@ -81,7 +81,17 @@ describe('FOCER — registro 4 (empleado)', () => {
   test('resto gravado rjust → col 184', () => expect(r4.slice(175, 185)).toBe('   1783.29'));
   test('total gravado rjust → col 194', () => expect(r4.slice(185, 195)).toBe('   8525.57'));
   test('FOCER rjust → col 204', () => expect(r4.slice(195, 205)).toBe('    426.28'));
-  test('tipo FOCER (206) y tipo contrato (208)', () => { expect(r4[206]).toBe('2'); expect(r4[208]).toBe('1'); });
+  test('indefinido: tipo de contrato (206) y tipo de focer (208) = código 1', () => {
+    // La declaración se deriva del tipo de contrato: indefinido → 1 en ambas.
+    expect(r4[206]).toBe('1'); expect(r4[208]).toBe('1');
+  });
+  test('a término / a prueba / suplencia: ambos códigos = 2', () => {
+    for (const tc of [2, 3, 4]) {
+      const r = buildFocerReg4({ ...emp, focerTipoContrato: tc });
+      expect(r[206]).toBe('2');
+      expect(r[208]).toBe('2');
+    }
+  });
   test('cierre 0.00 [215,219)', () => expect(r4.slice(215, 219)).toBe('0.00'));
 });
 

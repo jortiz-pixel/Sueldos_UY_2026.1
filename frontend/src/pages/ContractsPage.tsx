@@ -547,26 +547,19 @@ export default function ContractsPage() {
                   </>
                 )}
                 {esFocer && (
-                  <>
-                    <div>
-                      <label className="form-label">Tipo de FOCER</label>
-                      <select {...register('focerTipo')} className="form-input">
-                        <option value="2">2 — Declara 5%</option>
-                        <option value="1">1 — Declara 0,5%</option>
-                      </select>
-                      <p className="text-xs text-gray-400 mt-1">Aportación al Fondo de Cesantía y Retiro.</p>
-                    </div>
-                    <div>
-                      <label className="form-label">Tipo de contrato (FOCER)</label>
-                      <select {...register('focerTipoContrato')} className="form-input">
-                        <option value="1">1 — Indefinido</option>
-                        <option value="2">2 — A prueba</option>
-                        <option value="3">3 — A término</option>
-                        <option value="4">4 — Suplencia</option>
-                      </select>
-                      <p className="text-xs text-gray-400 mt-1">A término aporta 1% al FOCER (indefinido 5% · a prueba 0,5%).</p>
-                    </div>
-                  </>
+                  <div>
+                    <label className="form-label">Tipo de contrato (FOCER)</label>
+                    <select {...register('focerTipoContrato')} className="form-input">
+                      <option value="1">1 — Indefinido</option>
+                      <option value="2">2 — A prueba</option>
+                      <option value="3">3 — A término</option>
+                      <option value="4">4 — Suplencia</option>
+                    </select>
+                    <p className="text-xs text-gray-400 mt-1">
+                      La declaración FOCER se arma con esto: indefinido aporta 5% (código 1) ·
+                      a prueba 0,5%, a término 1% y suplencia 1% (código 2).
+                    </p>
+                  </div>
                 )}
                 <div>
                   <label className="form-label">Nivel</label>
