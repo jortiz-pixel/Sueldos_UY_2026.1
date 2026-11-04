@@ -16,6 +16,7 @@ import { LiquidationStatus, ItemType } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { divRoundHalfUp } from '../utils/money';
 import { esEmpresaFocer, generarFocer } from './focer.service';
+import { baseApliAFondos } from './construccion.service';
 import { parametersService } from './parameters.service';
 
 function money(cents: bigint): string {
@@ -167,14 +168,17 @@ export async function generarFacturaAg(companyId: string, year: number, month: n
     // (misma base = nominal gravado). Es la base del S.N.I.S. y la del umbral.
     const fonasaItem = items.find((i) => i.itemType === ItemType.DESCUENTO_OBRERO && i.concepto === 'FONASA');
     const baseFonasa = (fonasaItem?.baseCalculo ?? get('FONASA_ADICIONAL')?.baseCalculo) ?? 0n;
-    // BASE DE FONDOS = base "ApliAFondos" del recibo (ítem FONDO_SOCIAL): los
-    // haberes gravados y no gravados (incluidos los tickets) MENOS los aportes
+    // BASE DE FONDOS = base "ApliAFondos" del recibo: los haberes gravados y no
+    // gravados (incluidos los tickets, SIN reintegros/viáticos) MENOS los aportes
     // personales REALES del recibo − IRPF. El criterio es uniforme; lo que cambia
     // por régimen es qué aportes descuenta el recibo:
     //   CT  (Demaria): sin jubilatorio ni FONASA seguro → base 186.404,84
     //   IC  (Lambrechts): con jubilatorio + FONASA seguro → base 8.306,26
-    // Verificado contra GNS en ambos. Se calcula y redondea POR TRABAJADOR.
-    const baseFondo = get('FONDO_SOCIAL')?.baseCalculo ?? 0n;
+    // Verificado contra GNS en ambos. Se RECALCULA acá desde los ítems vivos del
+    // recibo (que ya llevan el IRPF definitivo tras el acumulado mensual), en vez
+    // de confiar en el baseCalculo guardado del ítem FONDO_SOCIAL: así la factura
+    // descuenta el IRPF aunque el recibo se haya confirmado antes de esta corrección.
+    const baseFondo = baseApliAFondos(items);
     if (baseFondo > 0n) {
       acc.fondoSocial.cant++; acc.fondoSocial.base += baseFondo; acc.fondoSocial.total += aplicar(baseFondo, RATE_FONDO_SOCIAL);
       acc.fondoVivienda.cant++; acc.fondoVivienda.base += baseFondo; acc.fondoVivienda.total += aplicar(baseFondo, RATE_FONDO_VIVIENDA);
