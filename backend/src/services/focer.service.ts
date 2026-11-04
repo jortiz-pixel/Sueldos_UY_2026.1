@@ -38,12 +38,18 @@ function focerRateBp(focerTipoContrato?: number | null): number {
   return 500;                              // indefinido / sin dato → 5%
 }
 
-// Código que va en la declaración (reg. 4) tanto para el TIPO DE CONTRATO (pos.
-// 206) como para el TIPO DE FOCER (pos. 208): indefinido → 1; a prueba / a
-// término / suplencia → 2. (Criterio GNS confirmado por el usuario: la
-// declaración se arma con el tipo de contrato del vínculo.)
-function focerCodigoDeclaracion(focerTipoContrato?: number | null): number {
+// Códigos que van en la declaración (reg. 4), derivados del tipo de contrato
+// (confirmado por el usuario). Son DOS campos distintos:
+//   - TIPO DE CONTRATO (pos. 206): indefinido → 1; a prueba/a término/suplencia → 2.
+//   - TIPO DE FOCER (pos. 208, etiquetas 1 = 5% · 2 = 0,5%): indefinido → 2;
+//     a prueba/a término/suplencia → 1.
+// OJO: el código "tipo de focer" NO es la tasa real del aporte (indefinido 5%,
+// a prueba 0,5%, a término/suplencia 1%) — es solo el código de la declaración.
+function codigoTipoContrato(focerTipoContrato?: number | null): number {
   return focerTipoContrato === 1 ? 1 : 2;
+}
+function codigoTipoFocer(focerTipoContrato?: number | null): number {
+  return focerTipoContrato === 1 ? 2 : 1;
 }
 
 // El TITULAR / socio SIN REMUNERACIÓN (vínculo funcional 1 o "Aporta por" ficto/
@@ -162,9 +168,8 @@ export function buildFocerReg4(p: FocerEmpleadoLinea): string {
   // PRIMERO el tipo de contrato (206), DESPUÉS el tipo de focer (208). Ambos se
   // derivan del tipo de contrato del vínculo: indefinido → 1; a prueba / a
   // término / suplencia → 2 (criterio GNS confirmado por el usuario).
-  const codigo = String(focerCodigoDeclaracion(p.focerTipoContrato));
-  b[206] = codigo; // tipo de contrato declarado
-  b[208] = codigo; // tipo de focer declarado
+  b[206] = String(codigoTipoContrato(p.focerTipoContrato)); // tipo de contrato
+  b[208] = String(codigoTipoFocer(p.focerTipoContrato));    // tipo de focer
   place(b, 215, '0.00');
   return b.join('');
 }

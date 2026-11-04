@@ -562,12 +562,12 @@ export default function ContractsPage() {
                       <input
                         className="form-input bg-gray-50 text-gray-600"
                         readOnly
-                        value={(watch('focerTipoContrato') ?? '1') === '1' ? '1 — Declara 5%' : '2 — Declara 0,5%'}
+                        value={(watch('focerTipoContrato') ?? '1') === '1' ? '2 — Declara 0,5%' : '1 — Declara 5%'}
                       />
                       <p className="text-xs text-gray-400 mt-1">
-                        Se deriva del tipo de contrato: indefinido → 1 (5%) · a prueba / a término /
-                        suplencia → 2 (0,5%). Tasa real del aporte: indefinido 5% · a prueba 0,5% ·
-                        a término / suplencia 1%.
+                        Código de la declaración, derivado del tipo de contrato: indefinido → 2 (0,5%) ·
+                        a prueba / a término / suplencia → 1 (5%). La tasa REAL del aporte es otra cosa:
+                        indefinido 5% · a prueba 0,5% · a término / suplencia 1%.
                       </p>
                     </div>
                   </>
