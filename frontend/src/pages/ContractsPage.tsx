@@ -547,19 +547,30 @@ export default function ContractsPage() {
                   </>
                 )}
                 {esFocer && (
-                  <div>
-                    <label className="form-label">Tipo de contrato (FOCER)</label>
-                    <select {...register('focerTipoContrato')} className="form-input">
-                      <option value="1">1 — Indefinido</option>
-                      <option value="2">2 — A prueba</option>
-                      <option value="3">3 — A término</option>
-                      <option value="4">4 — Suplencia</option>
-                    </select>
-                    <p className="text-xs text-gray-400 mt-1">
-                      La declaración FOCER se arma con esto: indefinido aporta 5% (código 1) ·
-                      a prueba 0,5%, a término 1% y suplencia 1% (código 2).
-                    </p>
-                  </div>
+                  <>
+                    <div>
+                      <label className="form-label">Tipo de contrato (FOCER)</label>
+                      <select {...register('focerTipoContrato')} className="form-input">
+                        <option value="1">1 — Indefinido</option>
+                        <option value="2">2 — A prueba</option>
+                        <option value="3">3 — A término</option>
+                        <option value="4">4 — Suplencia</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="form-label">Tipo de FOCER</label>
+                      <input
+                        className="form-input bg-gray-50 text-gray-600"
+                        readOnly
+                        value={(watch('focerTipoContrato') ?? '1') === '1' ? '1 — Declara 5%' : '2 — Declara 0,5%'}
+                      />
+                      <p className="text-xs text-gray-400 mt-1">
+                        Se deriva del tipo de contrato: indefinido → 1 (5%) · a prueba / a término /
+                        suplencia → 2 (0,5%). Tasa real del aporte: indefinido 5% · a prueba 0,5% ·
+                        a término / suplencia 1%.
+                      </p>
+                    </div>
+                  </>
                 )}
                 <div>
                   <label className="form-label">Nivel</label>
