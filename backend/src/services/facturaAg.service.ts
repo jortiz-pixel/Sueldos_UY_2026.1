@@ -222,7 +222,7 @@ export async function generarFacturaAg(companyId: string, year: number, month: n
   const lineas: FacturaAgLinea[] = [
     L('fondoSocial', 'Fondo Social', '1,85% (haberes − FONASA − FRL − IRPF)'),
     L('fondoVivienda', 'Fondo Vivienda', '0,05% (haberes − FONASA − FRL − IRPF)'),
-    L('cesantiaPatronal', 'F. Cesantía Patronal', 'Total FOCER a pagar (5% de la materia gravada)'),
+    L('cesantiaPatronal', 'F. Cesantía Patronal', 'Total FOCER a pagar (según tipo de contrato: 5% · a prueba 0,5% · a término 1%)'),
     L('cesantiaPersonal', 'F. Cesantía Personal', '0,5% (trabajadores a prueba)'),
     L('frl', 'F.R.L.', '0,2% de la materia gravada (obrero + patronal)'),
     L('snis', 'S.N.I.S.', 'Suma de FONASA (seguro + adicional)'),

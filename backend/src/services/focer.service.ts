@@ -26,9 +26,16 @@ import { prisma } from '../utils/prisma';
 import { divRoundHalfUp, salarioProporcional } from '../utils/money';
 import { esEmpresaConstruccion, grupoConsejoDeEmpresa, TIPO_APORTE_CONSTRUCCION } from './construccion.service';
 
-// Tasa FOCER según el "tipo de FOCER" del contrato (registro 4, posición 206):
-//   1 → 0,5% (50 bp) · 2 → 5% (500 bp, default). Validado: 8525.57 × 5% = 426.28.
-function focerRateBp(focerTipo: number | null | undefined): number {
+// Tasa FOCER (aporte patronal al Fondo de Cesantía y Retiro). La determina el
+// TIPO DE CONTRATO (focerTipoContrato: 1 indefinido · 2 a prueba · 3 a término ·
+// 4 suplencia), no el "tipo de FOCER" declarado:
+//   - A TÉRMINO (3) → 1% (100 bp). Validado contra el control de BPS (DEMARIA
+//     10/2026: 64.156,92 × 1% = 641,57).
+//   - Resto: según el "tipo de FOCER" del contrato → 0,5% (tipo 1) o 5% (tipo 2,
+//     default). Validado: 8525.57 × 5% = 426.28.
+// (Reg. 4, posición 206 sigue llevando el "tipo de FOCER" declarado.)
+function focerRateBp(focerTipo: number | null | undefined, focerTipoContrato?: number | null): number {
+  if (focerTipoContrato === 3) return 100; // a término → 1%
   return focerTipo === 1 ? 50 : 500;
 }
 
@@ -341,7 +348,8 @@ export async function generarFocer(companyId: string, year: number, month: numbe
     if (gravadoJornales > materiaGravada) gravadoJornales = materiaGravada;
     const restoGravado = materiaGravada - gravadoJornales;
     const focerTipo = contrato.focerTipo ?? 2; // default 5%
-    const focer = divRoundHalfUp(materiaGravada * BigInt(focerRateBp(focerTipo)), 10000n);
+    const focerTipoContrato = contrato.focerTipoContrato ?? 1; // default indefinido
+    const focer = divRoundHalfUp(materiaGravada * BigInt(focerRateBp(focerTipo, focerTipoContrato)), 10000n);
 
     // Jornales trabajados (mismo cálculo que los días del registro 6 de la nómina).
     const liqConDias = liqsPersona.find((l) => l.type === 'MENSUAL') ?? liqsPersona.find((l) => l.type === 'LIQUIDACION_FINAL');

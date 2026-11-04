@@ -564,6 +564,7 @@ export default function ContractsPage() {
                         <option value="3">3 — A término</option>
                         <option value="4">4 — Suplencia</option>
                       </select>
+                      <p className="text-xs text-gray-400 mt-1">A término aporta 1% al FOCER (indefinido 5% · a prueba 0,5%).</p>
                     </div>
                   </>
                 )}
