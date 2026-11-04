@@ -170,7 +170,7 @@ export function recuadroDeEmpresa(co: { tipoAporte?: number | null }): Recuadro 
 }
 
 /** Jornales vigentes a una fecha: última vigencia ≤ fecha por categoría+recuadro. */
-export async function jornalesVigentes(fecha: Date = new Date()): Promise<Array<{ categoria: string; recuadro: string; valorHora: bigint; effectiveDate: Date }>> {
+export async function jornalesVigentes(fecha: Date = new Date()): Promise<Array<{ categoria: string; recuadro: string; valorJornal: bigint; valorHora: bigint; effectiveDate: Date }>> {
   const rows = await prisma.jornalConstruccion.findMany({
     where: { effectiveDate: { lte: fecha } },
     orderBy: { effectiveDate: 'desc' },

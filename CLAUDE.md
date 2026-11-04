@@ -146,7 +146,11 @@ para operar la nómina de los clientes del estudio. Marca: **AsysTax. Sueldos**
   ACEPTADAS por redondeo interno de GNS: pres. mes completo 168,56 vs 168,60 y
   medias horas 222,42 vs 222,40.
   JORNALES DEL LAUDO (`jornales_construccion`, editor en Parámetros): valor
-  HORA por categoría × recuadro con vigencias. INCLUIDOS en la ley 14.411 →
+  JORNAL (diario, 8 horas — como lo publica el acta del MTSS) por categoría ×
+  recuadro con vigencias. El JORNAL es el valor AUTORITATIVO (columna
+  `valorJornal`); la HORA que usa el motor se deriva = round(jornal/8) y se
+  guarda en `valorHora` (así el motor —presentismo, hora laudo, autocompletado
+  del contrato— no cambia). La tabla de Parámetros muestra/edita en jornales. INCLUIDOS en la ley 14.411 →
   empresas con aportación CT · NO_INCLUIDOS → grupo 9 con aportación Industria
   y Comercio. Al ELEGIR la categoría en el contrato se autocompleta el jornal
   (hora) + nominal ficto (hora×200) según el recuadro de la empresa; no pisa

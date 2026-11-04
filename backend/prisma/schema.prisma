@@ -646,7 +646,8 @@ model JornalConstruccion {
   id            String   @id @default(cuid())
   categoria     String // igual al desplegable: 'VIII — Oficial Albañil'
   recuadro      String // 'INCLUIDOS' | 'NO_INCLUIDOS'
-  valorHora     BigInt // centésimos por hora
+  valorJornal   BigInt // centésimos por JORNAL (8 horas) — valor del acta/laudo (autoritativo)
+  valorHora     BigInt // centésimos por hora (derivado = round(valorJornal/8); lo usa el motor)
   effectiveDate DateTime
   createdAt     DateTime @default(now())
 

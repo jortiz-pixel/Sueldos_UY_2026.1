@@ -3,6 +3,7 @@ import { z } from 'zod';
 import multer from 'multer';
 import { UserRole } from '@prisma/client';
 import { prisma } from '../utils/prisma';
+import { divRoundHalfUp } from '../utils/money';
 import { authenticate, requireRole } from '../middleware/auth';
 import { CATEGORIAS_CONSTRUCCION, jornalesVigentes, refrescarPartidasDesdeJornal, CONVENIO_VIGENTE_HASTA, MTSS_URL } from '../services/construccion.service';
 import { storageService, safeFileName } from '../services/storage.service';
@@ -29,6 +30,7 @@ construccionRouter.get('/jornales', authenticate, async (req: Request, res: Resp
       jornales: vigentes.map((v) => ({
         categoria: v.categoria,
         recuadro: v.recuadro,
+        valorJornal: v.valorJornal.toString(),
         valorHora: v.valorHora.toString(),
         effectiveDate: v.effectiveDate,
       })),
@@ -40,7 +42,9 @@ construccionRouter.get('/jornales', authenticate, async (req: Request, res: Resp
 });
 
 // PUT /api/construccion/jornales — guarda una vigencia de jornales (por ronda).
-// body: { effectiveDate, valores: [{ categoria, recuadro, valorHoraPesos }] }
+// body: { effectiveDate, valores: [{ categoria, recuadro, valorJornalPesos }] }
+// El JORNAL (valor diario del acta) es el valor autoritativo; la hora se deriva
+// = round(jornal/8) y se guarda en valorHora para el motor.
 construccionRouter.put('/jornales', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const schema = z.object({
@@ -48,7 +52,7 @@ construccionRouter.put('/jornales', authenticate, requireRole(UserRole.ADMIN, Us
       valores: z.array(z.object({
         categoria: z.string().min(1),
         recuadro: z.enum(['INCLUIDOS', 'NO_INCLUIDOS']),
-        valorHoraPesos: z.number().min(0),
+        valorJornalPesos: z.number().min(0),
       })),
     });
     const { effectiveDate, valores } = schema.parse(req.body);
@@ -56,11 +60,13 @@ construccionRouter.put('/jornales', authenticate, requireRole(UserRole.ADMIN, Us
 
     let guardados = 0;
     for (const v of valores) {
-      if (v.valorHoraPesos <= 0) continue;
+      if (v.valorJornalPesos <= 0) continue;
+      const valorJornal = BigInt(Math.round(v.valorJornalPesos * 100));
+      const valorHora = divRoundHalfUp(valorJornal, 8n); // hora = jornal / 8 (redondeo)
       await prisma.jornalConstruccion.upsert({
         where: { categoria_recuadro_effectiveDate: { categoria: v.categoria, recuadro: v.recuadro, effectiveDate: fecha } },
-        create: { categoria: v.categoria, recuadro: v.recuadro, effectiveDate: fecha, valorHora: BigInt(Math.round(v.valorHoraPesos * 100)) },
-        update: { valorHora: BigInt(Math.round(v.valorHoraPesos * 100)) },
+        create: { categoria: v.categoria, recuadro: v.recuadro, effectiveDate: fecha, valorJornal, valorHora },
+        update: { valorJornal, valorHora },
       });
       guardados++;
     }
@@ -97,13 +103,14 @@ construccionRouter.post('/jornales/ajuste', authenticate, requireRole(UserRole.A
     const factor = 1 + porcentaje / 100;
     let guardados = 0;
     for (const v of vigentes) {
-      // Redondeo a centésimos del nuevo valor hora.
-      const nuevoValor = BigInt(Math.round(Number(v.valorHora) * factor));
-      if (nuevoValor <= 0n) continue;
+      // Se ajusta el JORNAL (valor autoritativo) y se re-deriva la hora = jornal/8.
+      const nuevoJornal = BigInt(Math.round(Number(v.valorJornal) * factor));
+      if (nuevoJornal <= 0n) continue;
+      const nuevaHora = divRoundHalfUp(nuevoJornal, 8n);
       await prisma.jornalConstruccion.upsert({
         where: { categoria_recuadro_effectiveDate: { categoria: v.categoria, recuadro: v.recuadro, effectiveDate: fecha } },
-        create: { categoria: v.categoria, recuadro: v.recuadro as 'INCLUIDOS' | 'NO_INCLUIDOS', effectiveDate: fecha, valorHora: nuevoValor },
-        update: { valorHora: nuevoValor },
+        create: { categoria: v.categoria, recuadro: v.recuadro as 'INCLUIDOS' | 'NO_INCLUIDOS', effectiveDate: fecha, valorJornal: nuevoJornal, valorHora: nuevaHora },
+        update: { valorJornal: nuevoJornal, valorHora: nuevaHora },
       });
       guardados++;
     }

@@ -381,22 +381,22 @@ function JornalesConstruccion() {
   const key = (cat: string, rec: string) => `${cat}|${rec}`;
   const vigente = (cat: string, rec: string) => {
     const j = data?.jornales.find((x) => x.categoria === cat && x.recuadro === rec);
-    return j ? (Number(j.valorHora) / 100).toFixed(2) : '';
+    return j ? (Number(j.valorJornal) / 100).toFixed(2) : '';
   };
 
   const guardar = useMutation({
     mutationFn: () => {
-      const valores: Array<{ categoria: string; recuadro: 'INCLUIDOS' | 'NO_INCLUIDOS'; valorHoraPesos: number }> = [];
+      const valores: Array<{ categoria: string; recuadro: 'INCLUIDOS' | 'NO_INCLUIDOS'; valorJornalPesos: number }> = [];
       for (const [k, v] of Object.entries(vals)) {
         const n = Number(v.replace(',', '.'));
         if (!v || isNaN(n) || n <= 0) continue;
         const [categoria, recuadro] = k.split('|');
-        valores.push({ categoria, recuadro: recuadro as 'INCLUIDOS' | 'NO_INCLUIDOS', valorHoraPesos: n });
+        valores.push({ categoria, recuadro: recuadro as 'INCLUIDOS' | 'NO_INCLUIDOS', valorJornalPesos: n });
       }
       return construccionApi.saveJornales(new Date(fecha).toISOString(), valores);
     },
     onSuccess: (r) => {
-      setMsg(`Guardado: ${r.guardados} jornales · ${r.partidasActualizadas} partidas derivadas actualizadas (ropa/transporte/herramientas).`);
+      setMsg(`Guardado: ${r.guardados} jornales (la hora se calcula sola = jornal ÷ 8).`);
       setVals({});
       queryClient.invalidateQueries({ queryKey: ['jornales-construccion'] });
     },
@@ -423,8 +423,9 @@ function JornalesConstruccion() {
             <HardHat size={18} className="text-amber-500" /> Jornales de la construcción (laudo)
           </h2>
           <p className="text-sm text-gray-500 mt-0.5">
-            Valor HORA por categoría. "Incluidos en la ley" = aportación Construcción (CT) · "No incluidos" = grupo 9 con
-            aportación Industria y Comercio. Al elegir la categoría en el contrato, el jornal se carga solo desde acá.
+            Valor JORNAL (diario, 8 horas) por categoría — como lo publica el acta del MTSS. "Incluidos en la ley" =
+            aportación Construcción (CT) · "No incluidos" = grupo 9 con aportación Industria y Comercio. La hora se
+            deriva (jornal ÷ 8). Al elegir la categoría en el contrato, el jornal se carga solo desde acá.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -485,8 +486,8 @@ function JornalesConstruccion() {
           <thead>
             <tr className="table-header">
               <th className="px-3 py-2 text-left">Categoría</th>
-              <th className="px-3 py-2 text-right">Incluidos en la ley ($/hora)</th>
-              <th className="px-3 py-2 text-right">No incluidos en la ley ($/hora)</th>
+              <th className="px-3 py-2 text-right">Incluidos en la ley ($/jornal)</th>
+              <th className="px-3 py-2 text-right">No incluidos en la ley ($/jornal)</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
@@ -510,8 +511,9 @@ function JornalesConstruccion() {
         </table>
       </div>
       <p className="text-[11px] text-gray-400">
-        Al guardar, ropa (5%), transporte (4,375%) y herramientas (2%) se recalculan desde el ½ Oficial Albañil del recuadro
-        "incluidos en la ley" y se actualizan en los conceptos de todas las empresas de construcción.
+        Se guarda el JORNAL (valor diario del acta). La hora que usa el sistema se calcula sola = jornal ÷ 8 (el sueldo
+        básico y la hora del presentismo salen de ahí). Ropa, transporte y herramientas son valores fijos por jornal
+        que se editan en Conceptos.
       </p>
     </div>
   );
@@ -539,8 +541,8 @@ function ValoresPorMes() {
   const noIncluidos = (jorn?.jornales ?? []).filter((j) => j.recuadro === 'NO_INCLUIDOS');
   const catConValor = (jorn?.categorias ?? []).map((cat) => ({
     cat,
-    inc: incluidos.find((j) => j.categoria === cat)?.valorHora,
-    noinc: noIncluidos.find((j) => j.categoria === cat)?.valorHora,
+    inc: incluidos.find((j) => j.categoria === cat)?.valorJornal,
+    noinc: noIncluidos.find((j) => j.categoria === cat)?.valorJornal,
   }));
 
   return (
@@ -567,7 +569,7 @@ function ValoresPorMes() {
         </table>
       </div>
 
-      <p className="text-xs font-semibold uppercase tracking-wider text-ink-subtle mb-1">Jornales del laudo (valor hora)</p>
+      <p className="text-xs font-semibold uppercase tracking-wider text-ink-subtle mb-1">Jornales del laudo (valor jornal)</p>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>

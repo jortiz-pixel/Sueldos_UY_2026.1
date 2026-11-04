@@ -151,11 +151,11 @@ export const demoApi = {
   }>('/demo/seed').then((r) => r.data),
 };
 
-export interface JornalConstruccionRow { categoria: string; recuadro: 'INCLUIDOS' | 'NO_INCLUIDOS'; valorHora: string; effectiveDate: string }
+export interface JornalConstruccionRow { categoria: string; recuadro: 'INCLUIDOS' | 'NO_INCLUIDOS'; valorJornal: string; valorHora: string; effectiveDate: string }
 export interface LaudoDoc { id: string; effectiveDate: string; nombre: string; filename: string; mime: string; size: number; createdAt: string }
 export const construccionApi = {
   jornales: (fecha?: string) => api.get<{ categorias: string[]; jornales: JornalConstruccionRow[]; convenioVigenteHasta: string; vencido: boolean; mtssUrl: string }>('/construccion/jornales', { params: fecha ? { fecha } : {} }).then((r) => r.data),
-  saveJornales: (effectiveDate: string, valores: Array<{ categoria: string; recuadro: 'INCLUIDOS' | 'NO_INCLUIDOS'; valorHoraPesos: number }>) =>
+  saveJornales: (effectiveDate: string, valores: Array<{ categoria: string; recuadro: 'INCLUIDOS' | 'NO_INCLUIDOS'; valorJornalPesos: number }>) =>
     api.put<{ guardados: number; partidasActualizadas: number }>('/construccion/jornales', { effectiveDate, valores }).then((r) => r.data),
   aplicarAjuste: (porcentaje: number, effectiveDate: string) =>
     api.post<{ guardados: number; partidasActualizadas: number; porcentaje: number }>('/construccion/jornales/ajuste', { porcentaje, effectiveDate }).then((r) => r.data),
