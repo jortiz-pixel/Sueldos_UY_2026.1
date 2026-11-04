@@ -565,9 +565,8 @@ export default function ContractsPage() {
                         value={(watch('focerTipoContrato') ?? '1') === '1' ? '2 — Declara 0,5%' : '1 — Declara 5%'}
                       />
                       <p className="text-xs text-gray-400 mt-1">
-                        Código de la declaración, derivado del tipo de contrato: indefinido → 2 (0,5%) ·
-                        a prueba / a término / suplencia → 1 (5%). La tasa REAL del aporte es otra cosa:
-                        indefinido 5% · a prueba 0,5% · a término / suplencia 1%.
+                        Se deriva del tipo de contrato y es también la tasa del aporte: indefinido →
+                        código 2 = <b>0,5%</b> · a prueba / a término / suplencia → código 1 = <b>5%</b>.
                       </p>
                     </div>
                   </>

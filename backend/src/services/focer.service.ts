@@ -26,25 +26,21 @@ import { prisma } from '../utils/prisma';
 import { divRoundHalfUp, salarioProporcional } from '../utils/money';
 import { esEmpresaConstruccion, grupoConsejoDeEmpresa, TIPO_APORTE_CONSTRUCCION } from './construccion.service';
 
-// Tasa FOCER (aporte patronal al Fondo de Cesantía y Retiro). La determina el
-// TIPO DE CONTRATO del vínculo (focerTipoContrato):
-//   1 indefinido → 5% (500 bp) · 2 a prueba → 0,5% (50 bp) · 3 a término → 1%
-//   (100 bp) · 4 suplencia → 1% (asumido). Validado contra el control de BPS
-//   (DEMARIA 10/2026: 64.156,92 × 1% = 641,57 · a prueba Lambrechts 0,5%).
+// Tasa FOCER (aporte patronal al Fondo de Cesantía y Retiro). Son DOS tasas y el
+// monto sigue al código "tipo de focer" del vínculo:
+//   INDEFINIDO → 0,5% (50 bp) · A PRUEBA / A TÉRMINO / SUPLENCIA → 5% (500 bp).
+// (Confirmado por el usuario. El dependiente indefinido de Lambrechts da
+// 8.966,33 × 0,5% = 44,83, igual a GNS.)
 function focerRateBp(focerTipoContrato?: number | null): number {
-  if (focerTipoContrato === 2) return 50;  // a prueba → 0,5%
-  if (focerTipoContrato === 3) return 100; // a término → 1%
-  if (focerTipoContrato === 4) return 100; // suplencia → 1% (asumido)
-  return 500;                              // indefinido / sin dato → 5%
+  return focerTipoContrato === 1 ? 50 : 500;
 }
 
 // Códigos que van en la declaración (reg. 4), derivados del tipo de contrato
-// (confirmado por el usuario). Son DOS campos distintos:
+// (confirmado por el usuario). Son DOS campos distintos, y el "tipo de focer"
+// SÍ coincide con la tasa real:
 //   - TIPO DE CONTRATO (pos. 206): indefinido → 1; a prueba/a término/suplencia → 2.
-//   - TIPO DE FOCER (pos. 208, etiquetas 1 = 5% · 2 = 0,5%): indefinido → 2;
-//     a prueba/a término/suplencia → 1.
-// OJO: el código "tipo de focer" NO es la tasa real del aporte (indefinido 5%,
-// a prueba 0,5%, a término/suplencia 1%) — es solo el código de la declaración.
+//   - TIPO DE FOCER (pos. 208, 1 = 5% · 2 = 0,5%): indefinido → 2 (0,5%);
+//     a prueba/a término/suplencia → 1 (5%).
 function codigoTipoContrato(focerTipoContrato?: number | null): number {
   return focerTipoContrato === 1 ? 1 : 2;
 }
