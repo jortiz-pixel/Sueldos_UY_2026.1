@@ -120,6 +120,13 @@ describe('Adicional FONASA — casos obligatorios de la especificación (BPS)', 
     expect(sinAcumulado.fonasaFamilia).toBe(0n);
   });
 
+  test('Regresión Alexis Lajuni (DEMARIA): $12.571,84 (< 2,5 BPC), código 1 → adicional 0', () => {
+    // Antes aplicaba 1,5% por hijos aun debajo de 2,5 BPC (188,58). Debe ser 0.
+    const r = fonasaPorCodigo(1, 12571.84);
+    expect(r.fonasaFamilia).toBe(0n);
+    expect(r.detail.fonasaAdicionalRate).toBe(0);
+  });
+
   test('El umbral es MENSUAL y no se prorratea por días/jornales', () => {
     // Dos jornales con nominal mensual > 2,5 BPC igual aplican franja superior.
     const r = fonasaPorCodigo(15, 18000);

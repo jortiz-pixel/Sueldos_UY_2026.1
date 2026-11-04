@@ -14,8 +14,9 @@
  * Idempotente: upsert por (companyId, codigo); si el concepto ya existe no se
  * pisan los valores que el operador haya ajustado.
  */
-import { ItemType } from '@prisma/client';
+import { ItemType, LiquidationType } from '@prisma/client';
 import { prisma } from '../utils/prisma';
+import { divRoundHalfUp } from '../utils/money';
 
 export const TIPO_APORTE_CONSTRUCCION = 4; // Tabla 1: CT — Construcción
 
@@ -303,4 +304,64 @@ export async function ensureConceptosConstruccion(companyId: string, quick = fal
     creados++;
   }
   return creados;
+}
+
+// ── Fondos de la construcción: base ApliAFondos y recálculo tras el IRPF ──────
+// La base de Fondo Social / Fondo de Vivienda (fórmula GNS "ApliAFondos") es el
+// Total de Haberes del mes (sin reintegros/viáticos/ajustes no gravados) MENOS
+// los aportes personales REALES del recibo (jubilatorio + FONASA seguro +
+// adicional + FRL) MENOS el IRPF. Es PURA (testeable) y usa los importes ya
+// redondeados del recibo (criterio GNS: Hugo Pimienta 10/2026 →
+// 71.660,73 − 1.924,71 − 64,16 − 2.233,87 = 67.438,00).
+const APORTES_PERSONALES_FONDOS = ['BPS_JUBILATORIO', 'FONASA', 'FONASA_ADICIONAL', 'FRL', 'IRPF'];
+export function baseApliAFondos(
+  items: Array<{ itemType: ItemType; concepto: string; amount: bigint }>,
+): bigint {
+  const haberes = items
+    .filter((i) => i.itemType === ItemType.HABER && !['REINTEGRO_GASTOS', 'AJUSTE_NO_GRAVADO', 'VIATICOS'].includes(i.concepto))
+    .reduce((s, i) => s + i.amount, 0n);
+  const aportes = items
+    .filter((i) => i.itemType === ItemType.DESCUENTO_OBRERO && APORTES_PERSONALES_FONDOS.includes(i.concepto))
+    .reduce((s, i) => s + i.amount, 0n);
+  const base = haberes - aportes;
+  return base > 0n ? base : 0n;
+}
+
+/**
+ * Recalcula Fondo Social / Fondo de Vivienda de un recibo MENSUAL de construcción
+ * tomando el IRPF YA FINALIZADO. Se llama DESPUÉS de `recalcularIrpfMensual`
+ * (el IRPF mensual acumulado se fija después de armar la base de fondos, así que
+ * sin esto la base de fondos queda con un IRPF viejo). Ajusta el monto, la base
+ * y los totales del recibo. Idempotente.
+ */
+export async function recalcularFondosConstruccion(liquidationId: string): Promise<void> {
+  const liq = await prisma.liquidation.findUnique({
+    where: { id: liquidationId },
+    include: { items: true, period: { include: { company: true } } },
+  });
+  if (!liq || liq.type !== LiquidationType.MENSUAL) return;
+  const company = liq.period?.company;
+  if (!company || !esEmpresaConstruccion(company)) return;
+  const snap = liq.parametersSnapshot as { titularUnipersonal?: boolean } | null;
+  if (snap?.titularUnipersonal) return;
+
+  const fondos = liq.items.filter((i) =>
+    i.itemType === ItemType.DESCUENTO_OBRERO && (i.concepto === 'FONDO_SOCIAL' || i.concepto === 'FONDO_VIVIENDA'));
+  if (fondos.length === 0) return;
+
+  const base = baseApliAFondos(liq.items);
+  let delta = 0n;
+  for (const f of fondos) {
+    // PORCENTAJE_CIENMIL: monto = base × tasa(cienmilésimas) / 1.000.000.
+    const nuevo = divRoundHalfUp(base * BigInt(f.rate ?? 0), 1000000n);
+    if (nuevo === f.amount && f.baseCalculo === base) continue;
+    await prisma.payrollItem.update({ where: { id: f.id }, data: { amount: nuevo, baseCalculo: base } });
+    delta += nuevo - f.amount;
+  }
+  if (delta !== 0n) {
+    await prisma.liquidation.update({
+      where: { id: liq.id },
+      data: { totalDescuentos: { increment: delta }, liquidoPercibir: { decrement: delta } },
+    });
+  }
 }

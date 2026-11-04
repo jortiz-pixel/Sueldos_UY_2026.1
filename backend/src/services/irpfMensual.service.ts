@@ -22,6 +22,7 @@ import { LiquidationType, LiquidationStatus, ItemType, Prisma } from '@prisma/cl
 import { prisma } from '../utils/prisma';
 import { calcularIrpfMensual } from './irpf.service';
 import { parametersService } from './parameters.service';
+import { recalcularFondosConstruccion } from './construccion.service';
 
 // Haberes que NO integran la base ORDINARIA de IRPF del mes.
 const IRPF_EXENTO = new Set([
@@ -152,5 +153,14 @@ export async function recalcularIrpfMensual(
         },
       });
     }
+  }
+
+  // Los Fondos de la Construcción (Fondo Social / Vivienda) llevan el IRPF en su
+  // base "ApliAFondos". Como el IRPF del mes se finaliza ACÁ (después de armar esa
+  // base en la generación), hay que recalcular los fondos de los recibos
+  // MENSUALES con el IRPF ya definitivo. Si la empresa no es de construcción, la
+  // función no hace nada.
+  for (const f of filas) {
+    if (f.liq.type === LiquidationType.MENSUAL) await recalcularFondosConstruccion(f.liq.id);
   }
 }
