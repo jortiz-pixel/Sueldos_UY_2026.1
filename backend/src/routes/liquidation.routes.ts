@@ -148,14 +148,15 @@ liquidationRouter.get('/period/:id/roster', authenticate, async (req: Request, r
       distinct: ['employeeId'],
     });
     const ids = contratos.map((c) => c.employeeId);
-    // No listar a las personas INACTIVAS (dadas de baja / desvinculadas): aunque
-    // les quedara algún contrato marcado activo sin fecha de egreso, si la persona
-    // está inactiva no se liquida. El mes del egreso igual queda cubierto por su
-    // liquidación final (que se ve en el listado de liquidaciones), y desde el mes
-    // siguiente deja de aparecer. Las fechas de egreso del contrato ya excluyen a
-    // los dados de baja el mes posterior; este filtro cubre la baja a nivel persona.
+    // Quién aparece lo decide el CONTRATO (activo + fechas de vigencia/egreso), NO
+    // el flag global de la persona (employee.active): en datos migrados hay
+    // personas habilitadas con un contrato activo cuyo employee.active quedó en
+    // false, y deben liquidarse igual. Un contrato dado de baja (con fecha de
+    // egreso) deja de aparecer el mes siguiente por el filtro de fechas de arriba;
+    // uno inactivado (activo=false) queda excluido por activo=true. Por eso acá NO
+    // se filtra por employee.active.
     const employees = await prisma.employee.findMany({
-      where: { id: { in: ids }, active: true },
+      where: { id: { in: ids } },
       orderBy: [{ apellido: 'asc' }, { nombre: 'asc' }],
       select: { id: true, ci: true, employeeNumber: true, nombre: true, apellido: true, active: true, cargo: true, salarioNominal: true, fechaIngreso: true },
     });
@@ -294,8 +295,6 @@ liquidationRouter.post('/generate-batch', authenticate, requireRole(UserRole.ADM
       where: {
         companyId,
         activo: true,
-        // No generar para personas INACTIVAS (dadas de baja / desvinculadas).
-        employee: { active: true },
         vigenciaDesde: { lte: monthEnd },
         AND: [
           { OR: [{ vigenciaHasta: null }, { vigenciaHasta: { gte: monthStart } }] },
