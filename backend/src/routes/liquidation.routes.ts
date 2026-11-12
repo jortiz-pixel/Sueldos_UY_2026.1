@@ -137,24 +137,27 @@ liquidationRouter.get('/period/:id/roster', authenticate, async (req: Request, r
     const contratos = await prisma.contrato.findMany({
       where: {
         companyId: period.companyId,
-        activo: true,
         vigenciaDesde: { lte: monthEnd },
         AND: [
           { OR: [{ vigenciaHasta: null }, { vigenciaHasta: { gte: monthStart } }] },
           { OR: [{ fechaFin: null }, { fechaFin: { gte: monthStart } }] },
+          // Habilitados (activo) O dados de BAJA con fecha de egreso: así un
+          // contrato de baja aparece HASTA el mes del egreso INCLUSIVE (de baja en
+          // noviembre → aparece en noviembre; en diciembre ya no, por el filtro de
+          // fechas de arriba). Se excluyen los inactivados por error (activo=false
+          // SIN fecha de egreso). Mismo criterio que resolverContratoEnMes: lo que
+          // se lista = lo que se puede liquidar.
+          { OR: [{ activo: true }, { fechaFin: { not: null } }] },
         ],
       },
       select: { employeeId: true },
       distinct: ['employeeId'],
     });
     const ids = contratos.map((c) => c.employeeId);
-    // Quién aparece lo decide el CONTRATO (activo + fechas de vigencia/egreso), NO
-    // el flag global de la persona (employee.active): en datos migrados hay
-    // personas habilitadas con un contrato activo cuyo employee.active quedó en
-    // false, y deben liquidarse igual. Un contrato dado de baja (con fecha de
-    // egreso) deja de aparecer el mes siguiente por el filtro de fechas de arriba;
-    // uno inactivado (activo=false) queda excluido por activo=true. Por eso acá NO
-    // se filtra por employee.active.
+    // Quién aparece lo decide el CONTRATO (filtro de arriba), NO el flag global de
+    // la persona (employee.active): en datos migrados hay personas habilitadas con
+    // un contrato activo cuyo employee.active quedó en false, y deben liquidarse
+    // igual. Por eso acá NO se filtra por employee.active.
     const employees = await prisma.employee.findMany({
       where: { id: { in: ids } },
       orderBy: [{ apellido: 'asc' }, { nombre: 'asc' }],
@@ -286,8 +289,12 @@ liquidationRouter.post('/generate-batch', authenticate, requireRole(UserRole.ADM
     });
     const { companyId, periodId, year, month } = schema.parse(req.body);
     await assertCompanyAccess(req, companyId);
-    // Contratos que SOLAPAN el mes (incluye altas/bajas a mitad de mes),
-    // mismo criterio que el roster y la nómina BPS.
+    // "Generar todos" liquida solo los contratos HABILITADOS (activo) que solapan
+    // el mes. Los dados de baja con fecha de egreso NO se incluyen acá: su
+    // liquidación del egreso (final, o mensual del mes de baja en construcción CT)
+    // ya se generó automáticamente al dar la baja, y regenerar crearía una mensual
+    // de más. El roster sí los MUESTRA hasta el mes del egreso (para verlos/editar
+    // su liquidación), pero la generación masiva no los vuelve a liquidar.
     const monthStart = new Date(year, month - 1, 1);
     const monthEnd = new Date(year, month, 0);
 

@@ -190,11 +190,17 @@ export default function LiquidationPage() {
   const liquidaciones = periodLiquidations ?? [];
   const roster = rosterData ?? [];
   const hayBorradores = liquidaciones.some((l) => l.status === 'BORRADOR');
-  const empConMensual = new Set(liquidaciones.filter((l) => l.type === 'MENSUAL').map((l) => l.employeeId));
-  const sinLiquidar = roster.filter((emp) => !empConMensual.has(emp.id));
+  // Un contrato dado de baja aparece en el roster hasta el mes del egreso. Su
+  // liquidación del egreso es una FINAL (o una MENSUAL del mes de baja en
+  // construcción CT), así que cuenta como YA LIQUIDADO: no debe figurar como
+  // "pendiente" con botón de Generar (su liquidación ya se creó en la baja).
+  const empConLiqPrincipal = new Set(
+    liquidaciones.filter((l) => l.type === 'MENSUAL' || l.type === 'FINAL').map((l) => l.employeeId),
+  );
+  const sinLiquidar = roster.filter((emp) => !empConLiqPrincipal.has(emp.id));
   const pendientes = sinLiquidar.filter((emp) => !emp.excluido);
   const excluidas = sinLiquidar.filter((emp) => emp.excluido);
-  const liquidados = empConMensual.size;
+  const liquidados = empConLiqPrincipal.size;
 
   return (
     <div className="space-y-5">
