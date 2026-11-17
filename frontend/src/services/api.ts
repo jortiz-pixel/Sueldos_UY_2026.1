@@ -826,6 +826,7 @@ export const importacionesApi = {
     api.patch<{ ok: boolean; clasificacion: string; costeoEstado: string | null }>(`/importaciones/${id}/articulos/${articuloId}`, { clasificacion }).then((r) => r.data),
   asiento: (id: string) => api.get<AsientoImportacion>(`/importaciones/${id}/asiento`).then((r) => r.data),
   costeoPdf: (id: string) => api.get(`/importaciones/${id}/costeo.pdf`, { responseType: 'blob' }).then((r) => r.data as Blob),
+  costosArticulosExcel: (id: string) => api.get(`/importaciones/${id}/costos-articulos.xlsx`, { responseType: 'blob' }).then((r) => r.data as Blob),
   creditoFiscal: (companyId: string, year: number, month: number) =>
     api.get<CreditoFiscalReporte>('/importaciones/credito-fiscal', { params: { companyId, year, month } }).then((r) => r.data),
   creditoFiscalExcel: (companyId: string, year: number, month: number) =>

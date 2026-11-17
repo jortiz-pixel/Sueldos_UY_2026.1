@@ -822,6 +822,41 @@ importacionesRouter.get('/:id/asiento', async (req: Request, res: Response, next
   } catch (err) { next(err); }
 });
 
+// ── GET /:id/costos-articulos.xlsx — costo por artículo para el alta en stock ─
+// Tabla descargable: cada artículo con su FOB, participación, costo prorrateado
+// total, costo UNITARIO y clasificación (Mercadería / Bien de uso).
+importacionesRouter.get('/:id/costos-articulos.xlsx', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const imp = await prisma.importacion.findUnique({ where: { id: req.params.id }, include: { items: true, company: true } });
+    if (!imp) throw new NotFoundError('Importación');
+    await assertCompanyAccess(req, imp.companyId);
+    const p = (c: bigint) => Number(c) / 100;
+    const sumaFob = imp.items.reduce((s, i) => s + i.fobTotal, 0n);
+    const unit = (costo: bigint, cant: number): number => (cant > 0 ? Number(costo) / 100 / cant : Number(costo) / 100);
+    const clasif = (c: string) => (c === 'BIEN_DE_USO' ? 'Bien de uso' : 'Mercadería');
+    const aoa: (string | number)[][] = [
+      [`Costo por artículo — ${imp.company.razonSocial}${imp.duaNumero ? ` · DUA ${imp.duaNumero}` : ''}`],
+      [`Costo total de la importación: ${p(imp.costoMercaderia)} · Estado del costeo: ${imp.costeoEstado ?? '—'}`],
+      [],
+      ['#', 'Código', 'Descripción', 'NCM', 'Cantidad', 'FOB', 'Participación FOB %', 'Costo total', 'Costo unitario', 'Clasificación'],
+      ...imp.items.map((i, idx) => [
+        idx + 1, i.codigo ?? '', i.descripcion, i.ncm ?? '', i.cantidad, p(i.fobTotal),
+        sumaFob > 0n ? Number((Number(i.fobTotal) / Number(sumaFob) * 100).toFixed(4)) : 0,
+        p(i.costoProrrateado), Number(unit(i.costoProrrateado, i.cantidad).toFixed(2)), clasif(i.clasificacion),
+      ]),
+      ['', '', 'TOTAL', '', imp.items.reduce((s, i) => s + i.cantidad, 0), p(sumaFob), 100, p(imp.items.reduce((s, i) => s + i.costoProrrateado, 0n)), '', ''],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{ wch: 5 }, { wch: 16 }, { wch: 40 }, { wch: 14 }, { wch: 10 }, { wch: 13 }, { wch: 18 }, { wch: 15 }, { wch: 15 }, { wch: 14 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Costo por artículo');
+    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="costo_articulos_${(imp.duaNumero ?? imp.id).replace(/[^\w.-]+/g, '_')}.xlsx"`);
+    res.send(buf);
+  } catch (err) { next(err); }
+});
+
 // ── GET /:id/costo-fiscal — costo fiscal de adquisición (IRAE), separado ──────
 importacionesRouter.get('/:id/costo-fiscal', async (req: Request, res: Response, next: NextFunction) => {
   try {

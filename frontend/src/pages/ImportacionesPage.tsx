@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Ship, Plus, Trash2, Save, X, Pencil, FileDown, Download, Calculator, Paperclip, Upload, FileSpreadsheet, CheckCircle, AlertCircle, Settings, Coins, Scale, RefreshCw } from 'lucide-react';
+import { Ship, Plus, Trash2, Save, X, Pencil, FileDown, Download, Calculator, Paperclip, Upload, FileSpreadsheet, CheckCircle, AlertCircle, Settings, Coins, Scale, RefreshCw, Boxes } from 'lucide-react';
 import { importacionesApi } from '../services/api';
 import { useCompany } from '../hooks/useCompany';
 import {
@@ -562,6 +562,43 @@ function FormImportacion({ companyId, inicial, importacion, onClose, onSaved, on
         </div>
         <p className="text-xs text-ink-subtle mt-3">{importacion?.costeoDetalle?.costoInventario ? 'El costo de la mercadería es el del costeo documental (DUA): Adquisición + Tributos no recuperables + Gastos atribuibles. ' : ''}El IVA importación y los anticipos no integran el costo (son crédito fiscal / pagos a cuenta).</p>
       </div>
+
+      {importacion && importacion.items.length > 0 && (() => {
+        const sumaFob = importacion.items.reduce((s, i) => s + Number(i.fobTotal), 0);
+        return (
+          <div className="card p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-subtle flex items-center gap-2"><Boxes size={16} /> Costo por artículo (para el alta en stock)</h2>
+              <button className="btn-secondary btn-sm" onClick={async () => { const b = await importacionesApi.costosArticulosExcel(importacion.id); descargarBlob(b, `costo_articulos_${importacion.duaNumero || importacion.id}.xlsx`); }}><FileDown size={14} /> Descargar Excel</button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="table-header"><tr>
+                  <th className="px-2 py-1 text-left">#</th><th className="px-2 py-1 text-left">Código</th><th className="px-2 py-1 text-left">Descripción</th>
+                  <th className="px-2 py-1 text-right">Cant.</th><th className="px-2 py-1 text-right">FOB</th><th className="px-2 py-1 text-right">Part. %</th>
+                  <th className="px-2 py-1 text-right">Costo total</th><th className="px-2 py-1 text-right">Costo unit.</th><th className="px-2 py-1 text-left">Clasificación</th>
+                </tr></thead>
+                <tbody className="divide-y divide-hairline/40">
+                  {importacion.items.map((i, idx) => (
+                    <tr key={i.id ?? idx}>
+                      <td className="px-2 py-1 text-ink-subtle">{idx + 1}</td>
+                      <td className="px-2 py-1 font-mono">{i.codigo ?? '—'}</td>
+                      <td className="px-2 py-1 max-w-[20rem] truncate" title={i.descripcion}>{i.descripcion}</td>
+                      <td className="px-2 py-1 text-right figure">{i.cantidad}</td>
+                      <td className="px-2 py-1 text-right figure">{money(c2p(i.fobTotal))}</td>
+                      <td className="px-2 py-1 text-right figure">{sumaFob > 0 ? (Number(i.fobTotal) / sumaFob * 100).toFixed(2) : '0,00'}%</td>
+                      <td className="px-2 py-1 text-right figure">{money(c2p(i.costoProrrateado))}</td>
+                      <td className="px-2 py-1 text-right figure font-semibold">{money(i.cantidad > 0 ? c2p(i.costoProrrateado) / i.cantidad : c2p(i.costoProrrateado))}</td>
+                      <td className="px-2 py-1">{i.clasificacion === 'BIEN_DE_USO' ? 'Bien de uso' : 'Mercadería'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-xs text-ink-subtle">El costo se reparte por participación en el FOB; el costo unitario es el costo del artículo ÷ su cantidad. La suma de los costos cierra exacta con el costo total de la importación.</p>
+          </div>
+        );
+      })()}
 
       {importacion && (
         <div className="card p-5 space-y-3">

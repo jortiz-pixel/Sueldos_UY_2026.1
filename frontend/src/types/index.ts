@@ -336,6 +336,7 @@ export type GastoConcepto =
 // Las cifras de dinero llegan del backend como string de CENTÉSIMOS.
 export interface ImportacionItem {
   id?: string;
+  codigo?: string | null;
   descripcion: string;
   ncm?: string | null;
   cantidad: number;
