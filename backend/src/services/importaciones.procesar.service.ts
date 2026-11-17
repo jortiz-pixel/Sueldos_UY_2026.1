@@ -218,7 +218,7 @@ export async function reconstruirCosteoDesdeExtraccion(importacionId: string): P
     } as CosteoDocInput['dua'],
     factura: factura ? {
       fob: factura.fob, flete: factura.flete, seguro: factura.seguro, total: factura.total, moneda: factura.moneda,
-      articulos: factura.articulos.map((a) => ({ descripcion: a.descripcion || a.codigo || 'Ítem', codigo: a.codigo, cantidad: a.cantidad || 1, total: a.total })),
+      articulos: factura.articulos.map((a) => ({ descripcion: a.descripcion || a.codigo || 'Ítem', codigo: a.codigo, cantidad: a.cantidad || 1, total: a.total, clasificacion: a.clasificacion })),
     } : null,
     servicios, anticipos,
     pagoSpeCtms: pagoTrib ? pagoTrib.total : null,
@@ -312,7 +312,7 @@ export async function reconstruirCosteoDesdeExtraccion(importacionId: string): P
         costeoFiscalEstado: rf ? rf.estado : null,
         costeoFiscalMotivo: rf && rf.motivos.length ? rf.motivos.join(' · ') : null,
         costeoFiscalDetalle,
-        items: { create: (r.items ?? []).map((i) => ({ codigo: i.codigo, descripcion: i.descripcion, ncm, cantidad: i.cantidad, fobUnitario: i.cantidad ? i.fobME / BigInt(Math.max(1, Math.round(i.cantidad))) : i.fobME, fobTotal: i.fobME, costoProrrateado: i.costo })) },
+        items: { create: (r.items ?? []).map((i) => ({ codigo: i.codigo, descripcion: i.descripcion, ncm, cantidad: i.cantidad, fobUnitario: i.cantidad ? i.fobME / BigInt(Math.max(1, Math.round(i.cantidad))) : i.fobME, fobTotal: i.fobME, costoProrrateado: i.costo, clasificacion: i.clasificacion })) },
         tributos: { create: r.tributos.map((t) => ({ tipo: t.tipo, baseImponible: 0n, tasa: 0, monto: t.monto, recuperable: t.recuperable })) },
         gastos: { create: r.gastos.filter((g) => g.incluidoEnCosto).map((g) => ({ concepto: /honorario/i.test(g.concepto) ? GastoImportacionConcepto.HONORARIOS_DESPACHANTE : GastoImportacionConcepto.OTRO, descripcion: `${g.documento}: ${g.concepto}`, monto: g.montoUYU, gravadoIva: g.gravado, ivaGasto: g.ivaUYU })) },
       },
@@ -324,6 +324,21 @@ export async function reconstruirCosteoDesdeExtraccion(importacionId: string): P
 export async function procesarExpediente(importacionId: string): Promise<ProcesarResultado> {
   const docs = await prisma.importacionDocumento.findMany({ where: { importacionId } });
   const advertencias: string[] = [];
+
+  // Preservar la CLASIFICACIÓN (bien de uso) que el usuario haya marcado en los
+  // artículos: el reproceso vuelve a leer la factura, pero no debe perder esa
+  // marca. Se guarda por código (o descripción) y se reaplica al recrear.
+  const prevClasif = new Map<string, string>();
+  const prevFacturas = await prisma.importacionFactura.findMany({ where: { importacionId }, include: { articulos: true } });
+  for (const pf of prevFacturas) {
+    for (const pa of pf.articulos) {
+      if (pa.clasificacion && pa.clasificacion !== 'MERCADERIA') {
+        prevClasif.set((pa.codigo ?? pa.descripcion ?? '').trim().toUpperCase(), pa.clasificacion);
+      }
+    }
+  }
+  const clasifDe = (codigo?: string | null, descripcion?: string | null): string =>
+    prevClasif.get((codigo ?? descripcion ?? '').trim().toUpperCase()) ?? 'MERCADERIA';
 
   // Reproceso idempotente: borrar la extracción previa del expediente.
   await prisma.importacionFactura.deleteMany({ where: { importacionId } });
@@ -381,7 +396,7 @@ export async function procesarExpediente(importacionId: string): Promise<Procesa
           moneda: f.moneda, incoterm: f.incoterm,
           fob: C(f.fob), flete: C(f.flete), seguro: C(f.seguro), cif: C(f.cif), total: C(f.total),
           confianza,
-          articulos: { create: f.articulos.map((a) => ({ nro: a.nro, codigo: a.codigo, descripcion: a.descripcion, cantidad: a.cantidad, precioUnit: a.precioUnit, total: C(a.total) })) },
+          articulos: { create: f.articulos.map((a) => ({ nro: a.nro, codigo: a.codigo, descripcion: a.descripcion, cantidad: a.cantidad, precioUnit: a.precioUnit, total: C(a.total), clasificacion: clasifDe(a.codigo, a.descripcion) })) },
         },
       });
       facturas += 1;

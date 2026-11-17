@@ -342,6 +342,7 @@ export interface ImportacionItem {
   fobUnitario: string;
   fobTotal: string;
   costoProrrateado: string;
+  clasificacion?: 'MERCADERIA' | 'BIEN_DE_USO';
 }
 export interface ImportacionTributo {
   id?: string;
@@ -391,7 +392,7 @@ export interface Importacion {
   anticipos: string;
   // Costeo documental (DUA). El costo DEFINITIVO de la mercadería sale de acá.
   costeoEstado?: string | null;
-  costeoDetalle?: { costoInventario?: string | null } | null;
+  costeoDetalle?: { costoInventario?: string | null; costoMercaderia?: string | null; costoBienesDeUso?: string | null } | null;
   notas?: string | null;
   creadoPor?: string | null;
   createdAt: string;
@@ -436,7 +437,7 @@ export interface Cotizacion {
   confirmadoPor: string | null;
 }
 
-export interface ExtArticulo { nro: number; codigo: string | null; descripcion: string; cantidad: number; precioUnit: number; total: string; }
+export interface ExtArticulo { id: string; nro: number; codigo: string | null; descripcion: string; cantidad: number; precioUnit: number; total: string; clasificacion: 'MERCADERIA' | 'BIEN_DE_USO'; }
 export interface ExtFactura {
   id: string; documentoId: string | null; proveedor: string | null; cuit: string | null; numero: string | null;
   fecha: string | null; moneda: string; incoterm: string | null;
@@ -622,7 +623,7 @@ export interface ImportacionPayload {
   flete?: number;
   seguro?: number;
   notas?: string | null;
-  items?: Array<{ descripcion: string; ncm?: string | null; cantidad?: number; fobUnitario?: number; fobTotal?: number }>;
+  items?: Array<{ descripcion: string; ncm?: string | null; cantidad?: number; fobUnitario?: number; fobTotal?: number; clasificacion?: 'MERCADERIA' | 'BIEN_DE_USO' }>;
   tributos?: Array<{ tipo: TributoTipo; baseImponible?: number; tasa?: number; monto?: number; recuperable?: boolean }>;
   gastos?: Array<{ concepto: GastoConcepto; descripcion?: string | null; monto?: number; gravadoIva?: boolean; ivaGasto?: number }>;
 }

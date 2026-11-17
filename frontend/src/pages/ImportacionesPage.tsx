@@ -53,7 +53,7 @@ const costoMercaderiaDef = (imp: Importacion): string => {
   return d != null && d !== '' ? String(d) : imp.costoMercaderia;
 };
 
-type ItemForm = { descripcion: string; ncm: string; cantidad: number; fobUnitario: number };
+type ItemForm = { descripcion: string; ncm: string; cantidad: number; fobUnitario: number; clasificacion: 'MERCADERIA' | 'BIEN_DE_USO' };
 type TributoForm = { tipo: TributoTipo; tasa: number; monto: number };
 type GastoForm = { concepto: GastoConcepto; descripcion: string; monto: number; gravadoIva: boolean; ivaGasto: number };
 
@@ -115,7 +115,7 @@ function desdeImportacion(imp: Importacion): FormState {
     fechaArribo: imp.fechaArribo ?? '',
     fechaNacionalizacion: imp.fechaNacionalizacion ?? '',
     fob: c2p(imp.fob), flete: c2p(imp.flete), seguro: c2p(imp.seguro), notas: imp.notas ?? '',
-    items: imp.items.map((i) => ({ descripcion: i.descripcion, ncm: i.ncm ?? '', cantidad: i.cantidad, fobUnitario: c2p(i.fobUnitario) })),
+    items: imp.items.map((i) => ({ descripcion: i.descripcion, ncm: i.ncm ?? '', cantidad: i.cantidad, fobUnitario: c2p(i.fobUnitario), clasificacion: i.clasificacion ?? 'MERCADERIA' })),
     tributos: imp.tributos.map((t) => ({ tipo: t.tipo, tasa: t.tasa, monto: c2p(t.monto) })),
     gastos: imp.gastos.map((g) => ({ concepto: g.concepto, descripcion: g.descripcion ?? '', monto: c2p(g.monto), gravadoIva: g.gravadoIva, ivaGasto: c2p(g.ivaGasto) })),
   };
@@ -165,7 +165,7 @@ function aPayload(companyId: string, f: FormState): ImportacionPayload {
     fob: f.fob, flete: f.flete, seguro: f.seguro,
     notas: nn(f.notas),
     items: f.items.filter((i) => i.descripcion.trim()).map((i) => ({
-      descripcion: i.descripcion.trim(), ncm: i.ncm.trim() || null, cantidad: i.cantidad, fobUnitario: i.fobUnitario,
+      descripcion: i.descripcion.trim(), ncm: i.ncm.trim() || null, cantidad: i.cantidad, fobUnitario: i.fobUnitario, clasificacion: i.clasificacion,
     })),
     tributos: f.tributos.map((t) => ({ tipo: t.tipo, tasa: t.tasa, monto: t.monto })),
     gastos: f.gastos.map((g) => ({ concepto: g.concepto, descripcion: g.descripcion.trim() || null, monto: g.monto, gravadoIva: g.gravadoIva, ivaGasto: g.ivaGasto })),
@@ -186,7 +186,7 @@ function fusionarExtraido(prev: FormState, d: NonNullable<ImportacionExtraido['d
   for (const g of d.gastos) if ((g.monto > 0 || g.ivaGasto > 0) && !gastos.some((x) => x.concepto === g.concepto && x.monto === g.monto)) gastos.push({ concepto: g.concepto, descripcion: '', monto: g.monto, gravadoIva: g.ivaGasto > 0, ivaGasto: g.ivaGasto });
   // Ítems: agrega por descripción.
   const items = [...prev.items];
-  for (const it of d.items ?? []) if (it.descripcion.trim() && !items.some((x) => x.descripcion === it.descripcion)) items.push({ descripcion: it.descripcion, ncm: '', cantidad: it.cantidad ?? 1, fobUnitario: it.fobUnitario ?? 0 });
+  for (const it of d.items ?? []) if (it.descripcion.trim() && !items.some((x) => x.descripcion === it.descripcion)) items.push({ descripcion: it.descripcion, ncm: '', cantidad: it.cantidad ?? 1, fobUnitario: it.fobUnitario ?? 0, clasificacion: 'MERCADERIA' });
   // Notas: concatena sin repetir.
   const notas = d.notas && !prev.notas.includes(d.notas) ? [prev.notas, d.notas].filter(Boolean).join(' · ') : prev.notas;
   return {
@@ -550,7 +550,13 @@ function FormImportacion({ companyId, inicial, importacion, onClose, onSaved, on
           <Resumen label="CIF" valor={money(costeo.cif)} />
           <Resumen label="Total tributos" valor={money(costeo.totalTributos)} />
           <Resumen label="Total gastos de plaza" valor={money(costeo.totalGastos)} />
-          <Resumen label="Costo de la mercadería" valor={money(importacion?.costeoDetalle?.costoInventario ? c2p(importacion.costeoDetalle.costoInventario) : costeo.costoMercaderia)} fuerte />
+          <Resumen label="Costo total importado" valor={money(importacion?.costeoDetalle?.costoInventario ? c2p(importacion.costeoDetalle.costoInventario) : costeo.costoMercaderia)} fuerte />
+          {importacion?.costeoDetalle?.costoBienesDeUso && Number(importacion.costeoDetalle.costoBienesDeUso) > 0 ? (
+            <>
+              <Resumen label="→ Mercadería (inventario)" valor={money(c2p(importacion.costeoDetalle.costoMercaderia ?? '0'))} />
+              <Resumen label="→ Bienes de uso (activo fijo)" valor={money(c2p(importacion.costeoDetalle.costoBienesDeUso))} />
+            </>
+          ) : null}
           <Resumen label="Crédito fiscal IVA" valor={money(costeo.creditoFiscalIva)} />
           <Resumen label="Anticipos (pago a cuenta)" valor={money(costeo.anticipos)} />
         </div>
@@ -661,7 +667,7 @@ function LineasGastos({ gastos, onChange }: { gastos: GastoForm[]; onChange: (g:
 }
 
 function LineasItems({ items, onChange }: { items: ItemForm[]; onChange: (i: ItemForm[]) => void }) {
-  const add = () => onChange([...items, { descripcion: '', ncm: '', cantidad: 1, fobUnitario: 0 }]);
+  const add = () => onChange([...items, { descripcion: '', ncm: '', cantidad: 1, fobUnitario: 0, clasificacion: 'MERCADERIA' }]);
   const upd = (i: number, patch: Partial<ItemForm>) => onChange(items.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
   const del = (i: number) => onChange(items.filter((_, idx) => idx !== i));
   return (
@@ -674,10 +680,14 @@ function LineasItems({ items, onChange }: { items: ItemForm[]; onChange: (i: Ite
         <div className="space-y-2">
           {items.map((it, i) => (
             <div key={i} className="grid grid-cols-12 gap-2 items-center">
-              <input placeholder="Descripción" className="form-input col-span-4" value={it.descripcion} onChange={(e) => upd(i, { descripcion: e.target.value })} />
+              <input placeholder="Descripción" className="form-input col-span-3" value={it.descripcion} onChange={(e) => upd(i, { descripcion: e.target.value })} />
               <input placeholder="NCM" className="form-input col-span-2" value={it.ncm} onChange={(e) => upd(i, { ncm: e.target.value })} />
-              <input type="number" step="0.01" placeholder="Cant." className="form-input col-span-2" value={it.cantidad} onChange={(e) => upd(i, { cantidad: Number(e.target.value) })} />
-              <input type="number" step="0.01" placeholder="FOB unit." className="form-input col-span-3" value={it.fobUnitario} onChange={(e) => upd(i, { fobUnitario: Number(e.target.value) })} />
+              <input type="number" step="0.01" placeholder="Cant." className="form-input col-span-1" value={it.cantidad} onChange={(e) => upd(i, { cantidad: Number(e.target.value) })} />
+              <input type="number" step="0.01" placeholder="FOB unit." className="form-input col-span-2" value={it.fobUnitario} onChange={(e) => upd(i, { fobUnitario: Number(e.target.value) })} />
+              <select className="form-input col-span-3" value={it.clasificacion} onChange={(e) => upd(i, { clasificacion: e.target.value as 'MERCADERIA' | 'BIEN_DE_USO' })} title="Clasificación contable del artículo">
+                <option value="MERCADERIA">Mercadería</option>
+                <option value="BIEN_DE_USO">Bien de uso</option>
+              </select>
               <button className="p-1.5 rounded hover:bg-bad-bg text-bad col-span-1 justify-self-center" onClick={() => del(i)}><Trash2 size={15} /></button>
             </div>
           ))}
@@ -1275,6 +1285,18 @@ function DatosExtraidosPanel({ importacionId }: { importacionId: string }) {
     mutationFn: () => importacionesApi.procesar(importacionId),
     onSuccess: (r) => { setResultado(r); qc.invalidateQueries({ queryKey: ['importacion-extraccion', importacionId] }); qc.invalidateQueries({ queryKey: ['importacion-documentos', importacionId] }); qc.invalidateQueries({ queryKey: ['importaciones'] }); qc.invalidateQueries({ queryKey: ['importacion-asiento', importacionId] }); },
   });
+  // Clasificar un artículo como Mercadería (inventario) o Bien de uso (activo fijo):
+  // re-costea en el backend; hay que invalidar TODO lo que depende del costeo.
+  const clasificar = useMutation({
+    mutationFn: (v: { articuloId: string; clasificacion: 'MERCADERIA' | 'BIEN_DE_USO' }) =>
+      importacionesApi.clasificarArticulo(importacionId, v.articuloId, v.clasificacion),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['importacion-extraccion', importacionId] });
+      qc.invalidateQueries({ queryKey: ['importaciones'] });
+      qc.invalidateQueries({ queryKey: ['importacion', importacionId] });
+      qc.invalidateQueries({ queryKey: ['importacion-asiento', importacionId] });
+    },
+  });
 
   const docExtra = data?.docExtracciones ?? [];
   const vacio = !data || (data.facturas.length === 0 && data.liquidaciones.length === 0 && data.transferencias.length === 0 && docExtra.length === 0);
@@ -1311,10 +1333,10 @@ function DatosExtraidosPanel({ importacionId }: { importacionId: string }) {
                 <summary className="text-xs text-brand-600 cursor-pointer">{f.articulos.length} artículos</summary>
                 <div className="overflow-x-auto mt-2">
                   <table className="w-full text-xs">
-                    <thead className="table-header"><tr><th className="px-2 py-1 text-left">#</th><th className="px-2 py-1 text-left">Código</th><th className="px-2 py-1 text-left">Descripción</th><th className="px-2 py-1 text-right">Cant.</th><th className="px-2 py-1 text-right">P. unit.</th><th className="px-2 py-1 text-right">Total</th></tr></thead>
+                    <thead className="table-header"><tr><th className="px-2 py-1 text-left">#</th><th className="px-2 py-1 text-left">Código</th><th className="px-2 py-1 text-left">Descripción</th><th className="px-2 py-1 text-right">Cant.</th><th className="px-2 py-1 text-right">P. unit.</th><th className="px-2 py-1 text-right">Total</th><th className="px-2 py-1 text-left">Clasificación</th></tr></thead>
                     <tbody className="divide-y divide-hairline/40">
                       {f.articulos.map((a) => (
-                        <tr key={a.nro}><td className="px-2 py-1 text-ink-subtle">{a.nro}</td><td className="px-2 py-1 font-mono">{a.codigo}</td><td className="px-2 py-1">{a.descripcion}</td><td className="px-2 py-1 text-right figure">{a.cantidad}</td><td className="px-2 py-1 text-right figure">{a.precioUnit}</td><td className="px-2 py-1 text-right figure">{fmtMon(a.total, f.moneda)}</td></tr>
+                        <tr key={a.id}><td className="px-2 py-1 text-ink-subtle">{a.nro}</td><td className="px-2 py-1 font-mono">{a.codigo}</td><td className="px-2 py-1">{a.descripcion}</td><td className="px-2 py-1 text-right figure">{a.cantidad}</td><td className="px-2 py-1 text-right figure">{a.precioUnit}</td><td className="px-2 py-1 text-right figure">{fmtMon(a.total, f.moneda)}</td><td className="px-2 py-1"><select className="input input-sm py-0.5 text-xs" value={a.clasificacion} disabled={clasificar.isPending} onChange={(e) => clasificar.mutate({ articuloId: a.id, clasificacion: e.target.value as 'MERCADERIA' | 'BIEN_DE_USO' })}><option value="MERCADERIA">Mercadería</option><option value="BIEN_DE_USO">Bien de uso</option></select></td></tr>
                       ))}
                     </tbody>
                   </table>

@@ -822,6 +822,8 @@ export const importacionesApi = {
   },
   procesar: (id: string) => api.post<ProcesarResultado>(`/importaciones/${id}/procesar`).then((r) => r.data),
   extraccion: (id: string) => api.get<ExtraccionImportacion>(`/importaciones/${id}/extraccion`).then((r) => r.data),
+  clasificarArticulo: (id: string, articuloId: string, clasificacion: 'MERCADERIA' | 'BIEN_DE_USO') =>
+    api.patch<{ ok: boolean; clasificacion: string; costeoEstado: string | null }>(`/importaciones/${id}/articulos/${articuloId}`, { clasificacion }).then((r) => r.data),
   asiento: (id: string) => api.get<AsientoImportacion>(`/importaciones/${id}/asiento`).then((r) => r.data),
   costeoPdf: (id: string) => api.get(`/importaciones/${id}/costeo.pdf`, { responseType: 'blob' }).then((r) => r.data as Blob),
   creditoFiscal: (companyId: string, year: number, month: number) =>

@@ -55,6 +55,8 @@ const itemSchema = z.object({
   cantidad: z.number().optional(),
   fobUnitario: money.optional(),
   fobTotal: money.optional(),
+  // MERCADERIA (inventario) o BIEN_DE_USO (activo fijo). Default MERCADERIA.
+  clasificacion: z.enum(['MERCADERIA', 'BIEN_DE_USO']).optional(),
 });
 const tributoSchema = z.object({
   tipo: z.nativeEnum(TributoImportacionTipo),
@@ -153,6 +155,7 @@ function construirDatos(data: z.infer<typeof importacionSchema>) {
     cantidad: it.cantidad ?? 1,
     fobUnitario: ctms(it.fobUnitario),
     fobTotal: fobTotalDe(it),
+    clasificacion: it.clasificacion ?? 'MERCADERIA',
   }));
   const tributosCtms = (data.tributos ?? []).map((t) => ({
     tipo: t.tipo,
@@ -175,7 +178,7 @@ function construirDatos(data: z.infer<typeof importacionSchema>) {
     seguro: ctms(data.seguro),
     tributos: tributosCtms,
     gastos: gastosCtms,
-    items: itemsCtms.map((i) => ({ fobTotal: i.fobTotal })),
+    items: itemsCtms.map((i) => ({ fobTotal: i.fobTotal, clasificacion: i.clasificacion })),
   });
 
   const items = itemsCtms.map((i, idx) => ({ ...i, costoProrrateado: costeo.costosItems[idx] ?? 0n }));
@@ -834,6 +837,27 @@ importacionesRouter.get('/:id/costo-fiscal', async (req: Request, res: Response,
   } catch (err) { next(err); }
 });
 
+// ── PATCH /:id/articulos/:articuloId — clasificar un artículo extraído como
+// MERCADERIA (inventario) o BIEN_DE_USO (activo fijo) y re-costear. Anti-IDOR:
+// el artículo debe pertenecer a una factura de ESTA importación/empresa.
+importacionesRouter.patch('/:id/articulos/:articuloId', requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { clasificacion } = z.object({ clasificacion: z.enum(['MERCADERIA', 'BIEN_DE_USO']) }).parse(req.body);
+    const imp = await prisma.importacion.findUnique({ where: { id: req.params.id } });
+    if (!imp) throw new NotFoundError('Importación');
+    await assertCompanyAccess(req, imp.companyId);
+    const art = await prisma.importacionFacturaArticulo.findUnique({ where: { id: req.params.articuloId }, include: { factura: true } });
+    if (!art || art.factura.importacionId !== imp.id) throw new NotFoundError('Artículo');
+    await prisma.importacionFacturaArticulo.update({ where: { id: art.id }, data: { clasificacion } });
+    // Re-costear desde la extracción ya guardada para que el costo y los asientos
+    // reflejen el ruteo a Bienes de Uso (sin re-leer los documentos).
+    await reconstruirCosteoDesdeExtraccion(imp.id);
+    const act = await prisma.importacion.findUnique({ where: { id: imp.id }, select: { costeoEstado: true, costeoMotivo: true } });
+    await recordAudit({ req, action: 'IMPORTACION_CLASIFICAR_ARTICULO', entity: 'importacion', entityId: imp.id, companyId: imp.companyId, newData: { articuloId: art.id, clasificacion } });
+    res.json({ ok: true, clasificacion, costeoEstado: act?.costeoEstado ?? null });
+  } catch (err) { next(err); }
+});
+
 // ── POST /:id/recostear-fiscal — re-aplica el costeo (contable + fiscal) desde la
 // extracción ya guardada (sin re-leer documentos). Útil tras definir/validar la
 // config fiscal. No altera los documentos ni la extracción.
@@ -925,7 +949,7 @@ importacionesRouter.get('/:id/extraccion', async (req: Request, res: Response, n
         fecha: f.fecha ? f.fecha.toISOString().slice(0, 10) : null, moneda: f.moneda, incoterm: f.incoterm,
         fob: f.fob.toString(), flete: f.flete.toString(), seguro: f.seguro.toString(), cif: f.cif.toString(), total: f.total.toString(),
         estadoRevision: f.estadoRevision,
-        articulos: f.articulos.map((a) => ({ nro: a.nro, codigo: a.codigo, descripcion: a.descripcion, cantidad: a.cantidad, precioUnit: a.precioUnit, total: a.total.toString() })),
+        articulos: f.articulos.map((a) => ({ id: a.id, nro: a.nro, codigo: a.codigo, descripcion: a.descripcion, cantidad: a.cantidad, precioUnit: a.precioUnit, total: a.total.toString(), clasificacion: a.clasificacion })),
       })),
       liquidaciones: liquidaciones.map((l) => ({
         id: l.id, documentoId: l.documentoId, despachante: l.despachante, carpeta: l.carpeta,
