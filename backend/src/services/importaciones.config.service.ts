@@ -15,6 +15,7 @@ export const CUENTAS_IMPORTACION: Array<{ clave: string; nombre: string; grupo: 
   { clave: 'despachantes', nombre: 'Despachantes de aduana', grupo: 'Pasivo' },
   { clave: 'mercaderiaTransito', nombre: 'Mercadería en tránsito', grupo: 'Bienes de cambio' },
   { clave: 'mercaderiasImportadas', nombre: 'Mercaderías importadas', grupo: 'Bienes de cambio' },
+  { clave: 'bienesDeUso', nombre: 'Bienes de uso importados', grupo: 'Bienes de uso' },
   { clave: 'gastosBancarios', nombre: 'Gastos y comisiones bancarias', grupo: 'Resultado' },
   { clave: 'diferenciasCambio', nombre: 'Diferencias de cambio', grupo: 'Resultado' },
   { clave: 'ivaComprasImportacion', nombre: 'IVA compras importación', grupo: 'Crédito fiscal' },

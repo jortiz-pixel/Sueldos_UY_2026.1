@@ -35,6 +35,8 @@ export interface GastoInput {
 }
 export interface ItemCosteoInput {
   fobTotal: bigint;
+  // MERCADERIA (inventario) o BIEN_DE_USO (activo fijo). Default MERCADERIA.
+  clasificacion?: string;
 }
 
 export interface CosteoInput {
@@ -55,6 +57,10 @@ export interface CosteoResultado {
   anticipos: bigint;
   /** costoProrrateado por ítem, en el mismo orden que input.items. */
   costosItems: bigint[];
+  /** Parte del costo que corresponde a artículos BIEN_DE_USO (activo fijo). Se
+   *  capitaliza en Bienes de Uso, no en inventario. El resto (costoMercaderia −
+   *  costoBienesDeUso) es mercadería/inventario. */
+  costoBienesDeUso: bigint;
 }
 
 export function calcularCosteo(input: CosteoInput): CosteoResultado {
@@ -106,7 +112,15 @@ export function calcularCosteo(input: CosteoInput): CosteoResultado {
     for (let i = 0; i < input.items.length; i++) costosItems.push(0n);
   }
 
-  return { cif, totalTributos, totalGastos, costoMercaderia, creditoFiscalIva, anticipos, costosItems };
+  // Parte del costo que corresponde a bienes de uso (activo fijo): suma del costo
+  // prorrateado de los ítems marcados BIEN_DE_USO. Mismo costo total; solo cambia
+  // la cuenta de destino en el asiento.
+  const costoBienesDeUso = input.items.reduce(
+    (s, it, i) => (it.clasificacion === 'BIEN_DE_USO' ? s + (costosItems[i] ?? 0n) : s),
+    0n,
+  );
+
+  return { cif, totalTributos, totalGastos, costoMercaderia, creditoFiscalIva, anticipos, costosItems, costoBienesDeUso };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -121,6 +135,9 @@ export interface ImpParaAsiento {
   totalTributos: bigint; totalGastos: bigint; anticipos: bigint;
   costoMercaderia: bigint; creditoFiscalIva: bigint;
   gastos: { ivaGasto: bigint }[];
+  // Parte del costoMercaderia que es bien de uso (activo fijo). Se debita en la
+  // cuenta Bienes de Uso; el resto en Mercaderías. Default 0 (todo mercadería).
+  costoBienesDeUso?: bigint;
 }
 
 export function armarAsientoImportacion(imp: ImpParaAsiento, plan?: PlanCuentas | null): {
@@ -136,8 +153,12 @@ export function armarAsientoImportacion(imp: ImpParaAsiento, plan?: PlanCuentas 
   const push = (clave: string, debe: bigint, haber: bigint) => {
     if (debe !== 0n || haber !== 0n) lineas.push({ cuenta: etiquetaCuenta(plan, clave), debe: debe.toString(), haber: haber.toString() });
   };
-  // Debe
-  push('mercaderiasImportadas', imp.costoMercaderia, 0n);
+  // Debe — el costo se capitaliza en Bienes de Uso (activo fijo) por la parte de
+  // artículos marcados bien de uso, y en Mercaderías por el resto (inventario).
+  const costoBdU = imp.costoBienesDeUso ?? 0n;
+  const costoMerc = imp.costoMercaderia - costoBdU;
+  push('bienesDeUso', costoBdU, 0n);
+  push('mercaderiasImportadas', costoMerc, 0n);
   push('ivaComprasImportacion', imp.creditoFiscalIva, 0n);
   push('anticipoIvaImportacion', imp.anticipos, 0n);
   // Haber

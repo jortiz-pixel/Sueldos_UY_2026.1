@@ -67,7 +67,9 @@ export interface DuaCosteo {
 }
 export interface FacturaCosteo {
   fob: bigint; flete: bigint; seguro: bigint; total: bigint; moneda: string;
-  articulos: Array<{ descripcion: string; codigo: string | null; cantidad: number; total: bigint }>;
+  // clasificacion: MERCADERIA (inventario) o BIEN_DE_USO (activo fijo). Default
+  // MERCADERIA. Rige el ruteo del costo del artículo (Mercaderías vs Bienes de Uso).
+  articulos: Array<{ descripcion: string; codigo: string | null; cantidad: number; total: bigint; clasificacion?: string }>;
 }
 export interface ServicioCosteo {
   rutComprador: string | null; rutEmisor?: string | null; moneda: string | null; serie: string | null; numero: string | null; emisor: string | null;
@@ -85,7 +87,7 @@ export interface CosteoDocInput {
 
 export interface TributoCosteo { tipo: TributoImportacionTipo; monto: bigint; recuperable: boolean; codigo: string }
 export interface GastoCosteo { concepto: GastoImportacionConcepto; descripcion: string; monto: bigint; gravadoIva: boolean; ivaGasto: bigint }
-export interface ItemCosteo { descripcion: string; ncm: string | null; cantidad: number; fobTotal: bigint; costo: bigint }
+export interface ItemCosteo { descripcion: string; ncm: string | null; cantidad: number; fobTotal: bigint; costo: bigint; clasificacion: string }
 
 export interface CosteoDocResultado {
   estado: 'OK' | 'PENDIENTE';
@@ -98,6 +100,8 @@ export interface CosteoDocResultado {
   gastos: GastoCosteo[]; totalGastos: bigint; ivaGastos: bigint;
   creditoFiscalIva: bigint;
   costoInventario: bigint | null; // null si PENDIENTE
+  costoMercaderia: bigint | null; // parte inventario (null si PENDIENTE)
+  costoBienesDeUso: bigint | null; // parte activo fijo (null si PENDIENTE)
   items: ItemCosteo[] | null;     // null si PENDIENTE (no se distribuye con datos incompletos)
   conciliacion: { duaVsSpe: { ok: boolean; dua: bigint; spe: bigint; dif: bigint } | null };
 }
@@ -202,9 +206,11 @@ export function construirCosteoDocumental(input: CosteoDocInput): CosteoDocResul
       let costo: bigint;
       if (sumaFob > 0n && i < arts.length - 1) { costo = (costoInventario * a.total) / sumaFob; acum += costo; }
       else costo = costoInventario - acum; // el último absorbe el redondeo → la suma cuadra exacto
-      items.push({ descripcion: a.descripcion, ncm: null, cantidad: a.cantidad, fobTotal: fobTotalP, costo });
+      items.push({ descripcion: a.descripcion, ncm: null, cantidad: a.cantidad, fobTotal: fobTotalP, costo, clasificacion: a.clasificacion === 'BIEN_DE_USO' ? 'BIEN_DE_USO' : 'MERCADERIA' });
     }
   }
+  const costoBienesDeUsoDoc = (items ?? []).filter((it) => it.clasificacion === 'BIEN_DE_USO').reduce((s, it) => s + it.costo, 0n);
+  const costoMercaderiaDoc = costoInventario != null ? costoInventario - costoBienesDeUsoDoc : null;
 
   // Conciliación: tributos del DUA vs pago por SPE.
   let duaVsSpe: CosteoDocResultado['conciliacion']['duaVsSpe'] = null;
@@ -220,7 +226,8 @@ export function construirCosteoDocumental(input: CosteoDocInput): CosteoDocResul
     adquisicionPesos, fletePesos, seguroPesos, cifContable, valorAduaneroPesos,
     tributos, totalTributos, tributosNoRecuperables, ivaImportacion, anticipos,
     gastos, totalGastos, ivaGastos, creditoFiscalIva,
-    costoInventario, items,
+    costoInventario, costoMercaderia: costoMercaderiaDoc, costoBienesDeUso: costoBienesDeUsoDoc,
+    items,
     conciliacion: { duaVsSpe },
   };
 }
@@ -237,6 +244,9 @@ export interface AsientoInput {
   adquisicionPesos: bigint; fletePesos: bigint; seguroPesos: bigint;
   anticipos: bigint; totalTributos: bigint; ivaImportacion: bigint; tributosNoRecuperables: bigint;
   totalGastos: bigint; ivaGastos: bigint;
+  // Parte del costo que es bien de uso (activo fijo). Se reclasifica de Mercaderías
+  // a Bienes de Uso. Default 0 (todo inventario).
+  costoBienesDeUso?: bigint | null;
 }
 
 /** Arma el AsientoInput desde una importación persistida (sus tributos/gastos). */
@@ -244,15 +254,17 @@ export function asientoInputDesdeImportacion(imp: {
   costeoEstado?: string | null; fob: bigint; flete: bigint; seguro: bigint; anticipos: bigint; totalTributos: bigint; totalGastos: bigint;
   tributos: { tipo: TributoImportacionTipo; monto: bigint; recuperable: boolean }[];
   gastos: { ivaGasto: bigint }[];
+  items?: { clasificacion?: string; costoProrrateado: bigint }[];
 }): AsientoInput {
   const ivaImportacion = imp.tributos.filter((t) => t.tipo === TributoImportacionTipo.IVA_IMPORTACION).reduce((s, t) => s + t.monto, 0n);
   const tributosNoRecuperables = imp.tributos.filter((t) => !t.recuperable).reduce((s, t) => s + t.monto, 0n);
   const ivaGastos = imp.gastos.reduce((s, g) => s + g.ivaGasto, 0n);
+  const costoBienesDeUso = (imp.items ?? []).filter((i) => i.clasificacion === 'BIEN_DE_USO').reduce((s, i) => s + i.costoProrrateado, 0n);
   return {
     estado: imp.costeoEstado === 'PENDIENTE' ? 'PENDIENTE' : 'OK',
     adquisicionPesos: imp.fob, fletePesos: imp.flete, seguroPesos: imp.seguro,
     anticipos: imp.anticipos, totalTributos: imp.totalTributos, ivaImportacion, tributosNoRecuperables,
-    totalGastos: imp.totalGastos, ivaGastos,
+    totalGastos: imp.totalGastos, ivaGastos, costoBienesDeUso,
   };
 }
 
@@ -309,6 +321,16 @@ export function armarAsientosImportacion(
       { cuenta: etiqueta('ivaComprasPlaza'), debe: r.ivaGastos, haber: 0n },
       { cuenta: etiqueta('despachantes'), debe: 0n, haber: r.totalGastos + r.ivaGastos },
     ], r.estado === 'OK');
+  }
+
+  // 4b) Reclasificación a Bienes de Uso (activo fijo): traslada el costo de los
+  // artículos bien de uso de Mercaderías a Bienes de Uso. Mismo costo total.
+  const bduAsiento = r.costoBienesDeUso ?? 0n;
+  if (r.estado === 'OK' && bduAsiento > 0n) {
+    mk(fechas.dua, 'Reclasificación a Bienes de Uso (activo fijo importado)', [
+      { cuenta: etiqueta('bienesDeUso'), debe: bduAsiento, haber: 0n },
+      { cuenta: etiqueta('mercaderiasImportadas'), debe: 0n, haber: bduAsiento },
+    ], true);
   }
 
   // 5) Pagos (cancelación de pasivos), si se informaron.
@@ -377,7 +399,11 @@ export interface CosteoHistorico {
   tributos: TributoCosteo[]; totalTributos: bigint; tributosNoRecuperables: bigint; ivaImportacion: bigint; anticiposFiscales: bigint;
   gastos: GastoDesglosado[]; totalGastosUYU: bigint; ivaGastosUYU: bigint; creditoFiscalIva: bigint;
   costoInventario: bigint | null;
-  items: Array<{ codigo: string | null; descripcion: string; cantidad: number; fobME: bigint; costo: bigint }> | null;
+  // Costo capitalizado como MERCADERÍA (inventario) y como BIEN DE USO (activo
+  // fijo), según la clasificación de cada artículo. Suman costoInventario.
+  costoMercaderia: bigint | null;
+  costoBienesDeUso: bigint | null;
+  items: Array<{ codigo: string | null; descripcion: string; cantidad: number; fobME: bigint; costo: bigint; clasificacion: string }> | null;
   // Cuenta corriente del despachante UNIFICADA (misma que usan asientos y conciliación).
   // Diferencia el saldo documentado (cargos), los pagos CONFIRMADOS (con egreso bancario)
   // y los pagos PENDIENTES de confirmación (solo recibo de cobranza).
@@ -605,9 +631,15 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
       let costo: bigint;
       if (sumaFob > 0n && i < arts.length - 1) { costo = (costoInventario * a.total) / sumaFob; acum += costo; }
       else costo = costoInventario - acum;
-      items.push({ codigo: a.codigo ?? null, descripcion: a.descripcion, cantidad: a.cantidad, fobME: a.total, costo });
+      items.push({ codigo: a.codigo ?? null, descripcion: a.descripcion, cantidad: a.cantidad, fobME: a.total, costo, clasificacion: a.clasificacion === 'BIEN_DE_USO' ? 'BIEN_DE_USO' : 'MERCADERIA' });
     }
   }
+
+  // Reparto del costo entre inventario (MERCADERÍA) y activo fijo (BIEN_DE_USO)
+  // según la clasificación de cada artículo. Mismo costo total; solo cambia la
+  // cuenta de destino. Con todo mercadería, costoBienesDeUso = 0 (sin cambios).
+  const costoBienesDeUso = (items ?? []).filter((i) => i.clasificacion === 'BIEN_DE_USO').reduce((s, i) => s + i.costo, 0n);
+  const costoMercaderiaCap = costoInventario != null ? costoInventario - costoBienesDeUso : null;
 
   // ── Asientos CRONOLÓGICOS con referencias y moneda original ──
   const asientos: AsientoHist[] = [];
@@ -696,6 +728,15 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
       { cuenta: et('proveedoresLocales'), monedaOrig: pagoAgencia.moneda, montoOrig: pagoAgencia.montoME, debe: deudaAgencia, haber: 0n },
       { cuenta: et(pagoAgencia.moneda && pagoAgencia.moneda !== 'UYU' ? 'bancoMe' : 'bancoPesos'), monedaOrig: pagoAgencia.moneda, montoOrig: pagoAgencia.montoME, debe: 0n, haber: deudaAgencia },
     ], [{ documento: `Transferencia en plaza${pagoAgencia.fecha ? ` ${pagoAgencia.fecha}` : ''}`, regla: 'Cancelación del servicio de la agencia de carga (comprobante de transferencia); cuenta separada del despachante.' }], true);
+  }
+  // Reclasificación a BIENES DE USO (activo fijo): los artículos marcados bien de
+  // uso no son inventario. Se traslada su costo de Mercaderías a Bienes de Uso.
+  // Mismo costo total; solo cambia la cuenta. Solo si hay bienes de uso.
+  if (costoBienesDeUso > 0n) {
+    mk(fechaReconocimiento, 'Reclasificación a Bienes de Uso (activo fijo importado)', [
+      { cuenta: et('bienesDeUso'), debe: costoBienesDeUso, haber: 0n },
+      { cuenta: et('mercaderiasImportadas'), debe: 0n, haber: costoBienesDeUso },
+    ], [{ documento: 'Clasificación de artículos de la factura', regla: 'Los artículos marcados BIEN DE USO se capitalizan en el activo fijo (Bienes de Uso), no en inventario. Se usa la misma fórmula de costo; solo cambia la cuenta de destino.' }], estado === 'OK');
   }
   asientos.sort((a, b) => (a.fecha ?? '9999').localeCompare(b.fecha ?? '9999'));
 
@@ -821,7 +862,10 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
   // costos por artículo y asientos. Se comprueban las tres igualdades SUMANDO los
   // asientos realmente generados (no se asume: se verifica).
   const CLAVE_MERC = 'mercaderiasImportadas';
-  const movimientosMercaderia = asientos.reduce((s, a) => s + a.lineas.filter((l) => l.cuenta === CLAVE_MERC).reduce((ss, l) => ss + l.debe - l.haber, 0n), 0n);
+  const CLAVE_BDU = 'bienesDeUso';
+  // El costo capitalizado se reparte entre Mercaderías (inventario) y Bienes de
+  // Uso (activo fijo): la suma de ambos movimientos debe igualar el costo total.
+  const movimientosMercaderia = asientos.reduce((s, a) => s + a.lineas.filter((l) => l.cuenta === CLAVE_MERC || l.cuenta === CLAVE_BDU).reduce((ss, l) => ss + l.debe - l.haber, 0n), 0n);
   const sumaCostoArticulos = (items ?? []).reduce((s, i) => s + i.costo, 0n);
   const recAsiento = asientos.find((a) => /Reconocimiento/.test(a.glosa));
   const adquisicionAsiento = recAsiento ? recAsiento.lineas.filter((l) => l.cuenta === CLAVE_MERC).reduce((s, l) => s + l.debe - l.haber, 0n) : 0n;
@@ -844,6 +888,7 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
     anticipos: anticiposCalc, adquisicionUYU, anticiposPagadosUYU, excesoPagado, saldoNoAnticipado, comisionesBancariasUYU,
     tributos, totalTributos, tributosNoRecuperables, ivaImportacion, anticiposFiscales,
     gastos, totalGastosUYU, ivaGastosUYU, creditoFiscalIva,
-    costoInventario, items, cuentaDespachante, asientos, consistencia, conciliacion: conc,
+    costoInventario, costoMercaderia: costoMercaderiaCap, costoBienesDeUso,
+    items, cuentaDespachante, asientos, consistencia, conciliacion: conc,
   };
 }

@@ -1112,6 +1112,10 @@ model ItemImportacion {
   fobUnitario      BigInt  @default(0) // pesos, centésimos
   fobTotal         BigInt  @default(0)
   costoProrrateado BigInt  @default(0) // costoMercaderia prorrateado por participación en el FOB
+  // Clasificación contable del artículo: MERCADERIA (bien de cambio → inventario)
+  // o BIEN_DE_USO (activo fijo → se capitaliza en Bienes de Uso). El COSTEO es el
+  // mismo; solo cambia la cuenta de destino en el asiento. Default MERCADERIA.
+  clasificacion    String  @default("MERCADERIA")
 
   importacion Importacion @relation(fields: [importacionId], references: [id], onDelete: Cascade)
 
@@ -1356,6 +1360,10 @@ model ImportacionFacturaArticulo {
   cantidad    Float              @default(0)
   precioUnit  Float              @default(0)
   total       BigInt             @default(0)
+  // Clasificación contable del artículo extraído de la factura: MERCADERIA
+  // (inventario) o BIEN_DE_USO (activo fijo). Rige el ruteo del costo en el
+  // asiento (Mercaderías vs Bienes de Uso). Default MERCADERIA.
+  clasificacion String           @default("MERCADERIA")
   factura     ImportacionFactura @relation(fields: [facturaId], references: [id], onDelete: Cascade)
 
   @@index([facturaId])
