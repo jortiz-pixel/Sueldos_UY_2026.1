@@ -11,7 +11,12 @@ COPY prisma ./prisma/
 RUN npm install
 
 COPY . .
-RUN npm run build
+# Cache-bust de la compilación: APP_VERSION (el commit) cambia en cada despliegue,
+# por lo que esta capa —y el `npm run build`— se rehace SIEMPRE que se despliega
+# una versión nueva. Evita el problema de servir un `dist` viejo cacheado (el
+# indicador de versión es de runtime y podía no coincidir con el código compilado).
+ARG APP_VERSION=dev
+RUN echo "Compilando backend $APP_VERSION" && npm run build
 RUN npm run prisma:generate
 
 # Production image

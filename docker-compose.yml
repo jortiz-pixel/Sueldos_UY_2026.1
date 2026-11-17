@@ -25,6 +25,10 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        # Pasa el commit al build para forzar la recompilación del dist en cada
+        # versión nueva (cache-bust). deploy.sh / auto-deploy.sh exportan APP_VERSION.
+        APP_VERSION: ${APP_VERSION:-dev}
     container_name: sueldos_uy_backend
     restart: unless-stopped
     env_file: .env
@@ -58,6 +62,9 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        # Cache-bust del dist del frontend en cada versión nueva.
+        APP_VERSION: ${APP_VERSION:-dev}
     container_name: sueldos_uy_frontend
     restart: unless-stopped
     environment:

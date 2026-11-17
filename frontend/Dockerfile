@@ -6,7 +6,9 @@ COPY package*.json ./
 RUN npm install
 
 COPY . .
-RUN npm run build
+# Cache-bust: fuerza recompilar el dist en cada commit nuevo (evita servir dist viejo).
+ARG APP_VERSION=dev
+RUN echo "Compilando frontend $APP_VERSION" && npm run build
 
 # Production: serve with nginx
 FROM nginx:alpine AS runner
