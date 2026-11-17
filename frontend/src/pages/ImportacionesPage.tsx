@@ -564,7 +564,15 @@ function FormImportacion({ companyId, inicial, importacion, onClose, onSaved, on
       </div>
 
       {importacion && importacion.items.length > 0 && (() => {
-        const sumaFob = importacion.items.reduce((s, i) => s + Number(i.fobTotal), 0);
+        // Preferir el desglose por componente del costeo documental (costeoDetalle.items);
+        // si no hay (carga manual), usar el ítem persistido sin desglose.
+        const detItems = importacion.costeoDetalle?.items ?? [];
+        const desglose = detItems.length > 0;
+        const filas = desglose
+          ? detItems.map((i) => ({ codigo: i.codigo ?? null, descripcion: i.descripcion, cantidad: i.cantidad, fob: Number(i.fobME), adq: i.adquisicion ?? null, trib: i.tributos ?? null, gas: i.gastos ?? null, costo: i.costo, clasif: i.clasificacion ?? 'MERCADERIA' }))
+          : importacion.items.map((i) => ({ codigo: i.codigo ?? null, descripcion: i.descripcion, cantidad: i.cantidad, fob: Number(i.fobTotal), adq: null as string | null, trib: null as string | null, gas: null as string | null, costo: i.costoProrrateado, clasif: i.clasificacion ?? 'MERCADERIA' }));
+        const sumaFob = filas.reduce((s, f) => s + f.fob, 0);
+        const comp = (v: string | null) => (v != null ? money(c2p(v)) : '—');
         return (
           <div className="card p-5 space-y-3">
             <div className="flex items-center justify-between">
@@ -575,27 +583,28 @@ function FormImportacion({ companyId, inicial, importacion, onClose, onSaved, on
               <table className="w-full text-xs">
                 <thead className="table-header"><tr>
                   <th className="px-2 py-1 text-left">#</th><th className="px-2 py-1 text-left">Código</th><th className="px-2 py-1 text-left">Descripción</th>
-                  <th className="px-2 py-1 text-right">Cant.</th><th className="px-2 py-1 text-right">FOB</th><th className="px-2 py-1 text-right">Part. %</th>
-                  <th className="px-2 py-1 text-right">Costo total</th><th className="px-2 py-1 text-right">Costo unit.</th><th className="px-2 py-1 text-left">Clasificación</th>
+                  <th className="px-2 py-1 text-right">FOB</th><th className="px-2 py-1 text-right">Part. %</th>
+                  {desglose && <><th className="px-2 py-1 text-right">Adquis.</th><th className="px-2 py-1 text-right">Tributos</th><th className="px-2 py-1 text-right">Gastos</th></>}
+                  <th className="px-2 py-1 text-right">Costo total</th><th className="px-2 py-1 text-right">Costo unit.</th><th className="px-2 py-1 text-left">Clasif.</th>
                 </tr></thead>
                 <tbody className="divide-y divide-hairline/40">
-                  {importacion.items.map((i, idx) => (
-                    <tr key={i.id ?? idx}>
+                  {filas.map((f, idx) => (
+                    <tr key={idx}>
                       <td className="px-2 py-1 text-ink-subtle">{idx + 1}</td>
-                      <td className="px-2 py-1 font-mono">{i.codigo ?? '—'}</td>
-                      <td className="px-2 py-1 max-w-[20rem] truncate" title={i.descripcion}>{i.descripcion}</td>
-                      <td className="px-2 py-1 text-right figure">{i.cantidad}</td>
-                      <td className="px-2 py-1 text-right figure">{money(c2p(i.fobTotal))}</td>
-                      <td className="px-2 py-1 text-right figure">{sumaFob > 0 ? (Number(i.fobTotal) / sumaFob * 100).toFixed(2) : '0,00'}%</td>
-                      <td className="px-2 py-1 text-right figure">{money(c2p(i.costoProrrateado))}</td>
-                      <td className="px-2 py-1 text-right figure font-semibold">{money(i.cantidad > 0 ? c2p(i.costoProrrateado) / i.cantidad : c2p(i.costoProrrateado))}</td>
-                      <td className="px-2 py-1">{i.clasificacion === 'BIEN_DE_USO' ? 'Bien de uso' : 'Mercadería'}</td>
+                      <td className="px-2 py-1 font-mono">{f.codigo ?? '—'}</td>
+                      <td className="px-2 py-1 max-w-[16rem] truncate" title={f.descripcion}>{f.descripcion}</td>
+                      <td className="px-2 py-1 text-right figure">{money(f.fob / 100)}</td>
+                      <td className="px-2 py-1 text-right figure">{sumaFob > 0 ? (f.fob / sumaFob * 100).toFixed(2) : '0,00'}%</td>
+                      {desglose && <><td className="px-2 py-1 text-right figure">{comp(f.adq)}</td><td className="px-2 py-1 text-right figure">{comp(f.trib)}</td><td className="px-2 py-1 text-right figure">{comp(f.gas)}</td></>}
+                      <td className="px-2 py-1 text-right figure">{money(c2p(f.costo))}</td>
+                      <td className="px-2 py-1 text-right figure font-semibold">{money(f.cantidad > 0 ? c2p(f.costo) / f.cantidad : c2p(f.costo))}</td>
+                      <td className="px-2 py-1">{f.clasif === 'BIEN_DE_USO' ? 'Bien de uso' : 'Mercadería'}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            <p className="text-xs text-ink-subtle">El costo se reparte por participación en el FOB; el costo unitario es el costo del artículo ÷ su cantidad. La suma de los costos cierra exacta con el costo total de la importación.</p>
+            <p className="text-xs text-ink-subtle">El costo se prorratea por participación en el FOB: <b>Costo = Adquisición (CIF) + Tributos no recuperables + Gastos de plaza</b>. El costo unitario es el costo del artículo ÷ su cantidad. La suma cierra exacta con el costo total de la importación.</p>
           </div>
         );
       })()}

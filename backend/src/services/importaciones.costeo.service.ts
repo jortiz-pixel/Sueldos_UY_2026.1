@@ -413,7 +413,9 @@ export interface CosteoHistorico {
   // true si ya se emitió el alta en stock (nacionalizada/cerrada); false si el
   // costo sigue acumulado en Importaciones en trámite (borrador / en trámite).
   altaEnStock: boolean;
-  items: Array<{ codigo: string | null; descripcion: string; cantidad: number; fobME: bigint; costo: bigint; clasificacion: string }> | null;
+  // Por artículo: desglose del costo prorrateado por componente (Adquisición CIF +
+  // Tributos no recuperables + Gastos de plaza = costo), todos por participación en FOB.
+  items: Array<{ codigo: string | null; descripcion: string; cantidad: number; fobME: bigint; adquisicion: bigint; tributos: bigint; gastos: bigint; costo: bigint; clasificacion: string }> | null;
   // Cuenta corriente del despachante UNIFICADA (misma que usan asientos y conciliación).
   // Diferencia el saldo documentado (cargos), los pagos CONFIRMADOS (con egreso bancario)
   // y los pagos PENDIENTES de confirmación (solo recibo de cobranza).
@@ -644,13 +646,27 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
     const arts = factura.articulos;
     const sumaFob = arts.reduce((s, a) => s + a.total, 0n);
     items = [];
-    let acum = 0n;
+    // Prorrateo POR COMPONENTE (participación en el FOB): cada artículo recibe su
+    // parte de la Adquisición (CIF), de los Tributos no recuperables y de los
+    // Gastos de plaza. El costo del artículo = la suma de esos tres. El último
+    // artículo absorbe el redondeo de CADA componente, así cada columna cuadra
+    // exacto con su total y la suma de costos cierra con el costo de inventario.
+    let acAdq = 0n, acTrib = 0n, acGas = 0n;
+    const ultimo = arts.length - 1;
     for (let i = 0; i < arts.length; i++) {
       const a = arts[i];
-      let costo: bigint;
-      if (sumaFob > 0n && i < arts.length - 1) { costo = (costoInventario * a.total) / sumaFob; acum += costo; }
-      else costo = costoInventario - acum;
-      items.push({ codigo: a.codigo ?? null, descripcion: a.descripcion, cantidad: a.cantidad, fobME: a.total, costo, clasificacion: a.clasificacion === 'BIEN_DE_USO' ? 'BIEN_DE_USO' : 'MERCADERIA' });
+      let adquisicion: bigint, tributos: bigint, gastos: bigint;
+      if (sumaFob > 0n && i < ultimo) {
+        adquisicion = (adquisicionUYU * a.total) / sumaFob; acAdq += adquisicion;
+        tributos = (tributosNoRecuperables * a.total) / sumaFob; acTrib += tributos;
+        gastos = (totalGastosUYU * a.total) / sumaFob; acGas += gastos;
+      } else {
+        adquisicion = adquisicionUYU - acAdq;
+        tributos = tributosNoRecuperables - acTrib;
+        gastos = totalGastosUYU - acGas;
+      }
+      const costo = adquisicion + tributos + gastos;
+      items.push({ codigo: a.codigo ?? null, descripcion: a.descripcion, cantidad: a.cantidad, fobME: a.total, adquisicion, tributos, gastos, costo, clasificacion: a.clasificacion === 'BIEN_DE_USO' ? 'BIEN_DE_USO' : 'MERCADERIA' });
     }
   }
 

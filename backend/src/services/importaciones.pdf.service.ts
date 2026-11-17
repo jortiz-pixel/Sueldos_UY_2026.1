@@ -517,11 +517,16 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     if (det?.excesoPagado) nota(`Se pagó de más ${meMoney(det.excesoPagado.me, imp.monedaOrigen)} (= ${nMoney(det.excesoPagado.uyu)}) sobre el CIF: NO se capitaliza al inventario; queda como crédito con el proveedor.`);
     if (exDua && exDua.datos?.valorAduanaPesos != null) nota(`Valor en Aduana (base fiscal de los tributos): $ ${(exDua.datos.valorAduanaPesos).toLocaleString('es-UY', { minimumFractionDigits: 2 })}. El costo del inventario NO usa ese valor: la adquisición es el CIF de la factura valuado por los anticipos (TC de cada pago). Los anticipos de IVA/IRAE son pagos a cuenta y NO integran el costo.`);
     y += 4;
-    const itemsDet: Array<{ codigo: string | null; descripcion: string; cantidad: number; fobME: string; costo: string }> = det?.items ?? [];
+    const itemsDet: Array<{ codigo: string | null; descripcion: string; cantidad: number; fobME: string; adquisicion?: string; tributos?: string; gastos?: string; costo: string }> = det?.items ?? [];
     if (itemsDet.length) {
+      // Desglose del costo por artículo: Adquisición (CIF) + Tributos no
+      // recuperables + Gastos de plaza = Costo (todo prorrateado por FOB), más el
+      // costo unitario (= Costo ÷ cantidad) para el alta en stock. Cada columna
+      // cuadra con su total; la suma de 'Costo' con el costo del inventario.
+      const nz = (v?: string) => (v != null ? n2(BigInt(v)) : '—');
       tabla(
-        [{ w: 22, title: '#' }, { w: 64, title: 'Código' }, { w: W - 364, title: 'Descripción' }, { w: 40, title: 'Cant.', align: 'right' }, { w: 84, title: 'FOB', align: 'right' }, { w: 78, title: 'Costo $', align: 'right' }, { w: 66, title: 'C. unit. $', align: 'right' }],
-        itemsDet.map((i, idx) => [String(idx + 1), i.codigo ?? '—', i.descripcion, String(i.cantidad), money(BigInt(i.fobME), sym(imp.monedaOrigen)), n2(BigInt(i.costo)), (i.cantidad ? Number(i.costo) / 100 / i.cantidad : 0).toLocaleString('es-UY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })]),
+        [{ w: 20, title: '#' }, { w: 56, title: 'Código' }, { w: W - 408, title: 'Descripción' }, { w: 68, title: 'Adquis. $', align: 'right' }, { w: 58, title: 'Tribut. $', align: 'right' }, { w: 58, title: 'Gastos $', align: 'right' }, { w: 72, title: 'Costo $', align: 'right' }, { w: 56, title: 'C.unit $', align: 'right' }],
+        itemsDet.map((i, idx) => [String(idx + 1), i.codigo ?? '—', i.descripcion, nz(i.adquisicion), nz(i.tributos), nz(i.gastos), n2(BigInt(i.costo)), (i.cantidad ? Number(i.costo) / 100 / i.cantidad : 0).toLocaleString('es-UY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })]),
       );
       // Verificación: la suma de los costos por artículo cuadra con el costo total.
       const sumaArt = itemsDet.reduce((s, i) => s + BigInt(i.costo), 0n);

@@ -128,6 +128,19 @@ describe('Costeo histórico (construirCosteoHistorico) con bienes de uso', () =>
     expect(r.consistencia.ok).toBe(true);
   });
 
+  test('desglose por artículo: Adquisición + Tributos + Gastos = Costo y cada columna cuadra', () => {
+    const r = construirCosteoHistorico(input('BIEN_DE_USO'));
+    const its = r.items!;
+    // En cada artículo, la suma de componentes = su costo.
+    for (const i of its) expect(i.adquisicion + i.tributos + i.gastos).toBe(i.costo);
+    // Cada columna suma su total (adquisición 4.000.000 · tributos no recup. 10.000 · gastos 0).
+    expect(its.reduce((s, i) => s + i.adquisicion, 0n)).toBe(4000000n);
+    expect(its.reduce((s, i) => s + i.tributos, 0n)).toBe(10000n);
+    expect(its.reduce((s, i) => s + i.gastos, 0n)).toBe(0n);
+    // Y la suma de costos cierra con el costo del inventario.
+    expect(its.reduce((s, i) => s + i.costo, 0n)).toBe(r.costoInventario);
+  });
+
   test('NACIONALIZADA: aparece el alta en stock y la cuenta de tránsito queda saldada', () => {
     const r = construirCosteoHistorico({ ...input(undefined), estadoImportacion: 'NACIONALIZADA' });
     expect(r.altaEnStock).toBe(true);

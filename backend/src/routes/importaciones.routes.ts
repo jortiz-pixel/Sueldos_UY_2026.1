@@ -831,23 +831,39 @@ importacionesRouter.get('/:id/costos-articulos.xlsx', async (req: Request, res: 
     if (!imp) throw new NotFoundError('Importación');
     await assertCompanyAccess(req, imp.companyId);
     const p = (c: bigint) => Number(c) / 100;
-    const sumaFob = imp.items.reduce((s, i) => s + i.fobTotal, 0n);
-    const unit = (costo: bigint, cant: number): number => (cant > 0 ? Number(costo) / 100 / cant : Number(costo) / 100);
+    const B = (v: unknown) => BigInt(String(v ?? '0'));
     const clasif = (c: string) => (c === 'BIEN_DE_USO' ? 'Bien de uso' : 'Mercadería');
+    // Desglose por componente: viene del costeo documental (costeoDetalle.items);
+    // si es una importación de carga manual (sin costeo documental), se usa el
+    // ítem persistido (sin desglose: Adquisición/Tributos/Gastos quedan vacíos).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const detItems: any[] = ((imp.costeoDetalle as any)?.items) ?? [];
+    type Fila = { codigo: string; descripcion: string; ncm: string; cantidad: number; fob: bigint; adq: bigint | null; trib: bigint | null; gas: bigint | null; costo: bigint; clasif: string };
+    const filas: Fila[] = detItems.length
+      ? detItems.map((i) => ({ codigo: i.codigo ?? '', descripcion: i.descripcion ?? '', ncm: '', cantidad: Number(i.cantidad) || 0, fob: B(i.fobME), adq: B(i.adquisicion), trib: B(i.tributos), gas: B(i.gastos), costo: B(i.costo), clasif: i.clasificacion ?? 'MERCADERIA' }))
+      : imp.items.map((i) => ({ codigo: i.codigo ?? '', descripcion: i.descripcion, ncm: i.ncm ?? '', cantidad: i.cantidad, fob: i.fobTotal, adq: null, trib: null, gas: null, costo: i.costoProrrateado, clasif: i.clasificacion }));
+    const sumaFob = filas.reduce((s, f) => s + f.fob, 0n);
+    const unit = (costo: bigint, cant: number): number => Number((cant > 0 ? Number(costo) / 100 / cant : Number(costo) / 100).toFixed(2));
+    const nn = (v: bigint | null) => (v != null ? p(v) : '');
     const aoa: (string | number)[][] = [
       [`Costo por artículo — ${imp.company.razonSocial}${imp.duaNumero ? ` · DUA ${imp.duaNumero}` : ''}`],
       [`Costo total de la importación: ${p(imp.costoMercaderia)} · Estado del costeo: ${imp.costeoEstado ?? '—'}`],
+      ['Prorrateo por participación en el FOB. Costo = Adquisición (CIF) + Tributos no recuperables + Gastos de plaza.'],
       [],
-      ['#', 'Código', 'Descripción', 'NCM', 'Cantidad', 'FOB', 'Participación FOB %', 'Costo total', 'Costo unitario', 'Clasificación'],
-      ...imp.items.map((i, idx) => [
-        idx + 1, i.codigo ?? '', i.descripcion, i.ncm ?? '', i.cantidad, p(i.fobTotal),
-        sumaFob > 0n ? Number((Number(i.fobTotal) / Number(sumaFob) * 100).toFixed(4)) : 0,
-        p(i.costoProrrateado), Number(unit(i.costoProrrateado, i.cantidad).toFixed(2)), clasif(i.clasificacion),
+      ['#', 'Código', 'Descripción', 'NCM', 'Cantidad', 'FOB', 'Part. FOB %', 'Adquisición (CIF)', 'Tributos no recup.', 'Gastos de plaza', 'Costo total', 'Costo unitario', 'Clasificación'],
+      ...filas.map((f, idx) => [
+        idx + 1, f.codigo, f.descripcion, f.ncm, f.cantidad, p(f.fob),
+        sumaFob > 0n ? Number((Number(f.fob) / Number(sumaFob) * 100).toFixed(4)) : 0,
+        nn(f.adq), nn(f.trib), nn(f.gas), p(f.costo), unit(f.costo, f.cantidad), clasif(f.clasif),
       ]),
-      ['', '', 'TOTAL', '', imp.items.reduce((s, i) => s + i.cantidad, 0), p(sumaFob), 100, p(imp.items.reduce((s, i) => s + i.costoProrrateado, 0n)), '', ''],
+      ['', '', 'TOTAL', '', filas.reduce((s, f) => s + f.cantidad, 0), p(sumaFob), 100,
+        filas.some((f) => f.adq != null) ? p(filas.reduce((s, f) => s + (f.adq ?? 0n), 0n)) : '',
+        filas.some((f) => f.trib != null) ? p(filas.reduce((s, f) => s + (f.trib ?? 0n), 0n)) : '',
+        filas.some((f) => f.gas != null) ? p(filas.reduce((s, f) => s + (f.gas ?? 0n), 0n)) : '',
+        p(filas.reduce((s, f) => s + f.costo, 0n)), '', ''],
     ];
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws['!cols'] = [{ wch: 5 }, { wch: 16 }, { wch: 40 }, { wch: 14 }, { wch: 10 }, { wch: 13 }, { wch: 18 }, { wch: 15 }, { wch: 15 }, { wch: 14 }];
+    ws['!cols'] = [{ wch: 5 }, { wch: 16 }, { wch: 40 }, { wch: 12 }, { wch: 9 }, { wch: 12 }, { wch: 11 }, { wch: 16 }, { wch: 16 }, { wch: 15 }, { wch: 14 }, { wch: 14 }, { wch: 13 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Costo por artículo');
     const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
