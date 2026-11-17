@@ -13,7 +13,7 @@ export const CUENTAS_IMPORTACION: Array<{ clave: string; nombre: string; grupo: 
   { clave: 'proveedoresExterior', nombre: 'Proveedores del exterior', grupo: 'Pasivo' },
   { clave: 'proveedoresLocales', nombre: 'Proveedores locales', grupo: 'Pasivo' },
   { clave: 'despachantes', nombre: 'Despachantes de aduana', grupo: 'Pasivo' },
-  { clave: 'mercaderiaTransito', nombre: 'Mercadería en tránsito', grupo: 'Bienes de cambio' },
+  { clave: 'mercaderiaTransito', nombre: 'Importaciones en trámite (mercadería en tránsito)', grupo: 'Bienes de cambio' },
   { clave: 'mercaderiasImportadas', nombre: 'Mercaderías importadas', grupo: 'Bienes de cambio' },
   { clave: 'bienesDeUso', nombre: 'Bienes de uso importados', grupo: 'Bienes de uso' },
   { clave: 'gastosBancarios', nombre: 'Gastos y comisiones bancarias', grupo: 'Resultado' },

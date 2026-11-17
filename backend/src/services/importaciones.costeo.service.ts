@@ -296,41 +296,48 @@ export function armarAsientosImportacion(
     ], true);
   }
 
-  // 2) Tributos del DUA (IVA importación como crédito; no recuperables al costo).
+  // 2) Tributos del DUA (IVA importación como crédito; no recuperables al costo,
+  // que se acumula en Importaciones en trámite hasta el alta en stock).
   if (r.totalTributos - r.anticipos > 0n) {
     mk(fechas.dua, 'Tributos del DUA (IVA importación y tributos no recuperables)', [
       { cuenta: etiqueta('ivaComprasImportacion'), debe: r.ivaImportacion, haber: 0n },
-      { cuenta: etiqueta('mercaderiasImportadas'), debe: r.tributosNoRecuperables, haber: 0n },
+      { cuenta: etiqueta('mercaderiaTransito'), debe: r.tributosNoRecuperables, haber: 0n },
       { cuenta: etiqueta('bancoPesos'), debe: 0n, haber: r.ivaImportacion + r.tributosNoRecuperables },
     ], r.estado === 'OK');
   }
 
-  // 3) Reconocimiento de la compra (mercadería por FOB) — DEFINITIVO solo si OK.
+  // 3) Reconocimiento de la compra (a Importaciones en trámite) — DEFINITIVO si OK.
   if (r.estado === 'OK' && r.adquisicionPesos > 0n) {
-    mk(fechas.factura, 'Reconocimiento de la compra (mercadería al CIF contable)', [
-      { cuenta: etiqueta('mercaderiasImportadas'), debe: r.adquisicionPesos + r.fletePesos + r.seguroPesos, haber: 0n },
+    mk(fechas.factura, 'Reconocimiento de la compra (importaciones en trámite al CIF contable)', [
+      { cuenta: etiqueta('mercaderiaTransito'), debe: r.adquisicionPesos + r.fletePesos + r.seguroPesos, haber: 0n },
       { cuenta: etiqueta('proveedoresExterior'), debe: 0n, haber: r.adquisicionPesos },
       { cuenta: etiqueta('proveedoresLocales'), debe: 0n, haber: r.fletePesos + r.seguroPesos },
     ], true);
   }
 
-  // 4) Gastos del despachante / plaza (gasto al costo + su IVA crédito).
+  // 4) Gastos del despachante / plaza (al costo en trámite + su IVA crédito).
   if (r.totalGastos > 0n || r.ivaGastos > 0n) {
     mk(fechas.pagoDespachante ?? fechas.dua, 'Gastos de la operación facturados por el despachante y la plaza', [
-      { cuenta: etiqueta('mercaderiasImportadas'), debe: r.totalGastos, haber: 0n },
+      { cuenta: etiqueta('mercaderiaTransito'), debe: r.totalGastos, haber: 0n },
       { cuenta: etiqueta('ivaComprasPlaza'), debe: r.ivaGastos, haber: 0n },
       { cuenta: etiqueta('despachantes'), debe: 0n, haber: r.totalGastos + r.ivaGastos },
     ], r.estado === 'OK');
   }
 
-  // 4b) Reclasificación a Bienes de Uso (activo fijo): traslada el costo de los
-  // artículos bien de uso de Mercaderías a Bienes de Uso. Mismo costo total.
-  const bduAsiento = r.costoBienesDeUso ?? 0n;
-  if (r.estado === 'OK' && bduAsiento > 0n) {
-    mk(fechas.dua, 'Reclasificación a Bienes de Uso (activo fijo importado)', [
-      { cuenta: etiqueta('bienesDeUso'), debe: bduAsiento, haber: 0n },
-      { cuenta: etiqueta('mercaderiasImportadas'), debe: 0n, haber: bduAsiento },
-    ], true);
+  // 4b) ALTA EN STOCK (nacionalización): pasa el costo acumulado en Importaciones
+  // en trámite a Mercaderías (inventario) y Bienes de Uso (activo fijo). Deja la
+  // cuenta de tránsito saldada. Mismo prorrateo por FOB.
+  if (r.estado === 'OK') {
+    const costoInv = r.adquisicionPesos + r.fletePesos + r.seguroPesos + r.tributosNoRecuperables + r.totalGastos;
+    const bduAlta = r.costoBienesDeUso ?? 0n;
+    const mercAlta = costoInv - bduAlta;
+    if (costoInv > 0n) {
+      mk(fechas.dua, 'Alta en stock — pase de Importaciones en trámite a inventario / bienes de uso', [
+        { cuenta: etiqueta('mercaderiasImportadas'), debe: mercAlta, haber: 0n },
+        { cuenta: etiqueta('bienesDeUso'), debe: bduAlta, haber: 0n },
+        { cuenta: etiqueta('mercaderiaTransito'), debe: 0n, haber: costoInv },
+      ], true);
+    }
   }
 
   // 5) Pagos (cancelación de pasivos), si se informaron.
@@ -421,10 +428,11 @@ export interface CosteoHistorico {
   consistencia: {
     costoInventario: bigint | null;
     sumaCostoArticulos: bigint;          // Σ costo de los ítems
-    movimientosMercaderia: bigint;       // Σ (debe − haber) en la cuenta Mercaderías de los asientos
+    movimientosMercaderia: bigint;       // Σ (debe − haber) en Mercaderías + Bienes de Uso (stock final)
+    movimientosTransito: bigint;         // Σ (debe − haber) en Importaciones en trámite (debe quedar 0)
     adquisicionContable: bigint;         // adquisición usada para el costeo
     adquisicionAsiento: bigint;          // adquisición usada en el asiento de incorporación
-    difArticulos: bigint; difAsientos: bigint; difAdquisicion: bigint; ok: boolean;
+    difArticulos: bigint; difAsientos: bigint; difAdquisicion: bigint; difTransito: bigint; ok: boolean;
   };
   conciliacion: {
     despachante: { cargos: Array<{ concepto: string; monto: bigint }>; totalCargos: bigint; pagos: Array<{ concepto: string; monto: bigint }>; totalPagos: bigint; saldo: bigint; nota: string } | null;
@@ -657,15 +665,17 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
       { cuenta: et('bancoMe'), monedaOrig: a.moneda, montoOrig: a.monto + a.comision, debe: 0n, haber: a.montoUYU + a.comisionUYU },
     ], [{ documento: `SWIFT/Itaú op. ${a.referencia ?? ''}`, regla: `Anticipo no monetario (NIC 21): se valúa al TC fiscal del día de pago (${a.tcUsado ?? '—'})${a.provisional ? ' — PROVISIONAL' : ''}.` }], !a.provisional);
   }
-  // Reconocimiento de la mercadería (aplica anticipos; sin dividir proveedor).
+  // Reconocimiento de la compra: el costo se acumula en IMPORTACIONES EN TRÁMITE
+  // (mercadería en tránsito), no directo a stock. Al nacionalizar se pasa a Stock
+  // (ver asiento "Alta en stock"). Aplica los anticipos; sin dividir el proveedor.
   if (costoInventario != null) {
     const lineasRec: LineaAsientoHist[] = [
-      { cuenta: et('mercaderiasImportadas'), debe: adquisicionUYU, haber: 0n },
+      { cuenta: et('mercaderiaTransito'), debe: adquisicionUYU, haber: 0n },
       { cuenta: et('anticiposProveedores'), debe: 0n, haber: mercaderiaAnticiposUYU },
     ];
     if (saldoNoAnticipado) lineasRec.push({ cuenta: et('proveedoresExterior'), monedaOrig: factura?.moneda, montoOrig: saldoNoAnticipado.me, debe: 0n, haber: saldoNoAnticipado.uyu });
-    mk(fechaReconocimiento, 'Reconocimiento de la mercadería (incorporación al inventario y aplicación de anticipos)', lineasRec,
-      [{ documento: `Factura comercial`, regla: 'Inventario al CIF de la factura valuado por los anticipos (TC de cada pago); el exceso pagado NO se capitaliza (crédito con el proveedor); el saldo no anticipado al TC de reconocimiento. No se divide el importe del proveedor del exterior.' }], estado === 'OK');
+    mk(fechaReconocimiento, 'Reconocimiento de la compra (importaciones en trámite / mercadería en tránsito)', lineasRec,
+      [{ documento: `Factura comercial`, regla: 'Adquisición al CIF de la factura valuado por los anticipos (TC de cada pago); se acumula en Importaciones en trámite. El exceso pagado NO se capitaliza (crédito con el proveedor); el saldo no anticipado al TC de reconocimiento. No se divide el importe del proveedor del exterior.' }], estado === 'OK');
   }
   // Flujos de fondos reconstruidos de los comprobantes, SIN duplicar bancos:
   // si la e-factura del despachante trae los tributos como "no facturable", los
@@ -691,7 +701,7 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
   if (totalTributos > 0n) {
     mk(fechaReconocimiento, 'Tributos aduaneros y anticipos fiscales del DUA', [
       { cuenta: et('ivaComprasImportacion'), debe: ivaImportacion, haber: 0n },
-      { cuenta: et('mercaderiasImportadas'), debe: tributosNoRecuperables, haber: 0n },
+      { cuenta: et('mercaderiaTransito'), debe: tributosNoRecuperables, haber: 0n },
       { cuenta: et('anticipoIvaImportacion'), debe: anticiposFiscales, haber: 0n },
       { cuenta: et(tributosPorDespachante ? 'despachantes' : 'bancoPesos'), debe: 0n, haber: totalTributos },
     ], [{ documento: `DUA ${dua?.nroDua ?? ''}`, pagina: 'pág. 1 (tributos)', regla: 'Tributos liquidados en el DUA; IVA importación = crédito fiscal; anticipo IVA = pago a cuenta (no integra costo); no recuperables al inventario.' }, { documento: 'Pago SPE/Sistarbanc (cód. autorización)', regla: tributosPorDespachante ? 'Los pagó el despachante por cuenta del importador (constan como "no facturable" en su e-factura y se reintegran en el recibo); contrapartida Despachantes, NO Banco (el único egreso bancario es el recibo).' : 'Pagados directamente por el importador por SPE; contrapartida Banco.' }], true);
@@ -699,7 +709,7 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
   // Gastos y honorarios del DESPACHANTE (cuenta corriente del despachante).
   if (montoDesp > 0n || ivaDesp > 0n) {
     mk(fechaDesp, 'Gastos y honorarios del despachante de aduana', [
-      { cuenta: et('mercaderiasImportadas'), debe: montoDesp, haber: 0n },
+      { cuenta: et('mercaderiaTransito'), debe: montoDesp, haber: 0n },
       { cuenta: et('ivaComprasPlaza'), debe: ivaDesp, haber: 0n },
       { cuenta: et('despachantes'), debe: 0n, haber: montoDesp + ivaDesp },
     ], [{ documento: gDesp.map((g) => g.documento).filter((v, i, a) => a.indexOf(v) === i).join(', '), regla: 'Gastos directamente atribuibles al inventario (honorarios, operativos y reembolso de terminal); IVA de servicios = crédito fiscal. El reembolso de terceros se cuenta una sola vez.' }], estado === 'OK');
@@ -707,7 +717,7 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
   // Gastos de la AGENCIA de carga / plaza (prestador distinto del despachante).
   if (montoAg > 0n || ivaAg > 0n) {
     mk(fechaAg, 'Gastos de la agencia de carga / plaza', [
-      { cuenta: et('mercaderiasImportadas'), debe: montoAg, haber: 0n },
+      { cuenta: et('mercaderiaTransito'), debe: montoAg, haber: 0n },
       { cuenta: et('ivaComprasPlaza'), debe: ivaAg, haber: 0n },
       { cuenta: et('proveedoresLocales'), monedaOrig: gAgencia[0]?.moneda, montoOrig: gAgencia.reduce((s, g) => s + g.montoME, 0), debe: 0n, haber: montoAg + ivaAg },
     ], [{ documento: gAgencia.map((g) => g.documento).filter((v, i, a) => a.indexOf(v) === i).join(', '), regla: 'Servicio de un prestador distinto del despachante (agencia de carga); se paga por separado, no integra la cuenta del despachante.' }], estado === 'OK');
@@ -729,14 +739,17 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
       { cuenta: et(pagoAgencia.moneda && pagoAgencia.moneda !== 'UYU' ? 'bancoMe' : 'bancoPesos'), monedaOrig: pagoAgencia.moneda, montoOrig: pagoAgencia.montoME, debe: 0n, haber: deudaAgencia },
     ], [{ documento: `Transferencia en plaza${pagoAgencia.fecha ? ` ${pagoAgencia.fecha}` : ''}`, regla: 'Cancelación del servicio de la agencia de carga (comprobante de transferencia); cuenta separada del despachante.' }], true);
   }
-  // Reclasificación a BIENES DE USO (activo fijo): los artículos marcados bien de
-  // uso no son inventario. Se traslada su costo de Mercaderías a Bienes de Uso.
-  // Mismo costo total; solo cambia la cuenta. Solo si hay bienes de uso.
-  if (costoBienesDeUso > 0n) {
-    mk(fechaReconocimiento, 'Reclasificación a Bienes de Uso (activo fijo importado)', [
+  // ALTA EN STOCK (nacionalización): se pasa el costo acumulado en Importaciones
+  // en trámite a las cuentas de destino —Mercaderías (inventario) y Bienes de Uso
+  // (activo fijo), según la clasificación de cada artículo—. Es el momento en que
+  // el producto entra al stock con su costo ya prorrateado por artículo (FOB). La
+  // cuenta de tránsito queda saldada (entra todo y sale todo).
+  if (costoInventario != null && costoInventario > 0n) {
+    mk(fechaReconocimiento, 'Alta en stock — pase de Importaciones en trámite a inventario / bienes de uso', [
+      { cuenta: et('mercaderiasImportadas'), debe: costoMercaderiaCap ?? 0n, haber: 0n },
       { cuenta: et('bienesDeUso'), debe: costoBienesDeUso, haber: 0n },
-      { cuenta: et('mercaderiasImportadas'), debe: 0n, haber: costoBienesDeUso },
-    ], [{ documento: 'Clasificación de artículos de la factura', regla: 'Los artículos marcados BIEN DE USO se capitalizan en el activo fijo (Bienes de Uso), no en inventario. Se usa la misma fórmula de costo; solo cambia la cuenta de destino.' }], estado === 'OK');
+      { cuenta: et('mercaderiaTransito'), debe: 0n, haber: costoInventario },
+    ], [{ documento: 'Nacionalización / clasificación de artículos', regla: 'Al nacionalizar, el costo acumulado en Importaciones en trámite se incorpora al stock: Mercaderías por los artículos de inventario y Bienes de Uso por los de activo fijo (mismo prorrateo por FOB). La cuenta de tránsito queda saldada.' }], estado === 'OK');
   }
   asientos.sort((a, b) => (a.fecha ?? '9999').localeCompare(b.fecha ?? '9999'));
 
@@ -863,20 +876,26 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
   // asientos realmente generados (no se asume: se verifica).
   const CLAVE_MERC = 'mercaderiasImportadas';
   const CLAVE_BDU = 'bienesDeUso';
-  // El costo capitalizado se reparte entre Mercaderías (inventario) y Bienes de
+  const CLAVE_TRANSITO = 'mercaderiaTransito';
+  // El costo final en STOCK se reparte entre Mercaderías (inventario) y Bienes de
   // Uso (activo fijo): la suma de ambos movimientos debe igualar el costo total.
+  // El costo transita por Importaciones en trámite y sale íntegro al dar el alta,
+  // así que la cuenta de tránsito debe quedar saldada (neto 0).
   const movimientosMercaderia = asientos.reduce((s, a) => s + a.lineas.filter((l) => l.cuenta === CLAVE_MERC || l.cuenta === CLAVE_BDU).reduce((ss, l) => ss + l.debe - l.haber, 0n), 0n);
+  const movimientosTransito = asientos.reduce((s, a) => s + a.lineas.filter((l) => l.cuenta === CLAVE_TRANSITO).reduce((ss, l) => ss + l.debe - l.haber, 0n), 0n);
   const sumaCostoArticulos = (items ?? []).reduce((s, i) => s + i.costo, 0n);
   const recAsiento = asientos.find((a) => /Reconocimiento/.test(a.glosa));
-  const adquisicionAsiento = recAsiento ? recAsiento.lineas.filter((l) => l.cuenta === CLAVE_MERC).reduce((s, l) => s + l.debe - l.haber, 0n) : 0n;
+  // La adquisición entra por Importaciones en trámite (la cuenta de tránsito).
+  const adquisicionAsiento = recAsiento ? recAsiento.lineas.filter((l) => l.cuenta === CLAVE_TRANSITO).reduce((s, l) => s + l.debe - l.haber, 0n) : 0n;
   const ci = costoInventario ?? 0n;
   const difArticulos = ci - sumaCostoArticulos;
   const difAsientos = ci - movimientosMercaderia;
   const difAdquisicion = adquisicionUYU - adquisicionAsiento;
+  const difTransito = movimientosTransito; // debe quedar saldada: neto 0
   const consistencia = {
-    costoInventario, sumaCostoArticulos, movimientosMercaderia, adquisicionContable: adquisicionUYU,
-    adquisicionAsiento, difArticulos, difAsientos, difAdquisicion,
-    ok: costoInventario != null && difArticulos === 0n && difAsientos === 0n && difAdquisicion === 0n,
+    costoInventario, sumaCostoArticulos, movimientosMercaderia, movimientosTransito, adquisicionContable: adquisicionUYU,
+    adquisicionAsiento, difArticulos, difAsientos, difAdquisicion, difTransito,
+    ok: costoInventario != null && difArticulos === 0n && difAsientos === 0n && difAdquisicion === 0n && difTransito === 0n,
   };
   if (costoInventario != null && !consistencia.ok) {
     motivos.push(`Inconsistencia interna: costo de inventario $${(Number(ci) / 100).toLocaleString('es-UY')} vs artículos (dif ${Number(difArticulos) / 100}) / asientos (dif ${Number(difAsientos) / 100}) / adquisición (dif ${Number(difAdquisicion) / 100}).`);

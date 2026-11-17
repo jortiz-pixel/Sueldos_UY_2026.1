@@ -96,12 +96,15 @@ describe('Costeo histórico (construirCosteoHistorico) con bienes de uso', () =>
     expect(r.costoBienesDeUso).toBe(1604000n);
     expect(r.costoMercaderia).toBe(2406000n);
     expect((r.costoMercaderia ?? 0n) + (r.costoBienesDeUso ?? 0n)).toBe(r.costoInventario);
-    // Hay un asiento de reclasificación a Bienes de Uso, balanceado.
-    const recl = r.asientos.find((a) => /Reclasificaci[oó]n a Bienes de Uso/i.test(a.glosa));
-    expect(recl).toBeTruthy();
-    expect(recl!.balanceado).toBe(true);
-    expect(recl!.lineas.find((l) => l.cuenta === 'bienesDeUso')?.debe).toBe(1604000n);
-    // La verificación interna de consistencia sigue cuadrando.
+    // El alta en stock pasa de Importaciones en trámite a Mercaderías + Bienes de Uso.
+    const alta = r.asientos.find((a) => /Alta en stock/i.test(a.glosa));
+    expect(alta).toBeTruthy();
+    expect(alta!.balanceado).toBe(true);
+    expect(alta!.lineas.find((l) => l.cuenta === 'bienesDeUso')?.debe).toBe(1604000n);
+    expect(alta!.lineas.find((l) => l.cuenta === 'mercaderiasImportadas')?.debe).toBe(2406000n);
+    expect(alta!.lineas.find((l) => l.cuenta === 'mercaderiaTransito')?.haber).toBe(4010000n);
+    // La cuenta de tránsito queda saldada y la consistencia cierra.
+    expect(r.consistencia.movimientosTransito).toBe(0n);
     expect(r.consistencia.ok).toBe(true);
   });
 

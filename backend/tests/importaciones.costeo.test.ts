@@ -400,9 +400,10 @@ describe('construirCosteoHistorico — consistencia e importe en exceso', () => 
   it('el asiento de reconocimiento NO deja la diferencia dentro de la mercadería', () => {
     const r = construirCosteoHistorico(marpolos(40.10, 40.20));
     const rec = r.asientos.find((a) => /Reconocimiento/.test(a.glosa))!;
-    const debeMerc = rec.lineas.filter((l) => /mercaderiasImportadas/.test(l.cuenta)).reduce((s, l) => s + l.debe, 0n);
+    // La adquisición entra por Importaciones en trámite (mercadería en tránsito).
+    const debeMerc = rec.lineas.filter((l) => /mercaderiaTransito/.test(l.cuenta)).reduce((s, l) => s + l.debe, 0n);
     const haberAnt = rec.lineas.filter((l) => /anticiposProveedores/.test(l.cuenta)).reduce((s, l) => s + l.haber, 0n);
-    expect(debeMerc).toBe(r.adquisicionUYU);              // mercadería = CIF
+    expect(debeMerc).toBe(r.adquisicionUYU);              // adquisición = CIF
     expect(debeMerc).toBe(haberAnt);                       // anticipos aplicados = CIF (el exceso queda como crédito)
     expect(r.anticiposPagadosUYU - haberAnt).toBe(r.excesoPagado!.uyu); // el crédito remanente = exceso
     expect(rec.balanceado).toBe(true);
