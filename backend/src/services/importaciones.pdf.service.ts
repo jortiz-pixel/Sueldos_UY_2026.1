@@ -537,8 +537,12 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
       subheading('Verificación de consistencia (costo = artículos = asientos)');
       total2('Costo del inventario', nMoney(cons.costoInventario));
       total2('Suma de costos por artículo', `${nMoney(cons.sumaCostoArticulos)}   (dif ${nMoney(cons.difArticulos)})`);
-      total2('Movimientos a Mercaderías en los asientos', `${nMoney(cons.movimientosMercaderia)}   (dif ${nMoney(cons.difAsientos)})`);
+      total2('Movimientos a cuentas de costo (tránsito + stock)', `${nMoney(cons.movimientosMercaderia)}   (dif ${nMoney(cons.difAsientos)})`);
       total2('Adquisición contable vs del asiento', `${nMoney(cons.adquisicionContable)} vs ${nMoney(cons.adquisicionAsiento)}   (dif ${nMoney(cons.difAdquisicion)})`);
+      // Saldo en Importaciones en trámite: 0 si ya se dio el alta en stock; = costo
+      // total si sigue en trámite (pendiente de alta hasta nacionalizar).
+      const enTransito = cons.difTransito != null && BigInt(cons.difTransito) !== 0n;
+      total2('Saldo en Importaciones en trámite', enTransito ? `${nMoney(cons.difTransito)}   (pendiente de alta en stock)` : '0,00   (alta en stock dada)');
       notaCol(cons.ok ? 'OK — las tres igualdades se cumplen (sin diferencias).' : 'INCONSISTENTE — hay diferencias; expediente pendiente de aprobación.', cons.ok ? '#1a7f37' : '#c00', true, 8);
     }
 

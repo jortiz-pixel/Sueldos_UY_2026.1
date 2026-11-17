@@ -410,6 +410,9 @@ export interface CosteoHistorico {
   // fijo), según la clasificación de cada artículo. Suman costoInventario.
   costoMercaderia: bigint | null;
   costoBienesDeUso: bigint | null;
+  // true si ya se emitió el alta en stock (nacionalizada/cerrada); false si el
+  // costo sigue acumulado en Importaciones en trámite (borrador / en trámite).
+  altaEnStock: boolean;
   items: Array<{ codigo: string | null; descripcion: string; cantidad: number; fobME: bigint; costo: bigint; clasificacion: string }> | null;
   // Cuenta corriente del despachante UNIFICADA (misma que usan asientos y conciliación).
   // Diferencia el saldo documentado (cargos), los pagos CONFIRMADOS (con egreso bancario)
@@ -479,6 +482,11 @@ export interface CosteoHistoricoInput {
   // Liquidación preliminar del despachante (hoja "Gastos del Embarque"): total y
   // conceptos declarados, para conciliar contra los tributos liquidados del DUA.
   liquidacionPreliminar?: { total: bigint | null; conceptos: Array<{ clave: string; monto: bigint }> } | null;
+  // Estado de la importación. El ALTA EN STOCK (pase de Importaciones en trámite a
+  // Mercaderías / Bienes de uso) se emite SOLO cuando está NACIONALIZADA o CERRADA;
+  // en BORRADOR / EN_TRAMITE el costo queda acumulado en tránsito (sin alta). Si no
+  // se informa (undefined), se emite igual (compatibilidad / cálculo puro).
+  estadoImportacion?: string | null;
   etiqueta: (clave: string) => string;
 }
 
@@ -512,7 +520,10 @@ export function cotizacionRespaldada(fuente?: string | null): boolean {
 }
 
 export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHistorico {
-  const { dua, factura, servicios, anticipos, pagoSpeCtms, pagoDespachanteCtms, fechaPagoDespachante, pagoDespachanteConfirmado, pagoAgencia, fechaReconocimiento, cotizacionReconocimiento, tcProvisional, unidadesPacking, packingBultos, packingBultosDeclarados, liquidacionPreliminar, etiqueta } = input;
+  const { dua, factura, servicios, anticipos, pagoSpeCtms, pagoDespachanteCtms, fechaPagoDespachante, pagoDespachanteConfirmado, pagoAgencia, fechaReconocimiento, cotizacionReconocimiento, tcProvisional, unidadesPacking, packingBultos, packingBultosDeclarados, liquidacionPreliminar, estadoImportacion, etiqueta } = input;
+  // El alta en stock se emite solo al nacionalizar (o cerrar). En trámite/borrador
+  // el costo queda acumulado en Importaciones en trámite. Sin estado → se emite.
+  const altaEnStock = estadoImportacion == null || ['NACIONALIZADA', 'CERRADA'].includes(estadoImportacion);
   const motivos: string[] = [];
   const et = etiqueta;
 
@@ -739,13 +750,17 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
       { cuenta: et(pagoAgencia.moneda && pagoAgencia.moneda !== 'UYU' ? 'bancoMe' : 'bancoPesos'), monedaOrig: pagoAgencia.moneda, montoOrig: pagoAgencia.montoME, debe: 0n, haber: deudaAgencia },
     ], [{ documento: `Transferencia en plaza${pagoAgencia.fecha ? ` ${pagoAgencia.fecha}` : ''}`, regla: 'Cancelación del servicio de la agencia de carga (comprobante de transferencia); cuenta separada del despachante.' }], true);
   }
-  // ALTA EN STOCK (nacionalización): se pasa el costo acumulado en Importaciones
-  // en trámite a las cuentas de destino —Mercaderías (inventario) y Bienes de Uso
-  // (activo fijo), según la clasificación de cada artículo—. Es el momento en que
-  // el producto entra al stock con su costo ya prorrateado por artículo (FOB). La
-  // cuenta de tránsito queda saldada (entra todo y sale todo).
-  if (costoInventario != null && costoInventario > 0n) {
-    mk(fechaReconocimiento, 'Alta en stock — pase de Importaciones en trámite a inventario / bienes de uso', [
+  // ALTA EN STOCK: se pasa el costo acumulado en Importaciones en trámite a las
+  // cuentas de destino —Mercaderías (inventario) y Bienes de Uso (activo fijo),
+  // según la clasificación de cada artículo—. Es el momento en que el producto
+  // entra al stock con su costo ya prorrateado por artículo (FOB), y la cuenta de
+  // tránsito queda saldada. SOLO se emite al NACIONALIZAR/CERRAR; en trámite el
+  // costo queda en tránsito. Se fecha en la ÚLTIMA fecha de costo (reconocimiento,
+  // gastos del despachante o de la agencia) para que el tránsito se cargue del todo
+  // antes de vaciarse y no quede en negativo ningún día.
+  const fechaAlta = [fechaReconocimiento, fechaDesp, fechaAg].filter((f): f is string => !!f).sort().slice(-1)[0] ?? fechaReconocimiento;
+  if (altaEnStock && costoInventario != null && costoInventario > 0n) {
+    mk(fechaAlta, 'Alta en stock — pase de Importaciones en trámite a inventario / bienes de uso', [
       { cuenta: et('mercaderiasImportadas'), debe: costoMercaderiaCap ?? 0n, haber: 0n },
       { cuenta: et('bienesDeUso'), debe: costoBienesDeUso, haber: 0n },
       { cuenta: et('mercaderiaTransito'), debe: 0n, haber: costoInventario },
@@ -877,11 +892,13 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
   const CLAVE_MERC = 'mercaderiasImportadas';
   const CLAVE_BDU = 'bienesDeUso';
   const CLAVE_TRANSITO = 'mercaderiaTransito';
-  // El costo final en STOCK se reparte entre Mercaderías (inventario) y Bienes de
-  // Uso (activo fijo): la suma de ambos movimientos debe igualar el costo total.
-  // El costo transita por Importaciones en trámite y sale íntegro al dar el alta,
-  // así que la cuenta de tránsito debe quedar saldada (neto 0).
-  const movimientosMercaderia = asientos.reduce((s, a) => s + a.lineas.filter((l) => l.cuenta === CLAVE_MERC || l.cuenta === CLAVE_BDU).reduce((ss, l) => ss + l.debe - l.haber, 0n), 0n);
+  const CUENTAS_COSTO = [CLAVE_MERC, CLAVE_BDU, CLAVE_TRANSITO];
+  // El costo circula por las cuentas de COSTO: entra a Importaciones en trámite y,
+  // al dar el alta, pasa a Mercaderías / Bienes de Uso. La suma NETA de las tres
+  // cuentas debe igualar el costo total SIEMPRE: en trámite todo está en tránsito;
+  // nacionalizada, todo en stock y el tránsito saldado. Así la verificación cierra
+  // en ambos estados.
+  const movimientosMercaderia = asientos.reduce((s, a) => s + a.lineas.filter((l) => CUENTAS_COSTO.includes(l.cuenta)).reduce((ss, l) => ss + l.debe - l.haber, 0n), 0n);
   const movimientosTransito = asientos.reduce((s, a) => s + a.lineas.filter((l) => l.cuenta === CLAVE_TRANSITO).reduce((ss, l) => ss + l.debe - l.haber, 0n), 0n);
   const sumaCostoArticulos = (items ?? []).reduce((s, i) => s + i.costo, 0n);
   const recAsiento = asientos.find((a) => /Reconocimiento/.test(a.glosa));
@@ -891,11 +908,14 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
   const difArticulos = ci - sumaCostoArticulos;
   const difAsientos = ci - movimientosMercaderia;
   const difAdquisicion = adquisicionUYU - adquisicionAsiento;
-  const difTransito = movimientosTransito; // debe quedar saldada: neto 0
+  // Saldo que queda en Importaciones en trámite: 0 si ya se dio el alta
+  // (nacionalizada); = costo total si sigue en trámite (pendiente de alta). NO es un
+  // error: es el estado del circuito, por eso no entra en la verificación de 'ok'.
+  const difTransito = movimientosTransito;
   const consistencia = {
     costoInventario, sumaCostoArticulos, movimientosMercaderia, movimientosTransito, adquisicionContable: adquisicionUYU,
     adquisicionAsiento, difArticulos, difAsientos, difAdquisicion, difTransito,
-    ok: costoInventario != null && difArticulos === 0n && difAsientos === 0n && difAdquisicion === 0n && difTransito === 0n,
+    ok: costoInventario != null && difArticulos === 0n && difAsientos === 0n && difAdquisicion === 0n,
   };
   if (costoInventario != null && !consistencia.ok) {
     motivos.push(`Inconsistencia interna: costo de inventario $${(Number(ci) / 100).toLocaleString('es-UY')} vs artículos (dif ${Number(difArticulos) / 100}) / asientos (dif ${Number(difAsientos) / 100}) / adquisición (dif ${Number(difAdquisicion) / 100}).`);
@@ -907,7 +927,7 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
     anticipos: anticiposCalc, adquisicionUYU, anticiposPagadosUYU, excesoPagado, saldoNoAnticipado, comisionesBancariasUYU,
     tributos, totalTributos, tributosNoRecuperables, ivaImportacion, anticiposFiscales,
     gastos, totalGastosUYU, ivaGastosUYU, creditoFiscalIva,
-    costoInventario, costoMercaderia: costoMercaderiaCap, costoBienesDeUso,
+    costoInventario, costoMercaderia: costoMercaderiaCap, costoBienesDeUso, altaEnStock,
     items, cuentaDespachante, asientos, consistencia, conciliacion: conc,
   };
 }

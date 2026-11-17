@@ -116,4 +116,23 @@ describe('Costeo histórico (construirCosteoHistorico) con bienes de uso', () =>
     expect(r.asientos.some((a) => /Reclasificaci[oó]n a Bienes de Uso/i.test(a.glosa))).toBe(false);
     expect(r.consistencia.ok).toBe(true);
   });
+
+  test('BORRADOR: el costo queda en tránsito, SIN alta en stock (y la consistencia cierra)', () => {
+    const r = construirCosteoHistorico({ ...input(undefined), estadoImportacion: 'BORRADOR' });
+    expect(r.altaEnStock).toBe(false);
+    // No hay asiento de alta en stock.
+    expect(r.asientos.some((a) => /Alta en stock/i.test(a.glosa))).toBe(false);
+    // Todo el costo sigue acumulado en Importaciones en trámite.
+    expect(r.consistencia.movimientosTransito).toBe(r.costoInventario);
+    // Igual cierra la verificación (costo = artículos = movimientos a cuentas de costo).
+    expect(r.consistencia.ok).toBe(true);
+  });
+
+  test('NACIONALIZADA: aparece el alta en stock y la cuenta de tránsito queda saldada', () => {
+    const r = construirCosteoHistorico({ ...input(undefined), estadoImportacion: 'NACIONALIZADA' });
+    expect(r.altaEnStock).toBe(true);
+    expect(r.asientos.some((a) => /Alta en stock/i.test(a.glosa))).toBe(true);
+    expect(r.consistencia.movimientosTransito).toBe(0n);
+    expect(r.consistencia.ok).toBe(true);
+  });
 });
