@@ -1068,9 +1068,15 @@ importacionesRouter.patch('/:id/estado', async (req: Request, res: Response, nex
     const existing = await prisma.importacion.findUnique({ where: { id: req.params.id } });
     if (!existing) throw new NotFoundError('Importación');
     await assertCompanyAccess(req, existing.companyId);
-    const imp = await prisma.importacion.update({ where: { id: existing.id }, data: { estado }, include: incluir });
-    await recordAudit({ req, action: estado === ImportacionEstado.ANULADA ? 'IMPORTACION_ANULAR' : 'IMPORTACION_ESTADO', entity: 'importacion', entityId: imp.id, companyId: imp.companyId, oldData: { estado: existing.estado }, newData: { estado } });
-    res.json(serializar(imp));
+    await prisma.importacion.update({ where: { id: existing.id }, data: { estado } });
+    // Al cambiar el estado se RECALCULA el costeo desde la extracción: el 'Alta en
+    // stock' (pase de Importaciones en trámite a inventario) aparece al nacionalizar
+    // y desaparece al volver a borrador. Idempotente; si no hay documentos procesados
+    // (carga manual sin DUA) no hace nada. No bloquea el cambio de estado si falla.
+    try { await reconstruirCosteoDesdeExtraccion(existing.id); } catch { /* el estado ya cambió */ }
+    const imp = await prisma.importacion.findUnique({ where: { id: existing.id }, include: incluir });
+    await recordAudit({ req, action: estado === ImportacionEstado.ANULADA ? 'IMPORTACION_ANULAR' : 'IMPORTACION_ESTADO', entity: 'importacion', entityId: existing.id, companyId: existing.companyId, oldData: { estado: existing.estado }, newData: { estado } });
+    res.json(serializar(imp!));
   } catch (err) { next(err); }
 });
 
