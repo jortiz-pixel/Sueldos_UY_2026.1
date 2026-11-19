@@ -23,7 +23,9 @@ export const CUENTAS_IMPORTACION: Array<{ clave: string; nombre: string; grupo: 
   { clave: 'anticipoIvaImportacion', nombre: 'Anticipo IVA importación', grupo: 'Anticipos tributarios' },
   { clave: 'anticipoIrae', nombre: 'Anticipo IRAE', grupo: 'Anticipos tributarios' },
   { clave: 'otrosImpuestosTasas', nombre: 'Otros impuestos y tasas', grupo: 'Varios' },
-  { clave: 'costoVentas', nombre: 'Costo de ventas', grupo: 'Resultado' },
+  { clave: 'costoVentas', nombre: 'Costo de mercadería vendida', grupo: 'Resultado' },
+  { clave: 'ventasExportacion', nombre: 'Ventas de exportación', grupo: 'Ingresos' },
+  { clave: 'deudoresExportacion', nombre: 'Deudores por exportación', grupo: 'Créditos' },
 ];
 
 const NOMBRE_POR_CLAVE: Record<string, string> = Object.fromEntries(

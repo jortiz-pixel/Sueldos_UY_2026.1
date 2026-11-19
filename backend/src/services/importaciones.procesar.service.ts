@@ -156,7 +156,7 @@ const bigintReplacer = (_k: string, v: unknown) => (typeof v === 'bigint' ? v.to
 export async function reconstruirCosteoDesdeExtraccion(importacionId: string): Promise<{ ok: boolean; estado?: string; motivo?: string; regimenAuto?: string | null }> {
   const imp = await prisma.importacion.findUnique({ where: { id: importacionId } });
   if (!imp || imp.estado === 'ANULADA') return { ok: false };
-  const [duaEx, serviciosEx, facturasAll, pagoTrib, transferencias, recibos, packingEx] = await Promise.all([
+  const [duaEx, serviciosEx, facturasAll, pagoTrib, transferencias, recibos, packingEx, exportEx] = await Promise.all([
     prisma.importacionDocExtraccion.findFirst({ where: { importacionId, tipo: 'DUA' } }),
     prisma.importacionDocExtraccion.findMany({ where: { importacionId, tipo: 'FACTURA_SERVICIOS_UY' } }),
     prisma.importacionFactura.findMany({ where: { importacionId }, include: { articulos: { orderBy: { nro: 'asc' } } }, orderBy: { createdAt: 'asc' } }),
@@ -164,6 +164,7 @@ export async function reconstruirCosteoDesdeExtraccion(importacionId: string): P
     prisma.importacionTransferencia.findMany({ where: { importacionId }, orderBy: { fecha: 'asc' } }),
     prisma.importacionDocExtraccion.findMany({ where: { importacionId, tipo: 'RECIBO' } }),
     prisma.importacionDocExtraccion.findFirst({ where: { importacionId, tipo: 'PACKING_LIST' } }),
+    prisma.importacionDocExtraccion.findMany({ where: { importacionId, tipo: 'FACTURA_EXPORTACION' }, orderBy: { fecha: 'asc' } }),
   ]);
   // El DUA formal (DNA) puede NO estar: en operaciones de TRÁNSITO los números de DUA
   // vienen dentro de las e-facturas del despachante y no hay un PDF de DUA aparte. En
@@ -252,6 +253,24 @@ export async function reconstruirCosteoDesdeExtraccion(importacionId: string): P
     ? ImportacionRegimen.TRANSITO
     : imp.regimen;
 
+  // §7 — VENTA DE EXPORTACIÓN (re-exportación en tránsito): consolida las e-facturas
+  // de exportación en un valor de venta (moneda + fecha de la primera). Alimenta el
+  // asiento de venta + CMV que salda el tránsito (no integra el costo).
+  const ventaExportacionInput = (() => {
+    if (!exportEx.length) return null;
+    const totalCtms = exportEx.reduce((s, e) => s + (e.total ?? 0n), 0n);
+    if (totalCtms <= 0n) return null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const prim: any = exportEx[0]?.datos ?? {};
+    const monedaVenta = (prim.moneda as string) || moneda || 'USD';
+    return { montoME: Number(totalCtms) / 100, moneda: monedaVenta, fecha: iso(exportEx[0]?.fecha ?? null), tc: null as number | null };
+  })();
+  // §3 NIC 21/2 — transferencia de control = fecha "a bordo" del BL (fechaEmbarque en
+  // una venta FOB). Se valúa la mercadería a la cotización de ESE día; la diferencia
+  // contra el TC de los pagos es diferencia de cambio (resultado), no costo.
+  const fechaControl = imp.fechaEmbarque ? iso(imp.fechaEmbarque) : null;
+  const cotControl = imp.fechaEmbarque ? await tcFiscalDia(moneda, imp.fechaEmbarque) : { valor: null, fuente: null };
+
   const r = construirCosteoHistorico({
     dua: {
       nroDua: d.nroDua ?? null, tipoCambio: d.tipoCambio, valorAduanaPesos: d.valorAduanaPesos ?? null,
@@ -283,6 +302,11 @@ export async function reconstruirCosteoDesdeExtraccion(importacionId: string): P
     // (TRÁNSITO, DEPÓSITO, ADMISIÓN TEMPORARIA, ZONA FRANCA) = régimen suspensivo →
     // tributos de importación suspendidos (fuera de costo y crédito) y sin alta en stock.
     esTransito: regimenEfectivo !== ImportacionRegimen.DEFINITIVA,
+    // §3 NIC 21: reconocimiento a la transferencia de control (BL a bordo) + su TC.
+    fechaControlTransferencia: fechaControl,
+    cotizacionControlTransferencia: cotControl.valor,
+    // §7: venta de exportación (re-exportación) → CMV contra la venta, salda el tránsito.
+    ventaExportacion: ventaExportacionInput,
     etiqueta: (k) => k, // en el informe/asiento se re-etiqueta con el plan de cuentas
   });
   const ncm: string | null = d.ncm ?? null;
@@ -335,8 +359,8 @@ export async function reconstruirCosteoDesdeExtraccion(importacionId: string): P
 
   // Venta de EXPORTACIÓN (triangulación/tránsito): suma de las e-Facturas de
   // exportación del propio importador (fuente autoritativa para el encuadre de IRAE).
-  // Se calcula acá para que el valor quede persistido siempre que se rehace el costeo.
-  const exportEx = await prisma.importacionDocExtraccion.findMany({ where: { importacionId, tipo: 'FACTURA_EXPORTACION' }, select: { total: true } });
+  // Reusa las extracciones ya cargadas al inicio (exportEx) para que el valor quede
+  // persistido siempre que se rehace el costeo.
   const ventaExportacionCtms = exportEx.reduce((s, e) => s + (e.total ?? 0n), 0n);
 
   await prisma.$transaction([

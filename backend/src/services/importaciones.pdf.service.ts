@@ -557,19 +557,48 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
       subheading('Verificación de consistencia (costo = artículos = asientos)');
       total2('Costo del inventario', nMoney(cons.costoInventario));
       total2('Suma de costos por artículo', `${nMoney(cons.sumaCostoArticulos)}   (dif ${nMoney(cons.difArticulos)})`);
-      total2('Movimientos a cuentas de costo (tránsito + stock)', `${nMoney(cons.movimientosMercaderia)}   (dif ${nMoney(cons.difAsientos)})`);
+      const vendida = cons.movimientosCMV != null && BigInt(cons.movimientosCMV) !== 0n;
+      total2('Movimientos a cuentas de costo (tránsito + stock' + (vendida ? ' + CMV' : '') + ')', `${nMoney((BigInt(cons.movimientosMercaderia) + (vendida ? BigInt(cons.movimientosCMV) : 0n)).toString())}   (dif ${nMoney(cons.difAsientos)})`);
+      if (vendida) total2('— del cual Costo de Mercadería Vendida (exportación)', nMoney(cons.movimientosCMV));
       total2('Adquisición contable vs del asiento', `${nMoney(cons.adquisicionContable)} vs ${nMoney(cons.adquisicionAsiento)}   (dif ${nMoney(cons.difAdquisicion)})`);
-      // Saldo en Importaciones en trámite: 0 si ya se dio el alta en stock; = costo
-      // total si sigue en trámite (pendiente de alta hasta nacionalizar) o si la
-      // carpeta es de TRÁNSITO (nunca se nacionaliza: permanece en trámite).
+      // Saldo en Importaciones en trámite: 0 si ya se dio el alta en stock o si se
+      // imputó a CMV contra la venta de exportación; = costo total si sigue en trámite.
       const regimenTransito = det?.esTransito === true;
       const saldoEnTransito = cons.difTransito != null && BigInt(cons.difTransito) !== 0n;
-      const notaSaldo = regimenTransito
-        ? '   (régimen de tránsito — permanece en Importaciones en trámite, no se nacionaliza)'
-        : (saldoEnTransito ? '   (pendiente de alta en stock)' : '');
-      total2('Saldo en Importaciones en trámite', saldoEnTransito ? `${nMoney(cons.difTransito)}${notaSaldo}` : '0,00   (alta en stock dada)');
+      const notaSaldo = saldoEnTransito
+        ? (regimenTransito ? '   (régimen de tránsito — pendiente de re-exportar)' : '   (pendiente de alta en stock)')
+        : (vendida ? '   (imputado a CMV contra la venta de exportación)' : '   (alta en stock dada)');
+      total2('Saldo en Importaciones en trámite', saldoEnTransito ? `${nMoney(cons.difTransito)}${notaSaldo}` : `0,00${notaSaldo}`);
       notaCol(cons.ok ? 'OK — las tres igualdades se cumplen (sin diferencias).' : 'INCONSISTENTE — hay diferencias; expediente pendiente de aprobación.', cons.ok ? '#1a7f37' : '#c00', true, 8);
-      if (regimenTransito) notaCol('RÉGIMEN DE TRÁNSITO / TRADING: los tributos de importación quedan SUSPENDIDOS (no integran el costo ni dan crédito fiscal) y la mercadería NO entra al stock como inventario nacionalizado. El IVA de los servicios del despachante/agencia es CRÉDITO fiscal recuperable (la venta es exportación — art. 14 Tít. 10), no integra el costo. El costo acumulado en «Importaciones en trámite» es Costo de Mercadería Vendida contra la venta de exportación.', '#9a6700', false, 6);
+      if (regimenTransito) notaCol('RÉGIMEN DE TRÁNSITO / TRADING: los tributos de importación quedan SUSPENDIDOS (no integran el costo ni dan crédito fiscal) y la mercadería NO entra al stock como inventario nacionalizado. El IVA de los servicios del despachante/agencia es CRÉDITO fiscal recuperable (la venta es exportación — art. 14 Tít. 10), no integra el costo. El costo acumulado en «Importaciones en trámite» se imputa a Costo de Mercadería Vendida contra la venta de exportación.', '#9a6700', false, 6);
+
+      // ── §3 NIC 21/2 — reconocimiento y diferencia de cambio ──
+      const rec = det?.reconocimiento;
+      if (rec) {
+        subheading('Reconocimiento de la adquisición (NIC 21/2)');
+        if (rec.base === 'CONTROL') {
+          kv('Base de reconocimiento', `Transferencia de control (BL a bordo) · ${rec.fecha ?? '—'} · TC ${rec.cotizacion ?? '—'}`);
+          total2('Adquisición reconocida (al TC de control)', nMoney(rec.adquisicionReconocidaUYU));
+          const dc = BigInt(rec.diferenciaCambioUYU ?? 0);
+          total2('Diferencia de cambio (resultado, NO costo)', `${nMoney(rec.diferenciaCambioUYU)}   ${dc > 0n ? '(pérdida)' : dc < 0n ? '(ganancia)' : ''}`, true);
+          notaCol('La mercadería se reconoce al TC del día de transferencia de control (BL a bordo); la diferencia contra el TC de los pagos es diferencia de cambio (resultado financiero) y NO integra el costo del inventario (NIC 21 §28 / NIC 2).', '#1a7f37', false, 7.5);
+        } else if (rec.costoAlPagoProvisional) {
+          kv('Base de reconocimiento', `Fecha de control informada (${rec.fecha ?? '—'}) — falta su cotización`);
+          notaCol(`PROVISIONAL: ${rec.nota}`, '#b54708', false, 7.5);
+        } else {
+          notaCol('Reconocimiento por el TC de los pagos (anticipos no monetarios, NIC 21). Para separar una diferencia de cambio, cargá la fecha "a bordo" del BL (transferencia de control) y su cotización en la ficha de la importación.', '#555', false, 7.5);
+        }
+      }
+
+      // ── §7 — venta de exportación y CMV ──
+      const vex = det?.ventaExportacion;
+      if (vex) {
+        subheading('Venta de exportación e imputación del costo (CMV)');
+        total2('Venta de exportación', `${vex.moneda} ${(vex.montoME ?? 0).toLocaleString('es-UY', { minimumFractionDigits: 2 })}   (${nMoney(vex.ventaUYU)})`);
+        total2('Costo de mercadería vendida (CMV)', nMoney(vex.cmvUYU));
+        total2('Resultado bruto (venta − CMV)', nMoney(vex.resultadoBrutoUYU), true);
+        notaCol('El costo acumulado en «Importaciones en trámite» se imputó a Costo de Mercadería Vendida contra la venta de exportación: la cuenta de tránsito queda saldada (la mercadería vendida no permanece en existencias). El resultado bruto contable no es la base del IRAE — ver el encuadre más abajo (exoneración art. 66 lit. I → ficto 51/997 → general).', '#9a6700', false, 7.5);
+      }
     }
 
     // ── IRAE — operación de tránsito / trading (re-exportación) ──

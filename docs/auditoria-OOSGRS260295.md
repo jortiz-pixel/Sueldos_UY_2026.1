@@ -123,3 +123,16 @@ Hay **10 e-facturas de exportación** a SteelDek por **USD 304.431,38**, una por
 **Datos pendientes expresos:** (a) cotización BCU USD del 09/02/2026; (b) carpeta 104146/2026 (comprobante faltante); (c) confirmación grado 430/439 del proveedor; (d) criterio/consulta DGI sobre la exoneración art. 66 lit. I) para tránsito terrestre; (e) confirmación del estudio sobre recuperabilidad del IVA.
 
 **Correcto hoy (validado):** régimen tránsito; FOB consolidado 259.473,34; lectura de todos los comprobantes (factura china en inglés, Savino/MAP en USD, SWIFT); pagos al proveedor; consistencia aritmética costo = artículos = asientos (una vez resuelto el IVA de §4/§5).
+
+## Correcciones aplicadas en el sistema (iteración actual)
+
+| # | Corrección en código | Estado |
+|--:|---|---|
+| 4,5 | IVA del despachante/agencia = **crédito recuperable** (venta de exportación, art. 14 Tít. 10): sale del costo por defecto. Interruptor `ivaServiciosRecuperable=false` para el caso NO comprendido. La diferencia de $41.838,70 se disuelve. | ✅ hecho |
+| 8 | Informe de IRAE: evalúa **primero** la exoneración del art. 66 lit. I) Tít. 4; ficto 51/997 y régimen general quedan **subsidiarios**. | ✅ hecho |
+| 3 | Reconocimiento **al control (BL a bordo = fecha embarque)** valuado al TC de ese día; la **diferencia de cambio** contra el TC de los pagos se separa a Resultado (NIC 21/2), no integra el costo. Asiento de reconocimiento con línea "Diferencias de cambio". Se activa al cargar la **fecha de embarque**; si falta la cotización de ese día, el costo queda **provisional** y se avisa. | ✅ mecanismo hecho — falta **cotización BCU 09/02/2026** |
+| 7 | Asientos de **Venta de exportación** + **Costo de Mercadería Vendida**: el costo sale de «Importaciones en trámite» (queda **saldada**) y se imputa a CMV contra la venta. La verificación de consistencia incluye CMV. | ✅ hecho |
+
+**Pendiente (datos / criterio, no código):** (a) cotización BCU USD del 09/02/2026 para fijar el costo y la diferencia de cambio; (b) carpeta 104146/2026 (comprobante faltante) y dedup del recibo A0036858 en la vista de carpetas; (c) confirmación grado 430/439 del proveedor; (d) consulta DGI sobre la exoneración art. 66 lit. I) para tránsito terrestre; (e) vinculación/listado de los 10 DUA y carpetas en el informe (§1).
+
+> Con la fecha de embarque y las cotizaciones cargadas, el expediente recalcula solo: reconocimiento al control, diferencia de cambio separada, IVA como crédito, y costo imputado a CMV contra las 10 ventas. El dictamen sigue **NO APROBADO** hasta cerrar los datos pendientes (a)–(e).

@@ -410,6 +410,28 @@ export interface CosteoHistorico {
   // fijo), según la clasificación de cada artículo. Suman costoInventario.
   costoMercaderia: bigint | null;
   costoBienesDeUso: bigint | null;
+  // ── §3 NIC 21/2 — diferencia de cambio separada del costo ──
+  // Reconocimiento de la adquisición: a la fecha/cotización de transferencia de control
+  // (BL a bordo) si se informó; si no, por el TC de los pagos (criterio anticipos).
+  // diferenciaCambioUYU = resultado financiero por pagos a un TC distinto al de
+  // reconocimiento (no integra el costo). costoAlPagoProvisional = true cuando falta la
+  // cotización del día de control y el costo quedó valuado al TC de pago (a confirmar).
+  reconocimiento: {
+    base: 'CONTROL' | 'PAGO';
+    fecha: string | null; cotizacion: number | null;
+    adquisicionReconocidaUYU: bigint;     // costo al TC de reconocimiento
+    diferenciaCambioUYU: bigint;          // + ganancia / − pérdida de cambio (resultado)
+    costoAlPagoProvisional: boolean;      // true si falta la cotización del control
+    nota: string;
+  };
+  // ── §7 — venta de exportación / CMV (tránsito) ──
+  // Cuando se imputa el costo a CMV contra la venta de exportación: la cuenta de
+  // tránsito queda saldada (no permanece en «Importaciones en trámite»). null si no
+  // hay venta cargada o la carpeta no es de tránsito.
+  ventaExportacion: {
+    montoME: number; moneda: string; fecha: string | null; tc: number | null;
+    ventaUYU: bigint; cmvUYU: bigint; resultadoBrutoUYU: bigint; nota: string;
+  } | null;
   // true si ya se emitió el alta en stock (nacionalizada/cerrada); false si el
   // costo sigue acumulado en Importaciones en trámite (borrador / en trámite).
   altaEnStock: boolean;
@@ -445,6 +467,7 @@ export interface CosteoHistorico {
     sumaCostoArticulos: bigint;          // Σ costo de los ítems
     movimientosMercaderia: bigint;       // Σ (debe − haber) en Mercaderías + Bienes de Uso (stock final)
     movimientosTransito: bigint;         // Σ (debe − haber) en Importaciones en trámite (debe quedar 0)
+    movimientosCMV: bigint;              // Σ (debe − haber) en Costo de Mercadería Vendida (cost final por venta)
     adquisicionContable: bigint;         // adquisición usada para el costeo
     adquisicionAsiento: bigint;          // adquisición usada en el asiento de incorporación
     difArticulos: bigint; difAsientos: bigint; difAdquisicion: bigint; difTransito: bigint; ok: boolean;
@@ -510,6 +533,22 @@ export interface CosteoHistoricoInput {
   // false = NO recuperable (operación no comprendida/exenta sin derecho a crédito) →
   // se capitaliza al costo. No debe asumirse irrecuperable automáticamente en tránsito.
   ivaServiciosRecuperable?: boolean;
+  // ── §3 NIC 21/2 — reconocimiento al control (transferencia de control) ──
+  // Fecha y cotización de la TRANSFERENCIA DE CONTROL (en una importación marítima:
+  // fecha "a bordo" del BL). Es el momento en que se reconoce la adquisición. Si se
+  // informa la cotización, la mercadería se valúa a ESE TC y la diferencia contra el
+  // TC de los pagos (cuando el pago es POSTERIOR al reconocimiento) se reconoce como
+  // DIFERENCIA DE CAMBIO (resultado financiero), NO se capitaliza al costo. Sin la
+  // cotización, se mantiene el criterio por TC de pago (anticipos no monetarios) y se
+  // marca que falta la cotización del día de control para separar la dif. de cambio.
+  fechaControlTransferencia?: string | null;
+  cotizacionControlTransferencia?: number | null;
+  // ── §7 — venta de exportación (re-exportación en tránsito) ──
+  // Cuando la carpeta es de TRÁNSITO y la mercadería se re-exporta, el costo acumulado
+  // en «Importaciones en trámite» se imputa a Costo de Mercadería Vendida contra la
+  // venta de exportación (no queda eternamente en trámite). montoME en la moneda de la
+  // venta; tc convierte a pesos (sin tc, se usa el de reconocimiento/provisional).
+  ventaExportacion?: { montoME: number; moneda: string; fecha: string | null; tc: number | null } | null;
   etiqueta: (clave: string) => string;
 }
 
@@ -606,7 +645,33 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
     if (!validarTipoCambio(cotizacionReconocimiento).valido) { provisionalCosto = true; motivos.push('Falta la cotización fiscal de la fecha de reconocimiento para el saldo no anticipado (provisional).'); }
     saldoNoAnticipado = { me: saldoMe, uyu: tcR ? cents(saldoMe, tcR) : 0n };
   }
-  const adquisicionUYU = mercaderiaAnticiposUYU + (saldoNoAnticipado?.uyu ?? 0n);
+  // adquisición VALUADA POR LOS PAGOS (TC de cada anticipo + saldo a TC de reconoc.).
+  const adquisicionPagoUYU = mercaderiaAnticiposUYU + (saldoNoAnticipado?.uyu ?? 0n);
+
+  // ── §3 NIC 21/2 — reconocimiento al CONTROL (BL a bordo) + diferencia de cambio ──
+  // Si se informa la cotización del día de transferencia de control, la mercadería se
+  // valúa a ESE TC (costo) y la diferencia contra lo pagado (TC de pago) se reconoce
+  // como DIFERENCIA DE CAMBIO (resultado), que NO integra el costo. Sin esa cotización
+  // se mantiene el criterio por TC de pago y se marca que falta para separar la dif.
+  const fechaControlTransferencia = input.fechaControlTransferencia ?? null;
+  const controlCot = validarTipoCambio(input.cotizacionControlTransferencia);
+  const hayFechaControl = !!fechaControlTransferencia;
+  let adquisicionUYU: bigint;          // costo de la mercadería que SE CAPITALIZA
+  let diferenciaCambioUYU = 0n;        // + pérdida (debe) / − ganancia (haber) de cambio
+  let reconocimientoBase: 'CONTROL' | 'PAGO';
+  let costoAlPagoProvisional = false;
+  if (controlCot.valido && cifME > 0) {
+    adquisicionUYU = cents(cifME, controlCot.valor!);       // CIF × TC control = costo
+    diferenciaCambioUYU = adquisicionPagoUYU - adquisicionUYU; // lo pagado − el costo
+    reconocimientoBase = 'CONTROL';
+  } else {
+    adquisicionUYU = adquisicionPagoUYU;                    // criterio por TC de pago
+    reconocimientoBase = 'PAGO';
+    // Flag sólo cuando nos dieron la FECHA de control pero no su cotización: ahí sí
+    // falta el dato para separar la diferencia de cambio (no es ruido general).
+    costoAlPagoProvisional = hayFechaControl && !controlCot.valido;
+    if (costoAlPagoProvisional) { provisionalCosto = true; motivos.push(`Falta la cotización del día de transferencia de control (${input.fechaControlTransferencia}) para separar la diferencia de cambio (NIC 21): el costo quedó valuado al TC de pago (provisional).`); }
+  }
 
   // ── Gastos de plaza (desglosados, con dedup por cuenta de terceros) ──
   const importadorRut = dua?.importadorRut ?? null;
@@ -747,8 +812,18 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
       { cuenta: et('anticiposProveedores'), debe: 0n, haber: mercaderiaAnticiposUYU },
     ];
     if (saldoNoAnticipado) lineasRec.push({ cuenta: et('proveedoresExterior'), monedaOrig: factura?.moneda, montoOrig: saldoNoAnticipado.me, debe: 0n, haber: saldoNoAnticipado.uyu });
-    mk(fechaReconocimiento, 'Reconocimiento de la compra (importaciones en trámite / mercadería en tránsito)', lineasRec,
-      [{ documento: `Factura comercial`, regla: 'Adquisición al CIF de la factura valuado por los anticipos (TC de cada pago); se acumula en Importaciones en trámite. El exceso pagado NO se capitaliza (crédito con el proveedor); el saldo no anticipado al TC de reconocimiento. No se divide el importe del proveedor del exterior.' }], estado === 'OK');
+    // §3 NIC 21: si la mercadería se reconoce al TC de control (BL a bordo) y los pagos
+    // fueron a otro TC, la diferencia es RESULTADO FINANCIERO (no costo): balancea el
+    // asiento por Diferencias de cambio (debe = pérdida; haber = ganancia).
+    if (diferenciaCambioUYU !== 0n) {
+      lineasRec.push(diferenciaCambioUYU > 0n
+        ? { cuenta: et('diferenciasCambio'), debe: diferenciaCambioUYU, haber: 0n }
+        : { cuenta: et('diferenciasCambio'), debe: 0n, haber: -diferenciaCambioUYU });
+    }
+    mk(fechaControlTransferencia ?? fechaReconocimiento, 'Reconocimiento de la compra (importaciones en trámite / mercadería en tránsito)', lineasRec,
+      [{ documento: `Factura comercial`, regla: reconocimientoBase === 'CONTROL'
+        ? `Adquisición reconocida a la transferencia de control (BL a bordo${fechaControlTransferencia ? ` ${fechaControlTransferencia}` : ''}), valuada al TC de ese día (NIC 21/2). La diferencia contra el TC de los pagos es diferencia de cambio (resultado), no integra el costo. El exceso pagado no se capitaliza; el saldo no anticipado al TC de reconocimiento.`
+        : 'Adquisición al CIF de la factura valuado por los anticipos (TC de cada pago); se acumula en Importaciones en trámite. El exceso pagado NO se capitaliza (crédito con el proveedor); el saldo no anticipado al TC de reconocimiento. No se divide el importe del proveedor del exterior.' }], estado === 'OK');
   }
   // Flujos de fondos reconstruidos de los comprobantes, SIN duplicar bancos:
   // si la e-factura del despachante trae los tributos como "no facturable", los
@@ -831,6 +906,36 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
       { cuenta: et('bienesDeUso'), debe: costoBienesDeUso, haber: 0n },
       { cuenta: et('mercaderiaTransito'), debe: 0n, haber: costoInventario },
     ], [{ documento: 'Nacionalización / clasificación de artículos', regla: 'Al nacionalizar, el costo acumulado en Importaciones en trámite se incorpora al stock: Mercaderías por los artículos de inventario y Bienes de Uso por los de activo fijo (mismo prorrateo por FOB). La cuenta de tránsito queda saldada.' }], estado === 'OK');
+  }
+  // ── §7 VENTA DE EXPORTACIÓN + CMV (tránsito / trading) ──
+  // La mercadería del exterior se re-exporta: su costo NO se nacionaliza ni queda
+  // eternamente en «Importaciones en trámite». Se reconoce la venta de exportación y
+  // se imputa el costo acumulado a Costo de Mercadería Vendida, saldando el tránsito.
+  let ventaExportacionOut: CosteoHistorico['ventaExportacion'] = null;
+  const ve = input.ventaExportacion;
+  if (esTransito && costoInventario != null && costoInventario > 0n && ve && ve.montoME > 0) {
+    const tcVenta = validarTipoCambio(ve.tc).valor
+      ?? (ve.moneda && ve.moneda.toUpperCase() !== 'UYU'
+        ? (validarTipoCambio(cotizacionReconocimiento).valor ?? validarTipoCambio(tcProvisional).valor ?? null)
+        : 1);
+    const ventaUYU = tcVenta ? cents(ve.montoME, tcVenta) : 0n;
+    const fechaVenta = ve.fecha ?? fechaAlta;
+    const esME = !!ve.moneda && ve.moneda.toUpperCase() !== 'UYU';
+    // Venta: Deudores por exportación / Ventas de exportación.
+    mk(fechaVenta, 'Venta de exportación (re-exportación de la mercadería en tránsito)', [
+      { cuenta: et('deudoresExportacion'), monedaOrig: esME ? ve.moneda : undefined, montoOrig: esME ? ve.montoME : undefined, debe: ventaUYU, haber: 0n },
+      { cuenta: et('ventasExportacion'), monedaOrig: esME ? ve.moneda : undefined, montoOrig: esME ? ve.montoME : undefined, debe: 0n, haber: ventaUYU },
+    ], [{ documento: 'Factura(s) de exportación', regla: 'Ingreso por la re-exportación de la mercadería que transitó el territorio. La exportación está gravada a tasa cero en IVA (art. 14 Tít. 10); el encuadre de IRAE se evalúa aparte (exoneración art. 66 lit. I → ficto 51/997 → general).' }], estado === 'OK');
+    // CMV: Costo de mercadería vendida / Importaciones en trámite (salda el tránsito).
+    mk(fechaVenta, 'Costo de mercadería vendida — imputación del costo en tránsito contra la venta', [
+      { cuenta: et('costoVentas'), debe: costoInventario, haber: 0n },
+      { cuenta: et('mercaderiaTransito'), debe: 0n, haber: costoInventario },
+    ], [{ documento: 'Factura(s) de exportación', regla: 'El costo acumulado en Importaciones en trámite (CIF + gastos de tránsito) se imputa a Costo de Mercadería Vendida contra la venta de exportación. La cuenta de tránsito queda saldada: la mercadería vendida no permanece en existencias.' }], estado === 'OK');
+    ventaExportacionOut = {
+      montoME: ve.montoME, moneda: ve.moneda, fecha: fechaVenta, tc: tcVenta,
+      ventaUYU, cmvUYU: costoInventario, resultadoBrutoUYU: ventaUYU - costoInventario,
+      nota: 'Venta de exportación reconocida y costo imputado a CMV; el tránsito queda saldado (no permanece en «Importaciones en trámite»). El resultado bruto es venta − costo de la mercadería vendida.',
+    };
   }
   asientos.sort((a, b) => (a.fecha ?? '9999').localeCompare(b.fecha ?? '9999'));
 
@@ -966,20 +1071,27 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
   // en ambos estados.
   const movimientosMercaderia = asientos.reduce((s, a) => s + a.lineas.filter((l) => CUENTAS_COSTO.includes(l.cuenta)).reduce((ss, l) => ss + l.debe - l.haber, 0n), 0n);
   const movimientosTransito = asientos.reduce((s, a) => s + a.lineas.filter((l) => l.cuenta === CLAVE_TRANSITO).reduce((ss, l) => ss + l.debe - l.haber, 0n), 0n);
+  // §7: el costo también puede salir del circuito a Costo de Mercadería Vendida (venta
+  // de exportación en tránsito). Ese egreso es un destino FINAL del costo, igual que el
+  // alta en stock, por eso entra en la igualdad de asientos.
+  const movimientosCMV = asientos.reduce((s, a) => s + a.lineas.filter((l) => l.cuenta === 'costoVentas').reduce((ss, l) => ss + l.debe - l.haber, 0n), 0n);
   const sumaCostoArticulos = (items ?? []).reduce((s, i) => s + i.costo, 0n);
   const recAsiento = asientos.find((a) => /Reconocimiento/.test(a.glosa));
   // La adquisición entra por Importaciones en trámite (la cuenta de tránsito).
   const adquisicionAsiento = recAsiento ? recAsiento.lineas.filter((l) => l.cuenta === CLAVE_TRANSITO).reduce((s, l) => s + l.debe - l.haber, 0n) : 0n;
   const ci = costoInventario ?? 0n;
   const difArticulos = ci - sumaCostoArticulos;
-  const difAsientos = ci - movimientosMercaderia;
+  // Igualdad de asientos: el costo termina en STOCK (merc + bdu), en TRÁNSITO (todavía
+  // sin alta) o en CMV (vendido en exportación). La suma de los tres = costo total.
+  const difAsientos = ci - (movimientosMercaderia + movimientosCMV);
   const difAdquisicion = adquisicionUYU - adquisicionAsiento;
   // Saldo que queda en Importaciones en trámite: 0 si ya se dio el alta
-  // (nacionalizada); = costo total si sigue en trámite (pendiente de alta). NO es un
-  // error: es el estado del circuito, por eso no entra en la verificación de 'ok'.
+  // (nacionalizada) o si se imputó a CMV (vendida en exportación); = costo total si
+  // sigue en trámite (pendiente de alta/venta). NO es un error: es el estado del
+  // circuito, por eso no entra en la verificación de 'ok'.
   const difTransito = movimientosTransito;
   const consistencia = {
-    costoInventario, sumaCostoArticulos, movimientosMercaderia, movimientosTransito, adquisicionContable: adquisicionUYU,
+    costoInventario, sumaCostoArticulos, movimientosMercaderia, movimientosTransito, movimientosCMV, adquisicionContable: adquisicionUYU,
     adquisicionAsiento, difArticulos, difAsientos, difAdquisicion, difTransito,
     ok: costoInventario != null && difArticulos === 0n && difAsientos === 0n && difAdquisicion === 0n,
   };
@@ -1016,6 +1128,20 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
     anticiposFiscales: esTransito ? 0n : anticiposFiscales,
     gastos, totalGastosUYU, ivaGastosUYU, creditoFiscalIva,
     costoInventario, costoMercaderia: costoMercaderiaCap, costoBienesDeUso, altaEnStock, esTransito,
+    reconocimiento: {
+      base: reconocimientoBase,
+      fecha: reconocimientoBase === 'CONTROL' ? fechaControlTransferencia : fechaReconocimiento,
+      cotizacion: reconocimientoBase === 'CONTROL' ? (controlCot.valor ?? null) : null,
+      adquisicionReconocidaUYU: adquisicionUYU,
+      diferenciaCambioUYU,
+      costoAlPagoProvisional,
+      nota: reconocimientoBase === 'CONTROL'
+        ? `Adquisición reconocida a la transferencia de control (BL a bordo${fechaControlTransferencia ? ` ${fechaControlTransferencia}` : ''}) y valuada al TC de ese día (NIC 21/2). La diferencia contra el TC de los pagos (${(Number(diferenciaCambioUYU) / 100).toLocaleString('es-UY')}) se reconoce como diferencia de cambio (resultado) y NO integra el costo.`
+        : (costoAlPagoProvisional
+          ? `Se informó la fecha de transferencia de control (${fechaControlTransferencia}) pero falta la cotización de ese día: el costo quedó valuado al TC de pago (provisional). Cargá la cotización del día de control para separar la diferencia de cambio (NIC 21).`
+          : 'Adquisición valuada al TC de los pagos (anticipos no monetarios, NIC 21). Sin diferencia de cambio a separar mientras los pagos no sean posteriores a una transferencia de control a otro TC.'),
+    },
+    ventaExportacion: ventaExportacionOut,
     items, cuentaDespachante, asientos, consistencia, conciliacion: conc,
   };
 }

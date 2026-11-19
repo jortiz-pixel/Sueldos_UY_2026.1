@@ -533,7 +533,7 @@ function FormImportacion({ companyId, inicial, importacion, onClose, onSaved, on
           <Campo label="Despachante"><input className="form-input" value={f.despachante} onChange={(e) => set('despachante', e.target.value)} /></Campo>
           <Campo label="Aduana"><input className="form-input" value={f.aduana} onChange={(e) => set('aduana', e.target.value)} /></Campo>
           <Campo label="Transporte (BL/AWB/CRT)"><input className="form-input" value={f.transporteDoc} onChange={(e) => set('transporteDoc', e.target.value)} /></Campo>
-          <Campo label="Fecha embarque"><input type="date" className="form-input" value={f.fechaEmbarque} onChange={(e) => set('fechaEmbarque', e.target.value)} /></Campo>
+          <Campo label="Fecha embarque (a bordo / transferencia de control)"><input type="date" className="form-input" value={f.fechaEmbarque} onChange={(e) => set('fechaEmbarque', e.target.value)} /></Campo>
           <Campo label="Fecha arribo"><input type="date" className="form-input" value={f.fechaArribo} onChange={(e) => set('fechaArribo', e.target.value)} /></Campo>
           <Campo label="Fecha nacionalización"><input type="date" className="form-input" value={f.fechaNacionalizacion} onChange={(e) => set('fechaNacionalizacion', e.target.value)} /></Campo>
           <label className="flex items-center gap-2 text-sm text-ink mt-6">

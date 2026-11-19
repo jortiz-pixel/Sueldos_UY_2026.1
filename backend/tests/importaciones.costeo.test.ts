@@ -1001,3 +1001,70 @@ describe('parser — SWIFT del pago al proveedor (campo 32A, mes inglés)', () =
     expect(p.importe).toBeCloseTo(213842.00, 2);
   });
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// AUDITORÍA OOSGRS260295 — §3 (NIC 21/2: reconocimiento al control + diferencia de
+// cambio) y §7 (venta de exportación → CMV que salda el tránsito).
+// ═════════════════════════════════════════════════════════════════════════════
+describe('construirCosteoHistorico — §7 venta de exportación (tránsito) → CMV', () => {
+  function transitoConVenta(venta: CosteoHistoricoInput['ventaExportacion']): CosteoHistoricoInput {
+    return { ...marpolos(40.10, 40.20), esTransito: true, estadoImportacion: 'EN_TRAMITE', ventaExportacion: venta };
+  }
+  it('emite asientos de Venta y de CMV; el tránsito queda saldado (difTransito=0)', () => {
+    const r = construirCosteoHistorico(transitoConVenta({ montoME: 10000, moneda: 'USD', fecha: '2026-09-10', tc: 41 }));
+    const venta = r.asientos.find((a) => /Venta de exportación/.test(a.glosa));
+    const cmv = r.asientos.find((a) => /Costo de mercadería vendida/i.test(a.glosa));
+    expect(venta).toBeTruthy();
+    expect(cmv).toBeTruthy();
+    // CMV debita costoVentas y acredita el tránsito por el costo de inventario.
+    expect(cmv!.lineas.find((l) => l.cuenta === 'costoVentas')!.debe).toBe(r.costoInventario);
+    expect(cmv!.lineas.find((l) => l.cuenta === 'mercaderiaTransito')!.haber).toBe(r.costoInventario);
+    // El saldo en Importaciones en trámite queda en 0 (no permanece en trámite).
+    expect(r.consistencia.difTransito).toBe(0n);
+    expect(r.consistencia.movimientosCMV).toBe(r.costoInventario);
+    expect(r.consistencia.ok).toBe(true);
+  });
+  it('calcula el resultado bruto = venta − CMV', () => {
+    const r = construirCosteoHistorico(transitoConVenta({ montoME: 10000, moneda: 'USD', fecha: '2026-09-10', tc: 41 }));
+    const ventaUYU = BigInt(Math.round(10000 * 41 * 100));
+    expect(r.ventaExportacion!.ventaUYU).toBe(ventaUYU);
+    expect(r.ventaExportacion!.cmvUYU).toBe(r.costoInventario);
+    expect(r.ventaExportacion!.resultadoBrutoUYU).toBe(ventaUYU - (r.costoInventario ?? 0n));
+  });
+  it('sin venta cargada, no hay CMV y el costo permanece en trámite', () => {
+    const r = construirCosteoHistorico(transitoConVenta(null));
+    expect(r.ventaExportacion).toBeNull();
+    expect(r.asientos.some((a) => /Costo de mercadería vendida/i.test(a.glosa))).toBe(false);
+    expect(r.consistencia.difTransito).toBe(r.costoInventario);
+  });
+});
+
+describe('construirCosteoHistorico — §3 NIC 21/2 (reconocimiento al control + dif. de cambio)', () => {
+  it('con cotización del control, valúa al TC de control y separa la diferencia de cambio', () => {
+    const base = marpolos(40.10, 40.20);
+    const cifME = Number(base.factura!.total) / 100;
+    const r = construirCosteoHistorico({ ...base, fechaControlTransferencia: '2026-05-20', cotizacionControlTransferencia: 39.5 });
+    expect(r.reconocimiento.base).toBe('CONTROL');
+    // Adquisición reconocida = CIF × TC de control (no el TC de pago).
+    expect(r.adquisicionUYU).toBe(BigInt(Math.round(cifME * 39.5 * 100)));
+    // Diferencia de cambio = lo pagado (TC de pago) − el costo (TC de control) ≠ 0.
+    expect(r.reconocimiento.diferenciaCambioUYU).not.toBe(0n);
+    // El asiento de reconocimiento sigue balanceado (la dif. de cambio lo cuadra).
+    const rec = r.asientos.find((a) => /Reconocimiento/.test(a.glosa))!;
+    expect(rec.balanceado).toBe(true);
+    expect(rec.lineas.some((l) => l.cuenta === 'diferenciasCambio')).toBe(true);
+  });
+  it('con la fecha de control pero SIN cotización, queda PROVISIONAL (al TC de pago)', () => {
+    const base = marpolos(40.10, 40.20);
+    const r = construirCosteoHistorico({ ...base, fechaControlTransferencia: '2026-05-20', cotizacionControlTransferencia: null });
+    expect(r.reconocimiento.base).toBe('PAGO');
+    expect(r.reconocimiento.costoAlPagoProvisional).toBe(true);
+    expect(r.estado).toBe('PROVISIONAL');
+  });
+  it('sin datos de control, mantiene el criterio por TC de pago (sin diferencia de cambio)', () => {
+    const r = construirCosteoHistorico(marpolos(40.10, 40.20));
+    expect(r.reconocimiento.base).toBe('PAGO');
+    expect(r.reconocimiento.diferenciaCambioUYU).toBe(0n);
+    expect(r.reconocimiento.costoAlPagoProvisional).toBe(false);
+  });
+});
