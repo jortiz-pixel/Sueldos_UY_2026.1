@@ -406,6 +406,7 @@ export interface FacturaServiciosParsed {
   subtotalGravado: number | null; iva: number | null; subtotalNoGravado: number | null; noFacturable: number | null;
   honorarios: number | null; gastosOperativos: number | null;
   carpeta: string | null; dua: string | null; tipoCambio: number | null;
+  tipoOperacion: string | null; // "TRANSITO" / "IMPORTACION" / … (adenda del despachante)
   concepto: string | null; // concepto principal (1.ª línea de detalle, o detectado)
   lineas: LineaServicio[];
 }
@@ -475,6 +476,8 @@ export function parseFacturaServiciosUY(texto: string): FacturaServiciosParsed {
   const carpeta = texto.match(/CARPETA:?\s*([\d/]+)/i)?.[1]?.trim() ?? null;
   const dua = (() => { const v = texto.match(/No\.?\s*DUA:?\s*([\d.]+)/i)?.[1] || texto.match(/DUA-?(\d{6})/i)?.[1]; return v ? v.replace(/\./g, '') : null; })();
   const tipoCambio = (() => { const v = texto.match(/TIPO DE CAMBIO:?\s*([\d.,]+)/i)?.[1] || texto.match(/Tipo de Cambio\s+([\d.,]+)/i)?.[1]; return v ? parseNum(v) : null; })();
+  // Tipo de operación declarado en la adenda del despachante: "TIPO OPERACION: TRANSITO".
+  const tipoOperacion = texto.match(/TIPO\s*OPERACI[OÓ]N:?\s*([A-ZÁÉÍÓÚ]+)/i)?.[1]?.trim().toUpperCase() ?? null;
 
   // Líneas de detalle: importe (+ código IVA) seguido de su descripción, o
   // descripción seguida del importe. Se filtran subtotales/encabezados y se corta
@@ -507,7 +510,7 @@ export function parseFacturaServiciosUY(texto: string): FacturaServiciosParsed {
     rutEmisor, tipoDoc, serie, numero, rutComprador,
     comprador: despues.match(/(?:NOMBRE\s+)?\b([A-ZÑ][A-ZÑ ]+?(?:SAS|SRL))\b/)?.[1]?.replace(/^NOMBRE\s+/i, '').trim() ?? null,
     fecha, moneda, total, subtotalGravado, iva, subtotalNoGravado, noFacturable,
-    honorarios, gastosOperativos, carpeta, dua, tipoCambio, concepto, lineas: detalle,
+    honorarios, gastosOperativos, carpeta, dua, tipoCambio, tipoOperacion, concepto, lineas: detalle,
   };
 }
 

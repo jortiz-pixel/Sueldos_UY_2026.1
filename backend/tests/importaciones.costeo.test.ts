@@ -864,3 +864,27 @@ describe('parser — varias e-Facturas en un mismo PDF (agencia de carga)', () =
     expect(cfes[1].concepto).toMatch(/flete/i);
   });
 });
+
+// La e-factura del despachante (MAP) trae en la adenda "TIPO OPERACION: TRANSITO":
+// es la señal que auto-configura el régimen de la carpeta como tránsito/trading.
+describe('parser — tipo de operación del despachante (auto-detección de tránsito)', () => {
+  const eFacturaMap = (tipoOp: string) => [
+    'M A P', 'COMERCIO EXTERIOR', 'RUT 21.736950.0013', 'e-Factura', 'A 0037576', 'RUT COMPRADOR 21.986467.0013',
+    'STX STAINLESS STEEL S.A', '13/05/2026', 'Dolares Americanos',
+    'HONORARIOS - 250,00 3', 'Gastos operativos - 225,00 3',
+    'SUBTOTAL GRAVADO ( 22%): 475,00', 'TOTAL IVA ( 22%): 104,50', 'TOTAL A PAGAR: 790,50',
+    'Código Seguridad: abc',
+    'ADENDA', 'REF. CLIENTE: S/A I 0445/26', `TIPO OPERACION: ${tipoOp}`, 'No. DUA: 779.799',
+    'CARPETA: 104411/2026', 'MEDIO TRANSPORTE: TERRESTRE', 'DESDE: PUERTO MVD', 'HASTA: RIO BRANCO',
+    'TIPO DE CAMBIO: 40,288', 'VALOR U$S: 30.397,27',
+  ].join('\n');
+
+  it('extrae "TIPO OPERACION: TRANSITO" de la adenda', () => {
+    const cfe = parseFacturasServiciosUY(eFacturaMap('TRANSITO'))[0];
+    expect(cfe.tipoOperacion).toBe('TRANSITO');
+  });
+  it('en una nacionalización trae "IMPORTACION" (no gatilla tránsito)', () => {
+    const cfe = parseFacturasServiciosUY(eFacturaMap('IMPORTACION'))[0];
+    expect(cfe.tipoOperacion).toBe('IMPORTACION');
+  });
+});

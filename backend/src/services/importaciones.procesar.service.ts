@@ -5,7 +5,7 @@
  * enlazado a su documento de origen. Idempotente: reprocesar reemplaza la
  * extracción previa del expediente. Ver docs/importaciones-diseno.md (Etapa 1 sub-3).
  */
-import { TipoDocumentoImportacion, EstadoProcesamientoDoc } from '@prisma/client';
+import { TipoDocumentoImportacion, EstadoProcesamientoDoc, ImportacionRegimen } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { storageService } from './storage.service';
 import { textoDelPdf } from './importaciones.pdf-extract.service';
@@ -152,7 +152,7 @@ const bigintReplacer = (_k: string, v: unknown) => (typeof v === 'bigint' ? v.to
  * el TC del DUA solo como estimación provisional y se bloquea la aprobación).
  * Guarda el detalle completo en costeoDetalle. Requiere DUA presente.
  */
-export async function reconstruirCosteoDesdeExtraccion(importacionId: string): Promise<{ ok: boolean; estado?: string; motivo?: string }> {
+export async function reconstruirCosteoDesdeExtraccion(importacionId: string): Promise<{ ok: boolean; estado?: string; motivo?: string; regimenAuto?: string | null }> {
   const imp = await prisma.importacion.findUnique({ where: { id: importacionId } });
   if (!imp || imp.estado === 'ANULADA') return { ok: false };
   const [duaEx, serviciosEx, factura, pagoTrib, transferencias, recibos, packingEx] = await Promise.all([
@@ -208,6 +208,30 @@ export async function reconstruirCosteoDesdeExtraccion(importacionId: string): P
   // (NUNCA el TC aduanero del DUA: ese criterio es solo para el Valor en Aduana).
   const cotReconoc = await tcFiscalDia(moneda, duaDate);
 
+  // ── AUTO-DETECCIÓN DEL RÉGIMEN desde los documentos ───────────────────────────
+  // Para que al cargar la información el sistema aplique el tratamiento correcto sin
+  // intervención. Señales de TRÁNSITO / trading: (a) el despachante declara "TIPO
+  // OPERACION: TRANSITO/DEPOSITO/…" en su e-factura; (b) el DUA no liquida IVA
+  // importación (cód. 15) ni adelanto de IVA (cód. 16) → materialmente no nacionaliza.
+  // Solo se auto-cambia desde el default DEFINITIVA (no pisa un régimen ya elegido).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const duaTrib: Array<any> = Array.isArray(d.tributos) ? d.tributos : [];
+  const duaSinImpuestosNacionalizacion = !duaTrib.some((t) => t?.codigo === '15' || t?.codigo === '16');
+  const despachanteDeclaraTransito = serviciosEx.some((s) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const op = String(((s.datos as any) ?? {}).tipoOperacion ?? '');
+    return /TR[AÁ]NSITO|TRANSBORDO|DEP[OÓ]SITO|ADMISI[OÓ]N|ZONA\s*FRANCA/i.test(op);
+  });
+  // Señal segura: el despachante declara tránsito (explícito), o el DUA FUE leído con
+  // tributos pero NINGUNO es IVA importación/anticipo (tránsito real: solo tasas). No
+  // se gatilla con la lista de tributos vacía (podría ser un parseo incompleto).
+  const pareceTransito = despachanteDeclaraTransito || (duaSinImpuestosNacionalizacion && duaTrib.length > 0);
+  // Auto-cambio solo desde el default DEFINITIVA (no pisa un régimen ya elegido). Se
+  // persiste junto con el resto del costeo en la actualización transaccional de abajo.
+  const regimenEfectivo = (pareceTransito && imp.regimen === ImportacionRegimen.DEFINITIVA)
+    ? ImportacionRegimen.TRANSITO
+    : imp.regimen;
+
   const r = construirCosteoHistorico({
     dua: {
       nroDua: d.nroDua ?? null, tipoCambio: d.tipoCambio, valorAduanaPesos: d.valorAduanaPesos ?? null,
@@ -238,7 +262,7 @@ export async function reconstruirCosteoDesdeExtraccion(importacionId: string): P
     // RÉGIMEN: DEFINITIVA = Nacionalización (criterio completo); cualquier otro
     // (TRÁNSITO, DEPÓSITO, ADMISIÓN TEMPORARIA, ZONA FRANCA) = régimen suspensivo →
     // tributos de importación suspendidos (fuera de costo y crédito) y sin alta en stock.
-    esTransito: imp.regimen !== 'DEFINITIVA',
+    esTransito: regimenEfectivo !== ImportacionRegimen.DEFINITIVA,
     etiqueta: (k) => k, // en el informe/asiento se re-etiqueta con el plan de cuentas
   });
   const ncm: string | null = d.ncm ?? null;
@@ -296,6 +320,7 @@ export async function reconstruirCosteoDesdeExtraccion(importacionId: string): P
     prisma.importacion.update({
       where: { id: importacionId },
       data: {
+        regimen: regimenEfectivo, // auto-detectado desde los documentos (tránsito/definitiva)
         proveedorExterior: sanitizarIdentificador(d.proveedor) ?? imp.proveedorExterior,
         paisOrigen: d.paisOrigen ?? imp.paisOrigen,
         monedaOrigen: moneda,
@@ -325,7 +350,8 @@ export async function reconstruirCosteoDesdeExtraccion(importacionId: string): P
       },
     }),
   ]);
-  return { ok: true, estado: r.estado, motivo: r.motivos.join(' · ') };
+  const regimenAuto = regimenEfectivo !== imp.regimen ? regimenEfectivo : null;
+  return { ok: true, estado: r.estado, motivo: r.motivos.join(' · '), regimenAuto };
 }
 
 export async function procesarExpediente(importacionId: string): Promise<ProcesarResultado> {
@@ -532,6 +558,7 @@ export async function procesarExpediente(importacionId: string): Promise<Procesa
     try {
       const rc = await reconstruirCosteoDesdeExtraccion(importacionId);
       costeoActualizado = rc.ok;
+      if (rc.regimenAuto === 'TRANSITO') advertencias.push('Régimen detectado automáticamente: TRÁNSITO / re-exportación (el DUA no liquida impuestos de nacionalización o el despachante declara operación de tránsito). Se aplicó el costeo de tránsito: sin tributos de importación ni crédito de IVA, IVA del despachante capitalizado al costo y sin alta en stock.');
       if (rc.ok && rc.estado === 'OK') advertencias.push('Costeo recalculado desde el DUA y la factura: CIF, tributos y gastos reflejan los documentos oficiales.');
       else if (rc.ok && rc.estado === 'PENDIENTE') advertencias.push(`Costeo PENDIENTE (los asientos definitivos quedan bloqueados): ${rc.motivo ?? 'faltan datos para completar el costo'}.`);
     } catch (e) { advertencias.push(`No se pudo recalcular el costeo desde el DUA: ${e instanceof Error ? e.message : 'error'}.`); }
