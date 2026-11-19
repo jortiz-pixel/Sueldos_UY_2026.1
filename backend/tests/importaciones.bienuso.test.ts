@@ -149,3 +149,59 @@ describe('Costeo histórico (construirCosteoHistorico) con bienes de uso', () =>
     expect(r.consistencia.ok).toBe(true);
   });
 });
+
+describe('Costeo histórico — Nacionalización vs Tránsito (régimen)', () => {
+  // Mismo fixture que el bloque anterior.
+  const input = (esTransito: boolean, estado?: string) => ({
+    dua: {
+      nroDua: '123', tipoCambio: 40, valorAduanaPesos: 40000, importadorRut: '210000000011',
+      declaranteRut: null, unidadesComerciales: 2, importeFacturas: 1000, moneda: 'USD',
+      tributos: [
+        { codigo: '01', nombre: 'Recargo', monto: 100 },     // no recuperable → 10.000
+        { codigo: '15', nombre: 'IVA importación', monto: 220 }, // crédito → 22.000
+      ],
+    },
+    factura: {
+      fob: 90000n, flete: 7000n, seguro: 3000n, total: 100000n, moneda: 'USD',
+      articulos: [
+        { descripcion: 'Insumo', codigo: 'A1', cantidad: 1, total: 60000n, clasificacion: 'MERCADERIA' },
+        { descripcion: 'Repuesto', codigo: 'A2', cantidad: 1, total: 40000n, clasificacion: 'MERCADERIA' },
+      ],
+    },
+    servicios: [], anticipos: [{ fecha: '2026-06-09', referencia: 'OP1', moneda: 'USD', monto: 1000, comision: 0, cotizacion: 40, fuente: 'BCU 2026-06-09' }],
+    pagoSpeCtms: null, pagoDespachanteCtms: null, fechaReconocimiento: '2026-06-10',
+    cotizacionReconocimiento: 40, tcProvisional: null, unidadesPacking: null,
+    estadoImportacion: estado, esTransito, etiqueta: (k: string) => k,
+  });
+
+  test('NACIONALIZACIÓN (definitiva): tributos al costo, IVA crédito y alta en stock', () => {
+    const r = construirCosteoHistorico(input(false, 'NACIONALIZADA'));
+    expect(r.esTransito).toBe(false);
+    // Costo = adquisición 4.000.000 + no recuperables 10.000.
+    expect(r.costoInventario).toBe(4010000n);
+    expect(r.creditoFiscalIva).toBe(22000n); // IVA importación es crédito
+    expect(r.altaEnStock).toBe(true);
+    expect(r.asientos.some((a) => /Alta en stock/i.test(a.glosa))).toBe(true);
+    expect(r.asientos.some((a) => /Tributos aduaneros/i.test(a.glosa))).toBe(true);
+    expect(r.consistencia.ok).toBe(true);
+  });
+
+  test('TRÁNSITO: tributos SUSPENDIDOS (fuera del costo y del crédito), sin alta en stock', () => {
+    const r = construirCosteoHistorico(input(true, 'NACIONALIZADA')); // aun "nacionalizada", el régimen manda
+    expect(r.esTransito).toBe(true);
+    // Costo = adquisición 4.000.000 SIN tributos (quedan suspendidos).
+    expect(r.costoInventario).toBe(4000000n);
+    // El IVA importación NO es crédito en tránsito; sí lo sería el IVA de gastos (acá 0).
+    expect(r.creditoFiscalIva).toBe(0n);
+    // Nunca se da alta en stock: la mercadería queda en Importaciones en trámite.
+    expect(r.altaEnStock).toBe(false);
+    expect(r.asientos.some((a) => /Alta en stock/i.test(a.glosa))).toBe(false);
+    expect(r.asientos.some((a) => /Tributos aduaneros/i.test(a.glosa))).toBe(false);
+    // Consistencia cierra: el costo (4.000.000) sigue acumulado en tránsito.
+    expect(r.consistencia.movimientosTransito).toBe(4000000n);
+    expect(r.consistencia.ok).toBe(true);
+    // El desglose por artículo no carga tributos (columna tributos = 0) y cada costo cuadra.
+    for (const i of r.items!) { expect(i.tributos).toBe(0n); expect(i.adquisicion + i.tributos + i.gastos).toBe(i.costo); }
+    expect(r.items!.reduce((s, i) => s + i.costo, 0n)).toBe(r.costoInventario);
+  });
+});

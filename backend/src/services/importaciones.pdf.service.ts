@@ -545,10 +545,16 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
       total2('Movimientos a cuentas de costo (tránsito + stock)', `${nMoney(cons.movimientosMercaderia)}   (dif ${nMoney(cons.difAsientos)})`);
       total2('Adquisición contable vs del asiento', `${nMoney(cons.adquisicionContable)} vs ${nMoney(cons.adquisicionAsiento)}   (dif ${nMoney(cons.difAdquisicion)})`);
       // Saldo en Importaciones en trámite: 0 si ya se dio el alta en stock; = costo
-      // total si sigue en trámite (pendiente de alta hasta nacionalizar).
-      const enTransito = cons.difTransito != null && BigInt(cons.difTransito) !== 0n;
-      total2('Saldo en Importaciones en trámite', enTransito ? `${nMoney(cons.difTransito)}   (pendiente de alta en stock)` : '0,00   (alta en stock dada)');
+      // total si sigue en trámite (pendiente de alta hasta nacionalizar) o si la
+      // carpeta es de TRÁNSITO (nunca se nacionaliza: permanece en trámite).
+      const regimenTransito = det?.esTransito === true;
+      const saldoEnTransito = cons.difTransito != null && BigInt(cons.difTransito) !== 0n;
+      const notaSaldo = regimenTransito
+        ? '   (régimen de tránsito — permanece en Importaciones en trámite, no se nacionaliza)'
+        : (saldoEnTransito ? '   (pendiente de alta en stock)' : '');
+      total2('Saldo en Importaciones en trámite', saldoEnTransito ? `${nMoney(cons.difTransito)}${notaSaldo}` : '0,00   (alta en stock dada)');
       notaCol(cons.ok ? 'OK — las tres igualdades se cumplen (sin diferencias).' : 'INCONSISTENTE — hay diferencias; expediente pendiente de aprobación.', cons.ok ? '#1a7f37' : '#c00', true, 8);
+      if (regimenTransito) notaCol('RÉGIMEN DE TRÁNSITO: los tributos de importación quedan SUSPENDIDOS (no integran el costo ni dan crédito fiscal) y la mercadería NO entra al stock. El costo (CIF + gastos) se mantiene en «Importaciones en trámite» hasta una eventual nacionalización.', '#9a6700', false, 6);
     }
 
     // ── Costo Fiscal de Adquisición — IRAE (SEPARADO del contable) ──

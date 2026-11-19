@@ -27,9 +27,15 @@ const ESTADO_BADGE: Record<ImportacionEstado, string> = {
   CERRADA: 'badge-green', ANULADA: 'badge-gray',
 };
 const REGIMEN_LABEL: Record<ImportacionRegimen, string> = {
-  DEFINITIVA: 'Definitiva', ADMISION_TEMPORARIA: 'Admisión temporaria',
-  DEPOSITO: 'Depósito', TRANSITO: 'Tránsito', ZONA_FRANCA: 'Zona franca',
+  DEFINITIVA: 'Nacionalización (definitiva)', ADMISION_TEMPORARIA: 'Tránsito — Admisión temporaria',
+  DEPOSITO: 'Tránsito — Depósito aduanero', TRANSITO: 'Tránsito aduanero', ZONA_FRANCA: 'Tránsito — Zona franca',
 };
+// En DEFINITIVA se nacionaliza: tributos al costo, IVA importación como crédito y
+// alta en stock. En cualquier régimen suspensivo (tránsito/depósito/admisión
+// temporaria/zona franca) los tributos quedan suspendidos (fuera del costo y sin
+// crédito) y la mercadería NO entra al stock: el costo (CIF + gastos) queda en
+// Importaciones en trámite hasta que se nacionalice.
+const esRegimenTransito = (r: ImportacionRegimen): boolean => r !== 'DEFINITIVA';
 const TRIBUTO_LABEL: Record<TributoTipo, string> = {
   ARANCEL_TEC: 'Arancel / TEC', TASA_SERVICIOS: 'Tasa de servicios', IMESI: 'IMESI',
   IVA_IMPORTACION: 'IVA importación', ANTICIPO_IVA: 'Anticipo IVA', ANTICIPO_IRAE: 'Anticipo IRAE',
@@ -494,10 +500,15 @@ function FormImportacion({ companyId, inicial, importacion, onClose, onSaved, on
           <Campo label="Incoterm"><input className="form-input" value={f.incoterm} onChange={(e) => set('incoterm', e.target.value)} placeholder="FOB / CIF / …" /></Campo>
           <Campo label="Moneda"><input className="form-input" value={f.monedaOrigen} onChange={(e) => set('monedaOrigen', e.target.value)} /></Campo>
           <Campo label="Tipo de cambio (pesos por unidad)"><input type="number" step="0.0001" className="form-input" value={f.tipoCambio} onChange={(e) => set('tipoCambio', Number(e.target.value))} /></Campo>
-          <Campo label="Régimen">
+          <Campo label="¿Nacionalización o tránsito?">
             <select className="form-input" value={f.regimen} onChange={(e) => set('regimen', e.target.value as ImportacionRegimen)}>
               {(Object.keys(REGIMEN_LABEL) as ImportacionRegimen[]).map((r) => <option key={r} value={r}>{REGIMEN_LABEL[r]}</option>)}
             </select>
+            <p className="mt-1 text-xs text-ink-subtle">
+              {esRegimenTransito(f.regimen)
+                ? 'Tránsito: tributos de importación SUSPENDIDOS (no integran costo ni dan crédito). La mercadería NO entra al stock; el costo (CIF + gastos) queda en «Importaciones en trámite».'
+                : 'Nacionalización: tributos no recuperables al costo, IVA importación como crédito fiscal y alta en stock al costear.'}
+            </p>
           </Campo>
           <Campo label="Factura comercial N°"><input className="form-input" value={f.facturaComercialNro} onChange={(e) => set('facturaComercialNro', e.target.value)} /></Campo>
           <Campo label="Fecha factura"><input type="date" className="form-input" value={f.facturaComercialFecha} onChange={(e) => set('facturaComercialFecha', e.target.value)} /></Campo>

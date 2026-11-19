@@ -413,6 +413,12 @@ export interface CosteoHistorico {
   // true si ya se emitió el alta en stock (nacionalizada/cerrada); false si el
   // costo sigue acumulado en Importaciones en trámite (borrador / en trámite).
   altaEnStock: boolean;
+  // true si la carpeta es de TRÁNSITO/depósito (régimen suspensivo): la mercadería
+  // NO se nacionaliza, los tributos de importación quedan SUSPENDIDOS (no integran
+  // el costo ni dan crédito fiscal) y NO se da alta en stock — el costo (CIF +
+  // gastos) queda acumulado en Importaciones en trámite. false = Nacionalización
+  // (importación definitiva): criterio completo (tributos al costo, IVA crédito, alta).
+  esTransito: boolean;
   // Por artículo: desglose del costo prorrateado por componente (Adquisición CIF +
   // Tributos no recuperables + Gastos de plaza = costo), todos por participación en FOB.
   items: Array<{ codigo: string | null; descripcion: string; cantidad: number; fobME: bigint; adquisicion: bigint; tributos: bigint; gastos: bigint; costo: bigint; clasificacion: string }> | null;
@@ -489,6 +495,12 @@ export interface CosteoHistoricoInput {
   // en BORRADOR / EN_TRAMITE el costo queda acumulado en tránsito (sin alta). Si no
   // se informa (undefined), se emite igual (compatibilidad / cálculo puro).
   estadoImportacion?: string | null;
+  // Régimen de la carpeta: true = TRÁNSITO / depósito / admisión temporaria / zona
+  // franca (régimen suspensivo); false o undefined = Nacionalización (importación
+  // DEFINITIVA). En tránsito los tributos de importación quedan SUSPENDIDOS (no
+  // integran costo ni crédito fiscal) y NO se da alta en stock: el costo (CIF +
+  // gastos atribuibles) queda en Importaciones en trámite hasta que se nacionalice.
+  esTransito?: boolean;
   etiqueta: (clave: string) => string;
 }
 
@@ -523,9 +535,14 @@ export function cotizacionRespaldada(fuente?: string | null): boolean {
 
 export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHistorico {
   const { dua, factura, servicios, anticipos, pagoSpeCtms, pagoDespachanteCtms, fechaPagoDespachante, pagoDespachanteConfirmado, pagoAgencia, fechaReconocimiento, cotizacionReconocimiento, tcProvisional, unidadesPacking, packingBultos, packingBultosDeclarados, liquidacionPreliminar, estadoImportacion, etiqueta } = input;
-  // El alta en stock se emite solo al nacionalizar (o cerrar). En trámite/borrador
-  // el costo queda acumulado en Importaciones en trámite. Sin estado → se emite.
-  const altaEnStock = estadoImportacion == null || ['NACIONALIZADA', 'CERRADA'].includes(estadoImportacion);
+  // RÉGIMEN: nacionalización (definitiva) vs tránsito/depósito (suspensivo). En
+  // tránsito los tributos de importación están SUSPENDIDOS → no integran el costo ni
+  // dan crédito fiscal; y NUNCA se da alta en stock (la mercadería queda en tránsito).
+  const esTransito = !!input.esTransito;
+  // El alta en stock se emite solo al nacionalizar (o cerrar), y JAMÁS en tránsito.
+  // En trámite/borrador el costo queda acumulado en Importaciones en trámite. Sin
+  // estado y en régimen definitivo → se emite (compatibilidad / cálculo puro).
+  const altaEnStock = !esTransito && (estadoImportacion == null || ['NACIONALIZADA', 'CERRADA'].includes(estadoImportacion));
   const motivos: string[] = [];
   const et = etiqueta;
 
@@ -630,7 +647,12 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
   }
   const totalGastosUYU = gastos.filter((g) => g.incluidoEnCosto).reduce((s, g) => s + g.montoUYU, 0n);
   const ivaGastosUYU = gastos.reduce((s, g) => s + g.ivaUYU, 0n);
-  const creditoFiscalIva = ivaImportacion + ivaGastosUYU;
+  // En TRÁNSITO los tributos de importación quedan suspendidos: no integran el costo
+  // ni dan crédito fiscal. El IVA de los GASTOS de plaza (despachante/agencia) sí es
+  // crédito (es un servicio local, no un tributo aduanero suspendido).
+  const tributosNoRecuperablesCosto = esTransito ? 0n : tributosNoRecuperables;
+  const ivaImportacionCredito = esTransito ? 0n : ivaImportacion;
+  const creditoFiscalIva = ivaImportacionCredito + ivaGastosUYU;
 
   // ── Costo de inventario y distribución por artículo ──
   if (!factura) motivos.push('Falta la factura comercial del proveedor.');
@@ -642,7 +664,7 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
   let costoInventario: bigint | null = null;
   let items: CosteoHistorico['items'] = null;
   if (adquisicionUYU > 0n && factura) {
-    costoInventario = costoMercaderiaImportada(adquisicionUYU, tributosNoRecuperables, totalGastosUYU);
+    costoInventario = costoMercaderiaImportada(adquisicionUYU, tributosNoRecuperablesCosto, totalGastosUYU);
     const arts = factura.articulos;
     const sumaFob = arts.reduce((s, a) => s + a.total, 0n);
     items = [];
@@ -658,11 +680,11 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
       let adquisicion: bigint, tributos: bigint, gastos: bigint;
       if (sumaFob > 0n && i < ultimo) {
         adquisicion = (adquisicionUYU * a.total) / sumaFob; acAdq += adquisicion;
-        tributos = (tributosNoRecuperables * a.total) / sumaFob; acTrib += tributos;
+        tributos = (tributosNoRecuperablesCosto * a.total) / sumaFob; acTrib += tributos;
         gastos = (totalGastosUYU * a.total) / sumaFob; acGas += gastos;
       } else {
         adquisicion = adquisicionUYU - acAdq;
-        tributos = tributosNoRecuperables - acTrib;
+        tributos = tributosNoRecuperablesCosto - acTrib;
         gastos = totalGastosUYU - acGas;
       }
       const costo = adquisicion + tributos + gastos;
@@ -724,8 +746,10 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
   const fechaDesp = gDesp.find((g) => g.fecha)?.fecha ?? fechaReconocimiento;
   const fechaAg = gAgencia.find((g) => g.fecha)?.fecha ?? fechaReconocimiento;
 
-  // Tributos del DUA (28/08): contrapartida según quién los pagó (sin doble banco).
-  if (totalTributos > 0n) {
+  // Tributos del DUA: contrapartida según quién los pagó (sin doble banco). En
+  // TRÁNSITO los tributos de importación están SUSPENDIDOS (no se liquidan hasta la
+  // eventual nacionalización): no se asientan ni integran costo/crédito.
+  if (totalTributos > 0n && !esTransito) {
     mk(fechaReconocimiento, 'Tributos aduaneros y anticipos fiscales del DUA', [
       { cuenta: et('ivaComprasImportacion'), debe: ivaImportacion, haber: 0n },
       { cuenta: et('mercaderiaTransito'), debe: tributosNoRecuperables, haber: 0n },
@@ -943,7 +967,7 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
     anticipos: anticiposCalc, adquisicionUYU, anticiposPagadosUYU, excesoPagado, saldoNoAnticipado, comisionesBancariasUYU,
     tributos, totalTributos, tributosNoRecuperables, ivaImportacion, anticiposFiscales,
     gastos, totalGastosUYU, ivaGastosUYU, creditoFiscalIva,
-    costoInventario, costoMercaderia: costoMercaderiaCap, costoBienesDeUso, altaEnStock,
+    costoInventario, costoMercaderia: costoMercaderiaCap, costoBienesDeUso, altaEnStock, esTransito,
     items, cuentaDespachante, asientos, consistencia, conciliacion: conc,
   };
 }

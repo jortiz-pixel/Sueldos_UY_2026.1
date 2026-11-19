@@ -235,6 +235,10 @@ export async function reconstruirCosteoDesdeExtraccion(importacionId: string): P
     // El alta en stock se emite solo al nacionalizar/cerrar; en trámite el costo
     // queda acumulado en Importaciones en trámite.
     estadoImportacion: imp.estado,
+    // RÉGIMEN: DEFINITIVA = Nacionalización (criterio completo); cualquier otro
+    // (TRÁNSITO, DEPÓSITO, ADMISIÓN TEMPORARIA, ZONA FRANCA) = régimen suspensivo →
+    // tributos de importación suspendidos (fuera de costo y crédito) y sin alta en stock.
+    esTransito: imp.regimen !== 'DEFINITIVA',
     etiqueta: (k) => k, // en el informe/asiento se re-etiqueta con el plan de cuentas
   });
   const ncm: string | null = d.ncm ?? null;
