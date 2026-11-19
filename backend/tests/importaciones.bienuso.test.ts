@@ -241,35 +241,40 @@ describe('Costeo histórico — Nacionalización vs Tránsito (régimen)', () =>
     expect(construirCosteoHistorico(inputTributos(true, SIN_IMP)).avisoRegimen).toBeNull();  // tránsito sin impuestos
   });
 
-  // IVA del despachante: crédito en nacionalización, COSTO (capitalizado) en tránsito.
-  const inputConDespachante = (esTransito: boolean) => ({
+  // IVA del despachante en tránsito: CRÉDITO recuperable por defecto (venta de
+  // exportación); COSTO (capitalizado) solo si la operación es NO comprendida.
+  const inputConDespachante = (esTransito: boolean, ivaServiciosRecuperable?: boolean) => ({
     dua: { nroDua: '123', tipoCambio: 40, valorAduanaPesos: 40000, importadorRut: '210000000011', declaranteRut: null, unidadesComerciales: 1, importeFacturas: 1000, moneda: 'USD', tributos: [] as Array<{ codigo: string; nombre: string; monto: number }> },
     factura: { fob: 100000n, flete: 0n, seguro: 0n, total: 100000n, moneda: 'USD', articulos: [{ descripcion: 'X', codigo: 'A1', cantidad: 1, total: 100000n, clasificacion: 'MERCADERIA' }] },
     // Despachante local: honorarios 8.000 + operativos 1.000 = 9.000 gravado, IVA 1.980.
     servicios: [{ rutComprador: '210000000011', moneda: 'UYU', serie: 'A', numero: '900', emisor: 'Despachante', honorarios: 8000, gastosOperativos: 1000, iva: 1980, total: 10980 }],
     anticipos: [{ fecha: '2026-06-09', referencia: 'OP1', moneda: 'USD', monto: 1000, comision: 0, cotizacion: 40, fuente: 'BCU 2026-06-09' }],
     pagoSpeCtms: null, pagoDespachanteCtms: null, fechaReconocimiento: '2026-06-10', cotizacionReconocimiento: 40,
-    tcProvisional: null, unidadesPacking: null, esTransito, etiqueta: (k: string) => k,
+    tcProvisional: null, unidadesPacking: null, esTransito, ivaServiciosRecuperable, etiqueta: (k: string) => k,
+  });
+  const ivaGastos = 198000n; // 1.980 en centésimos
+
+  test('tránsito (export): el IVA del despachante es CRÉDITO, no se capitaliza al costo', () => {
+    const tra = construirCosteoHistorico(inputConDespachante(true)); // default: recuperable
+    expect(tra.creditoFiscalIva).toBe(ivaGastos);       // IVA = crédito fiscal
+    // El costo NO incluye el IVA (= adquisición + gastos netos). Mismo costo que la
+    // nacionalización sin tributos: el IVA no integra el costo en ningún caso.
+    const nac = construirCosteoHistorico(inputConDespachante(false));
+    expect(tra.costoInventario).toBe(nac.costoInventario);
+    // El IVA va a IVA compras de plaza (crédito), no a mercadería en tránsito.
+    expect(tra.asientos.some((a) => a.lineas.some((l) => /ivaComprasPlaza/i.test(l.cuenta) && l.debe > 0n))).toBe(true);
+    expect(tra.asientos.every((a) => a.balanceado)).toBe(true);
+    expect(tra.consistencia.ok).toBe(true);
   });
 
-  test('IVA del despachante: crédito en nacionalización, capitalizado al costo en tránsito', () => {
-    const nac = construirCosteoHistorico(inputConDespachante(false));
-    const tra = construirCosteoHistorico(inputConDespachante(true));
-    const ivaGastos = 198000n; // 1.980 en centésimos
-    // Nacionalización: el IVA de servicios es crédito y NO integra el costo.
-    expect(nac.creditoFiscalIva).toBe(ivaGastos);
-    // Tránsito: sin crédito fiscal; el IVA del despachante se capitaliza al costo.
-    expect(tra.creditoFiscalIva).toBe(0n);
-    expect(tra.costoInventario! - nac.costoInventario!).toBe(ivaGastos);
-    // En tránsito la cuenta de tránsito acumula el costo CON el IVA capitalizado y cierra.
-    expect(tra.consistencia.movimientosTransito).toBe(tra.costoInventario);
-    expect(tra.consistencia.ok).toBe(true);
-    // El IVA capitalizado va a mercadería en tránsito, no a IVA compras de plaza:
-    // NINGÚN asiento de tránsito debita IVA compras, y todos balancean.
-    const debitaIvaCompras = tra.asientos.some((a) => a.lineas.some((l) => /ivaCompras/i.test(l.cuenta) && l.debe > 0n));
-    expect(debitaIvaCompras).toBe(false);
-    expect(tra.asientos.every((a) => a.balanceado)).toBe(true);
-    // En nacionalización, en cambio, SÍ hay débito de IVA compras (crédito fiscal).
-    expect(nac.asientos.some((a) => a.lineas.some((l) => /ivaCompras/i.test(l.cuenta) && l.debe > 0n))).toBe(true);
+  test('tránsito NO comprendido (ivaServiciosRecuperable=false): el IVA se capitaliza', () => {
+    const base = construirCosteoHistorico(inputConDespachante(true));          // crédito
+    const noComp = construirCosteoHistorico(inputConDespachante(true, false));  // capitaliza
+    expect(noComp.creditoFiscalIva).toBe(0n);
+    expect(noComp.costoInventario! - base.costoInventario!).toBe(ivaGastos);
+    expect(noComp.consistencia.movimientosTransito).toBe(noComp.costoInventario);
+    expect(noComp.consistencia.ok).toBe(true);
+    // Sin débito de IVA compras: todo capitalizado a mercadería en tránsito.
+    expect(noComp.asientos.some((a) => a.lineas.some((l) => /ivaCompras/i.test(l.cuenta) && l.debe > 0n))).toBe(false);
   });
 });

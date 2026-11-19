@@ -505,6 +505,11 @@ export interface CosteoHistoricoInput {
   // integran costo ni crédito fiscal) y NO se da alta en stock: el costo (CIF +
   // gastos atribuibles) queda en Importaciones en trámite hasta que se nacionalice.
   esTransito?: boolean;
+  // IVA de los servicios de plaza (despachante/agencia): true o undefined = CRÉDITO
+  // recuperable (criterio correcto cuando la venta es exportación — art. 14 Tít. 10).
+  // false = NO recuperable (operación no comprendida/exenta sin derecho a crédito) →
+  // se capitaliza al costo. No debe asumirse irrecuperable automáticamente en tránsito.
+  ivaServiciosRecuperable?: boolean;
   etiqueta: (clave: string) => string;
 }
 
@@ -543,6 +548,10 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
   // tránsito los tributos de importación están SUSPENDIDOS → no integran el costo ni
   // dan crédito fiscal; y NUNCA se da alta en stock (la mercadería queda en tránsito).
   const esTransito = !!input.esTransito;
+  // IVA de servicios de plaza: por defecto RECUPERABLE (venta exportación → crédito,
+  // no costo). Solo se capitaliza si se marca explícitamente no recuperable.
+  const ivaServiciosRecuperable = input.ivaServiciosRecuperable !== false;
+  const capitalizarIvaServicios = esTransito && !ivaServiciosRecuperable;
   // El alta en stock se emite solo al nacionalizar (o cerrar), y JAMÁS en tránsito.
   // En trámite/borrador el costo queda acumulado en Importaciones en trámite. Sin
   // estado y en régimen definitivo → se emite (compatibilidad / cálculo puro).
@@ -651,20 +660,23 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
   }
   const totalGastosUYU = gastos.filter((g) => g.incluidoEnCosto).reduce((s, g) => s + g.montoUYU, 0n);
   const ivaGastosUYU = gastos.reduce((s, g) => s + g.ivaUYU, 0n);
-  // RÉGIMEN manda el tratamiento del IVA:
+  // RÉGIMEN y ACTIVIDAD mandan el tratamiento del IVA:
   // • NACIONALIZACIÓN: tributos no recuperables al costo; IVA importación + IVA de
   //   gastos de plaza = CRÉDITO fiscal (no integran el costo).
-  // • TRÁNSITO / re-exportación: los tributos de importación quedan SUSPENDIDOS (no
-  //   integran costo ni crédito) y, por criterio del estudio, el IVA de los honorarios
-  //   del despachante NO se recupera → se CAPITALIZA en el costo de la mercadería
-  //   (igual que la hoja de costeo del cliente). Sin crédito fiscal.
+  // • TRÁNSITO: los tributos de importación quedan SUSPENDIDOS (no integran costo ni
+  //   crédito). El IVA de los servicios de plaza (despachante/agencia) es CRÉDITO
+  //   RECUPERABLE cuando la venta es EXPORTACIÓN (art. 14 Tít. 10) — NO se capitaliza
+  //   automáticamente. Solo se capitaliza si la operación es NO comprendida/exenta sin
+  //   derecho a crédito (ivaServiciosRecuperable=false).
   const tributosNoRecuperablesCosto = esTransito ? 0n : tributosNoRecuperables;
   const ivaImportacionCredito = esTransito ? 0n : ivaImportacion;
-  // IVA de gastos de plaza que se capitaliza al costo (solo en tránsito).
-  const ivaGastosAlCosto = esTransito ? ivaGastosUYU : 0n;
-  // Gastos que integran el costo (netos + IVA capitalizado en tránsito).
+  // IVA de gastos de plaza que se capitaliza al costo (solo si NO es recuperable).
+  const ivaGastosAlCosto = capitalizarIvaServicios ? ivaGastosUYU : 0n;
+  // Gastos que integran el costo (netos + IVA capitalizado solo si no recuperable).
   const gastosCostoUYU = totalGastosUYU + ivaGastosAlCosto;
-  const creditoFiscalIva = esTransito ? 0n : (ivaImportacionCredito + ivaGastosUYU);
+  // Crédito fiscal: IVA importación (0 en tránsito) + IVA de gastos de plaza, salvo que
+  // ese IVA se haya capitalizado (operación no comprendida) → entonces no es crédito.
+  const creditoFiscalIva = ivaImportacionCredito + (capitalizarIvaServicios ? 0n : ivaGastosUYU);
 
   // ── Costo de inventario y distribución por artículo ──
   if (!factura) motivos.push('Falta la factura comercial del proveedor.');
@@ -769,21 +781,21 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
       { cuenta: et(tributosPorDespachante ? 'despachantes' : 'bancoPesos'), debe: 0n, haber: totalTributos },
     ], [{ documento: `DUA ${dua?.nroDua ?? ''}`, pagina: 'pág. 1 (tributos)', regla: 'Tributos liquidados en el DUA; IVA importación = crédito fiscal; anticipo IVA = pago a cuenta (no integra costo); no recuperables al inventario.' }, { documento: 'Pago SPE/Sistarbanc (cód. autorización)', regla: tributosPorDespachante ? 'Los pagó el despachante por cuenta del importador (constan como "no facturable" en su e-factura y se reintegran en el recibo); contrapartida Despachantes, NO Banco (el único egreso bancario es el recibo).' : 'Pagados directamente por el importador por SPE; contrapartida Banco.' }], true);
   }
-  // Gastos y honorarios del DESPACHANTE (cuenta corriente del despachante). En
-  // tránsito el IVA se CAPITALIZA (va a mercadería en tránsito, no a IVA compras).
+  // Gastos y honorarios del DESPACHANTE (cuenta corriente del despachante). El IVA es
+  // CRÉDITO (va a IVA compras), salvo operación no comprendida → se capitaliza al costo.
   if (montoDesp > 0n || ivaDesp > 0n) {
     mk(fechaDesp, 'Gastos y honorarios del despachante de aduana', [
-      { cuenta: et('mercaderiaTransito'), debe: montoDesp + (esTransito ? ivaDesp : 0n), haber: 0n },
-      { cuenta: et('ivaComprasPlaza'), debe: esTransito ? 0n : ivaDesp, haber: 0n },
+      { cuenta: et('mercaderiaTransito'), debe: montoDesp + (capitalizarIvaServicios ? ivaDesp : 0n), haber: 0n },
+      { cuenta: et('ivaComprasPlaza'), debe: capitalizarIvaServicios ? 0n : ivaDesp, haber: 0n },
       { cuenta: et('despachantes'), debe: 0n, haber: montoDesp + ivaDesp },
-    ], [{ documento: gDesp.map((g) => g.documento).filter((v, i, a) => a.indexOf(v) === i).join(', '), regla: esTransito ? 'Gastos directamente atribuibles a la mercadería en tránsito (honorarios, operativos); el IVA de los servicios NO se recupera en tránsito → se capitaliza al costo. El reembolso de terceros se cuenta una sola vez.' : 'Gastos directamente atribuibles al inventario (honorarios, operativos y reembolso de terminal); IVA de servicios = crédito fiscal. El reembolso de terceros se cuenta una sola vez.' }], estado === 'OK');
+    ], [{ documento: gDesp.map((g) => g.documento).filter((v, i, a) => a.indexOf(v) === i).join(', '), regla: capitalizarIvaServicios ? 'Gastos atribuibles a la mercadería (honorarios, operativos); operación NO comprendida → el IVA no se recupera y se capitaliza al costo.' : 'Gastos directamente atribuibles (honorarios, operativos); IVA de servicios = CRÉDITO fiscal (venta de exportación). El reembolso de terceros se cuenta una sola vez.' }], estado === 'OK');
   }
-  // Gastos de la AGENCIA de carga / plaza (prestador distinto del despachante). En
-  // tránsito el IVA se capitaliza igual que el del despachante.
+  // Gastos de la AGENCIA de carga / plaza (prestador distinto del despachante). El IVA
+  // es crédito, salvo operación no comprendida → se capitaliza igual que el despachante.
   if (montoAg > 0n || ivaAg > 0n) {
     mk(fechaAg, 'Gastos de la agencia de carga / plaza', [
-      { cuenta: et('mercaderiaTransito'), debe: montoAg + (esTransito ? ivaAg : 0n), haber: 0n },
-      { cuenta: et('ivaComprasPlaza'), debe: esTransito ? 0n : ivaAg, haber: 0n },
+      { cuenta: et('mercaderiaTransito'), debe: montoAg + (capitalizarIvaServicios ? ivaAg : 0n), haber: 0n },
+      { cuenta: et('ivaComprasPlaza'), debe: capitalizarIvaServicios ? 0n : ivaAg, haber: 0n },
       { cuenta: et('proveedoresLocales'), monedaOrig: gAgencia[0]?.moneda, montoOrig: gAgencia.reduce((s, g) => s + g.montoME, 0), debe: 0n, haber: montoAg + ivaAg },
     ], [{ documento: gAgencia.map((g) => g.documento).filter((v, i, a) => a.indexOf(v) === i).join(', '), regla: 'Servicio de un prestador distinto del despachante (agencia de carga); se paga por separado, no integra la cuenta del despachante.' }], estado === 'OK');
   }

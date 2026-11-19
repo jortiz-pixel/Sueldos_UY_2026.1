@@ -569,15 +569,22 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
         : (saldoEnTransito ? '   (pendiente de alta en stock)' : '');
       total2('Saldo en Importaciones en trámite', saldoEnTransito ? `${nMoney(cons.difTransito)}${notaSaldo}` : '0,00   (alta en stock dada)');
       notaCol(cons.ok ? 'OK — las tres igualdades se cumplen (sin diferencias).' : 'INCONSISTENTE — hay diferencias; expediente pendiente de aprobación.', cons.ok ? '#1a7f37' : '#c00', true, 8);
-      if (regimenTransito) notaCol('RÉGIMEN DE TRÁNSITO / TRADING: los tributos de importación quedan SUSPENDIDOS (no integran el costo ni dan crédito fiscal) y la mercadería NO entra al stock como inventario nacionalizado. El IVA de los honorarios del despachante NO se recupera y se capitaliza al costo. El costo acumulado en «Importaciones en trámite» es Costo de Mercadería Vendida contra la venta de exportación.', '#9a6700', false, 6);
+      if (regimenTransito) notaCol('RÉGIMEN DE TRÁNSITO / TRADING: los tributos de importación quedan SUSPENDIDOS (no integran el costo ni dan crédito fiscal) y la mercadería NO entra al stock como inventario nacionalizado. El IVA de los servicios del despachante/agencia es CRÉDITO fiscal recuperable (la venta es exportación — art. 14 Tít. 10), no integra el costo. El costo acumulado en «Importaciones en trámite» es Costo de Mercadería Vendida contra la venta de exportación.', '#9a6700', false, 6);
     }
 
     // ── IRAE — operación de tránsito / trading (re-exportación) ──
+    // Orden de evaluación (criterio del estudio): 1º exoneración art. 66 lit. I)
+    // Tít. 4 T.O. 2023; si NO aplica → 2º ficto Res. DGI 51/997; 3º régimen general.
     if (det?.esTransito === true) {
       heading('Encuadre de IRAE — operación de tránsito / trading');
+      // 1) Exoneración art. 66 literal I) del Título 4 (ex art. 52) — se evalúa SIEMPRE,
+      //    aun sin cargar la venta, porque es el encuadre prioritario.
+      subheading('1) Exoneración — art. 66 lit. I) Título 4 T.O. 2023 (prioritaria)');
+      notaCol('Están exentas de IRAE las rentas de compraventa de mercadería situada en el exterior que no tiene origen ni destino en el territorio nacional, aunque la mercadería no llegue a entrar al país. En el tránsito aduanero la mercadería es extranjera (origen China, destino Brasil) y NO se nacionaliza: si el tránsito físico por territorio uruguayo no configura "destino nacional" ni actividad gravada, la renta de la operación estaría EXONERADA de IRAE. Por tratarse del encuadre más favorable y de interpretación, debe confirmarse con la DGI antes de liquidar. Si la exoneración aplica, NO corresponde liquidar IRAE por esta operación (ni ficto 51/997 ni régimen general); los dos cálculos siguientes quedan como alternativa subsidiaria para el caso de que la exoneración NO proceda.', '#1a7f37', false, 8);
+      y += 2;
       const ventaME = imp.valorVentaExportacion ?? 0n;
       if (!ventaME || ventaME <= 0n) {
-        vacio('Ingresá el valor de la venta de exportación en la ficha de la importación para calcular el encuadre de IRAE (ficto Res. DGI 51/997 y régimen general). La mercadería se compra en el exterior y se re-exporta: el costo acumulado es Costo de Mercadería Vendida contra la venta, no inventario nacionalizado.');
+        vacio('Ingresá el valor de la venta de exportación en la ficha de la importación para calcular el encuadre subsidiario de IRAE (ficto Res. DGI 51/997 y régimen general, aplicables sólo si NO procede la exoneración del art. 66 lit. I). La mercadería se compra en el exterior y se re-exporta: el costo acumulado es Costo de Mercadería Vendida contra la venta, no inventario nacionalizado.');
       } else {
         const tc = imp.tipoCambio || 1;
         const bg = (v: unknown, fb: bigint): bigint => { try { return v == null || v === '' ? fb : BigInt(String(v).split('.')[0]); } catch { return fb; } };
@@ -589,20 +596,22 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
         const iraeFicto = (baseFicta * 25n) / 100n;
         const rentaReal = ventaUYU - costoTotalUYU;              // venta − costo total
         const iraeGeneral = rentaReal > 0n ? (rentaReal * 25n) / 100n : 0n;
+        notaCol('Los cálculos siguientes son SUBSIDIARIOS: sólo corresponden si la DGI entiende que la exoneración del art. 66 lit. I) NO aplica.', '#9a6700', false, 7.5);
+        y += 2;
         kv('Moneda de la operación', `${imp.monedaOrigen} · TC ${tc}`);
         total2('Precio de venta (exportación)', `${money(ventaME, imp.monedaOrigen)}   (${nMoney(ventaUYU.toString())})`);
         total2('Precio de compra (adquisición FOB)', nMoney(compraUYU.toString()));
         total2('Margen bruto (venta − compra)', nMoney(margen.toString()), true);
         y += 2;
-        subheading('Régimen ficto de trading — Res. DGI 51/997 (a validar con DGI)');
+        subheading('2) Régimen ficto de trading — Res. DGI 51/997 (subsidiario, a validar con DGI)');
         total2('Renta neta ficta = 3% del margen', nMoney(baseFicta.toString()));
         total2('IRAE 25% sobre la renta ficta', nMoney(iraeFicto.toString()), true);
         notaCol('Res. DGI 51/997: la renta de fuente uruguaya en operaciones de trading se determina como el 3% de la diferencia entre el precio de venta y el de compra (efecto ≈ 0,75% del margen). Está pensado para mercadería situada en el exterior SIN origen ni destino en Uruguay; como en esta operación la mercadería TRANSITA físicamente el territorio, su aplicación debe validarse con una consulta a la DGI.', '#9a6700', false, 7.5);
         y += 2;
-        subheading('Régimen general — renta real');
+        subheading('3) Régimen general — renta real (subsidiario)');
         total2('Renta real = venta − costo total (CMV)', nMoney(rentaReal.toString()));
         total2('IRAE 25% sobre la renta real', nMoney(iraeGeneral.toString()), true);
-        notaCol('Renta real: ingreso por la exportación menos el costo total de la mercadería (FOB + gastos de tránsito, con el IVA del despachante capitalizado). El costo acumulado en «Importaciones en trámite» se imputa a Costo de Mercadería Vendida contra la venta de exportación.', '#555', false, 7.5);
+        notaCol('Renta real: ingreso por la exportación menos el costo total de la mercadería (FOB + gastos de tránsito). El IVA de los servicios del despachante NO integra el costo (es crédito fiscal recuperable). El costo acumulado en «Importaciones en trámite» se imputa a Costo de Mercadería Vendida contra la venta de exportación.', '#555', false, 7.5);
       }
     }
 
