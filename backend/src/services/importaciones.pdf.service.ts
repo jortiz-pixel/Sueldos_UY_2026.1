@@ -169,7 +169,12 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
       doc.fillColor(color).text(txt, M + 2, y + 2, { width: W });
       y += h + 2;
     };
-    const vacio = (txt: string) => { doc.fontSize(9).font('Helvetica').fillColor('#777').text(txt, M + 4, y); y += 14; };
+    const vacio = (txt: string) => {
+      doc.fontSize(9).font('Helvetica').fillColor('#777');
+      const h = doc.heightOfString(txt, { width: W - 8 });
+      doc.text(txt, M + 4, y, { width: W - 8 });
+      y += Math.max(14, h + 6); // avanza por la ALTURA real (evita que la próxima sección se encime)
+    };
     const kv = (label: string, val: string) => {
       const h = Math.max(13, doc.heightOfString(val, { width: W - 165 }));
       ensure(h);
