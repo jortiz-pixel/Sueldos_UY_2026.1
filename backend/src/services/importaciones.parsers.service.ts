@@ -12,7 +12,7 @@
  */
 
 export type TipoDoc =
-  | 'FACTURA_COMERCIAL' | 'LIQUIDACION_DESPACHANTE' | 'SWIFT' | 'DEBITO_BANCARIO'
+  | 'FACTURA_COMERCIAL' | 'FACTURA_EXPORTACION' | 'LIQUIDACION_DESPACHANTE' | 'SWIFT' | 'DEBITO_BANCARIO'
   | 'DUA' | 'PACKING_LIST' | 'FACTURA_SERVICIOS_UY' | 'PAGO_TRIBUTOS'
   | 'PAGO_SERVICIOS_LOCAL' | 'RECIBO' | 'CERTIFICADO_ORIGEN' | 'AUTORIZACION'
   | 'DOC_TRANSPORTE' | 'OTRO';
@@ -72,8 +72,16 @@ export function clasificarDocumento(texto: string): { tipo: TipoDoc; confianza: 
   if (t.includes('transaction reference number') || /\b32a\b/.test(t) || t.includes('swift')) return { tipo: 'SWIFT', confianza: 0.9 };
   if (t.includes('ordenes de pago enviadas') || (t.includes('numero de operacion') && t.includes('comision'))) return { tipo: 'DEBITO_BANCARIO', confianza: 0.9 };
   if (t.includes('gastos del embarque') || (t.includes('carpeta') && t.includes('iva importacion') && t.includes('hoja'))) return { tipo: 'LIQUIDACION_DESPACHANTE', confianza: 0.9 };
+  // e-Factura de EXPORTACIÓN emitida por el propio importador (la VENTA, p. ej. a
+  // Brasil en una triangulación/tránsito): NO es un costo. Se reconoce por el tipo de
+  // CFE uruguayo ("e-Factura Exportación" / total "Exportación / Asimilados"). Va ANTES
+  // que servicios y factura comercial para no confundirla con una compra.
+  if (t.includes('e-factura exportacion') || t.includes('e factura exportacion') || t.includes('exportacion / asimilados') || t.includes('exportacion/asimilados')
+    || ((t.includes('e-factura') || t.includes('e factura')) && t.includes('exportacion'))) return { tipo: 'FACTURA_EXPORTACION', confianza: 0.9 };
   if ((t.includes('e-factura') || t.includes('e factura')) && (t.includes('rut comprador') || t.includes('ruc comprador') || t.includes('cae'))) return { tipo: 'FACTURA_SERVICIOS_UY', confianza: 0.88 };
-  if (t.includes('factura de exportacion') || (t.includes('factura') && t.includes('fob'))) return { tipo: 'FACTURA_COMERCIAL', confianza: 0.85 };
+  // Factura comercial del proveedor del exterior (incluye las emitidas en inglés:
+  // "Commercial Invoice"). La e-Factura de exportación del importador ya se filtró arriba.
+  if (t.includes('factura de exportacion') || t.includes('commercial invoice') || (t.includes('factura') && t.includes('fob')) || (t.includes('invoice') && (t.includes('fob') || t.includes('incoterm')))) return { tipo: 'FACTURA_COMERCIAL', confianza: 0.85 };
   if (t.includes('packing list') || (t.includes('condicion de venta') && t.includes('pais de origen')) || (texto.match(/\d+\s*cm\s*x\s*\d+\s*cm/gi)?.length ?? 0) >= 3) return { tipo: 'PACKING_LIST', confianza: 0.8 };
   if (corto) return { tipo: 'DOC_TRANSPORTE', confianza: 0.3 }; // escaneado → probable conocimiento/AWB
   return { tipo: 'OTRO', confianza: 0.2 };

@@ -888,3 +888,25 @@ describe('parser — tipo de operación del despachante (auto-detección de trá
     expect(cfe.tipoOperacion).toBe('IMPORTACION');
   });
 });
+
+// La e-Factura de EXPORTACIÓN del propio importador (la VENTA a Brasil) debe
+// reconocerse como tal — NO como una compra/servicio que infle el costo.
+import { clasificarDocumento } from '../src/services/importaciones.parsers.service';
+describe('clasificador — e-Factura de exportación (la venta, no es costo)', () => {
+  const eFacturaExport = [
+    'asystax.com.uy/cfe', 'Emitido por: STX STAINLESS STEEL SA', 'RUT EMISOR: 219864670013',
+    'e-Factura Exportación', 'A 203', 'STEELDEK ACO INOXIDAVEL LTDA', 'Brasil',
+    'BOBINA DE ACERO INOX LAMINADA EN FRÍO GRADO 439', 'ton 22,522 1.426,00 32.116,37',
+    'Exportación / Asimilados 32.116,37', 'Monto IVA en Suspenso 0,00', 'Total a Pagar U$S 32.116,37',
+    'Código Seguridad: JHxfHS',
+  ].join('\n');
+
+  it('clasifica la e-Factura Exportación como FACTURA_EXPORTACION (no comercial ni servicio)', () => {
+    const { tipo } = clasificarDocumento(eFacturaExport);
+    expect(tipo).toBe('FACTURA_EXPORTACION');
+  });
+  it('extrae el total de la venta de exportación', () => {
+    const cfe = parseFacturasServiciosUY(eFacturaExport)[0];
+    expect(cfe.total).toBeCloseTo(32116.37, 2);
+  });
+});

@@ -25,6 +25,7 @@ const fecha = (s: string | null | undefined): Date | null => (s ? new Date(`${s}
 
 const TIPO_PRISMA: Record<TipoDoc, TipoDocumentoImportacion> = {
   FACTURA_COMERCIAL: TipoDocumentoImportacion.FACTURA_COMERCIAL,
+  FACTURA_EXPORTACION: TipoDocumentoImportacion.OTRO, // la VENTA (no es costo); se usa para el valor de exportación
   LIQUIDACION_DESPACHANTE: TipoDocumentoImportacion.LIQUIDACION_DESPACHANTE,
   SWIFT: TipoDocumentoImportacion.SWIFT,
   DEBITO_BANCARIO: TipoDocumentoImportacion.DEBITO_BANCARIO,
@@ -381,6 +382,9 @@ export async function procesarExpediente(importacionId: string): Promise<Procesa
 
   let facturas = 0, liquidaciones = 0, docsProcesados = 0;
   let dua = 0, facturasServicios = 0, pagosLocales = 0, otros = 0;
+  // VENTA de exportación (triangulación/tránsito): suma de las e-Facturas de
+  // exportación del propio importador. No es costo; alimenta valorVentaExportacion.
+  let exportaciones = 0; let ventaExportacionCtms = 0n;
   const pagos: Array<PagoParsed & { tipos: TipoDoc }> = [];
   const tiposVistos = new Set<TipoDoc>();
 
@@ -433,6 +437,20 @@ export async function procesarExpediente(importacionId: string): Promise<Procesa
         },
       });
       facturas += 1;
+    } else if (tipo === 'FACTURA_EXPORTACION') {
+      // La VENTA (p. ej. STX → SteelDek, Brasil). Puede traer varias e-Facturas por PDF.
+      // No integra el costo; se suma para el valor de exportación (encuadre de IRAE).
+      const cfes = parseFacturasServiciosUY(texto);
+      for (const s of cfes) {
+        ventaExportacionCtms += C(s.total);
+        await guardarExtraccion(doc.id, 'FACTURA_EXPORTACION', confianza, {
+          emisor: s.emisor, rutEmisor: s.rutEmisor, serie: s.serie, numero: s.numero,
+          fecha: s.fecha, moneda: s.moneda, total: s.total,
+          resumen: `Venta de exportación · ${s.tipoDoc} ${s.serie ?? ''}${s.numero ?? ''} · ${s.moneda} ${(s.total ?? 0).toLocaleString('es-UY')}`,
+          datos: s,
+        });
+        exportaciones += 1;
+      }
     } else if (tipo === 'LIQUIDACION_DESPACHANTE') {
       const l = parseLiquidacionDespachante(texto);
       await prisma.importacionLiquidacion.create({
@@ -529,6 +547,12 @@ export async function procesarExpediente(importacionId: string): Promise<Procesa
     }
   }
 
+  // Venta de exportación detectada (triangulación/tránsito): se persiste como el
+  // valor de venta para el encuadre de IRAE. No integra el costo de la mercadería.
+  if (exportaciones > 0 && ventaExportacionCtms > 0n) {
+    await prisma.importacion.update({ where: { id: importacionId }, data: { valorVentaExportacion: ventaExportacionCtms } });
+  }
+
   // Transferencias: dedup por referencia (SWIFT + comprobante = una sola).
   const consolidadas = consolidarPagos(pagos);
   for (const t of consolidadas) {
@@ -550,6 +574,8 @@ export async function procesarExpediente(importacionId: string): Promise<Procesa
 
   // Advertencia por SWIFT sin comprobante (o viceversa).
   for (const t of consolidadas) if (t.docs < 2) advertencias.push(`La transferencia ${t.ref ?? '(s/ref)'} tiene un solo respaldo (falta el SWIFT o el comprobante bancario).`);
+  // Venta de exportación detectada (triangulación/tránsito).
+  if (exportaciones > 0 && ventaExportacionCtms > 0n) advertencias.push(`Venta de exportación detectada: ${exportaciones} e-Factura(s) de exportación por ${(Number(ventaExportacionCtms) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2 })}. Se tomó como VALOR DE VENTA para el encuadre de IRAE (no integra el costo de la mercadería).`);
 
   // Recalcular el costeo desde los documentos oficiales (DUA + factura + CFE):
   // CIF, tributos y gastos pasan a reflejar lo realmente declarado/liquidado.
