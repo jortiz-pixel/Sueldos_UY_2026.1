@@ -63,6 +63,11 @@ export function clasificarDocumento(texto: string): { tipo: TipoDoc; confianza: 
   if (t.includes('documento unico aduanero')) return { tipo: 'DUA', confianza: 0.97 };
   if (t.includes('certificado de origen')) return { tipo: 'CERTIFICADO_ORIGEN', confianza: 0.95 };
   if (t.includes('autorizacion para sociedad comercial') || (t.includes('despachante') && t.includes('director') && t.includes('aduana'))) return { tipo: 'AUTORIZACION', confianza: 0.9 };
+  // Facturas (compra y venta) con señales FUERTES y sin ambigüedad: van ANTES que los
+  // chequeos de pagos, porque una factura comercial trae "SWIFT/BIC Code" en los datos
+  // bancarios de pago y se confundiría con un comprobante SWIFT.
+  if (t.includes('exportacion / asimilados') || t.includes('exportacion/asimilados') || t.includes('e-factura exportacion') || t.includes('e factura exportacion')) return { tipo: 'FACTURA_EXPORTACION', confianza: 0.95 };
+  if (t.includes('commercial invoice') && t.includes('total fob amount')) return { tipo: 'FACTURA_COMERCIAL', confianza: 0.95 };
   if (t.includes('pague sus facturas por internet') || (t.includes('resultado de la transaccion') && t.includes('rut importador'))) return { tipo: 'PAGO_TRIBUTOS', confianza: 0.95 };
   if (t.includes('transferencias en el pais') || (t.includes('monto acreditado') && t.includes('cuenta destino'))) return { tipo: 'PAGO_SERVICIOS_LOCAL', confianza: 0.9 };
   // RECIBO: solo recibos reales (CFE de cobranza / recibo oficial). NO confundir
@@ -104,7 +109,81 @@ function fechaDMY(s: string | null | undefined): string | null {
   return `${y}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
 }
 
+// Número en formato US (coma = miles, punto = decimal): "129,651.99" → 129651.99,
+// "39,628" → 39628, "32.616" → 32.616. (parseNum trata la última coma como decimal,
+// por eso acá sacamos las comas de miles y dejamos el punto decimal.)
+export function parseNumUS(raw: string | null | undefined): number | null {
+  if (raw == null) return null;
+  const t = String(raw).replace(/[^\d.,]/g, '').replace(/,/g, '');
+  if (!t) return null;
+  const n = parseFloat(t);
+  return Number.isFinite(n) ? n : null;
+}
+
+const MESES_EN: Record<string, string> = { jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06', jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12' };
+// "8 Jan 2026" → "2026-01-08"
+function fechaEN(s: string | null | undefined): string | null {
+  if (!s) return null;
+  const m = s.match(/(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{4})/);
+  if (!m) return null;
+  const mes = MESES_EN[m[2].slice(0, 3).toLowerCase()];
+  if (!mes) return null;
+  return `${m[3]}-${mes}-${m[1].padStart(2, '0')}`;
+}
+
+/**
+ * Factura comercial del proveedor del exterior en INGLÉS ("Commercial Invoice",
+ * típica de proveedores chinos; números en formato US). Lee Nº de factura, fecha,
+ * incoterm, el total FOB y los renglones de artículo. El PDF extrae cada renglón
+ * con el detalle + 3 números al final: QTY/TON, FOB USD/TON y TOTAL USD. La
+ * descripción ("BOBINA … X … BA") viene en la línea ANTERIOR al renglón.
+ */
+function parseFacturaComercialEN(base: string): FacturaParsed {
+  const lineas = base.split('\n').map((l) => l.trim()).filter(Boolean);
+  const g = (re: RegExp): string | null => { const m = base.match(re); return m ? m[1].trim() : null; };
+  const proveedor = (lineas[0] || '').replace(/\s+/g, ' ').trim() || null;
+  const numero = (() => {
+    const m = base.match(/Invoice\s*Number:\s*([A-Z0-9]+)\s*-\s*(\d+)/i);
+    if (m) return `${m[1]}-${m[2]}`;
+    return g(/Invoice\s*Number:\s*([A-Z0-9-]+)/i);
+  })();
+  const fecha = fechaEN(g(/\bDate:\s*(\d{1,2}\s+[A-Za-z]{3,}\s+\d{4})/i));
+  const incoterm = g(/INCOTERM:\s*([A-Z]{3})/i);
+  const idImportador = g(/RUT[\s-]*:?\s*(\d{12})/i);
+  const importador = g(/^([A-Z][A-Z .&]+S\.?A\.?)\b/m);
+  // El total puede traer texto entre "Amount" y el importe (p. ej. "109.912TON US$").
+  // Se ancla al prefijo US$/USD y se exige el importe con 2 decimales (evita tomar la
+  // cantidad de toneladas por error).
+  const fob = parseNumUS(g(/Total\s*FOB\s*Amount[^\n]*?US[D$]?\s*([\d.,]+\.\d{2})/i));
+
+  // Renglones de artículo: empiezan con el nº de ítem y contienen "COIL/COLD ROLLED";
+  // terminan en QTY/TON (decimal) + FOB USD/TON (entero) + TOTAL USD (miles con coma).
+  const articulos: ArticuloFactura[] = [];
+  for (let i = 0; i < lineas.length; i++) {
+    const l = lineas[i];
+    if (!/COIL|COLD\s+ROLLED/i.test(l)) continue;
+    const m = l.match(/^(\d{1,2})\s+.*\s+(\d+\.\d{1,3})\s+(\d{2,6})\s+([\d,]+)$/);
+    if (!m) continue;
+    const cantidad = parseNumUS(m[2]) ?? 0;
+    const precioUnit = parseNumUS(m[3]) ?? 0;
+    const totalItem = parseNumUS(m[4]) ?? 0;
+    const desc = (lineas[i - 1] ?? '').replace(/\s+/g, ' ').trim();
+    const codigo = desc || `ITEM ${m[1]}`;
+    articulos.push({ nro: articulos.length + 1, codigo, descripcion: desc || codigo, cantidad, precioUnit, total: totalItem });
+  }
+
+  return {
+    proveedor, cuit: null, numero, fecha, importador, idImportador,
+    moneda: 'USD', incoterm: incoterm ?? 'FOB',
+    fob, flete: 0, seguro: 0, cif: fob, total: fob, articulos,
+  };
+}
+
 export function parseFacturaComercial(texto: string): FacturaParsed {
+  // Factura del proveedor del exterior en inglés (Commercial Invoice, números US).
+  if (/commercial\s+invoice/i.test(texto) && /total\s*fob\s*amount/i.test(texto)) {
+    return parseFacturaComercialEN(texto);
+  }
   // El PDF suele traer ORIGINAL + DUPLICADO + TRIPLICADO (mismo contenido). Se
   // parsea SOLO la primera copia para no triplicar los artículos.
   const dupIdx = Math.min(...['DUPLICADO', 'TRIPLICADO', 'COPIA'].map((k) => {

@@ -156,16 +156,31 @@ const bigintReplacer = (_k: string, v: unknown) => (typeof v === 'bigint' ? v.to
 export async function reconstruirCosteoDesdeExtraccion(importacionId: string): Promise<{ ok: boolean; estado?: string; motivo?: string; regimenAuto?: string | null }> {
   const imp = await prisma.importacion.findUnique({ where: { id: importacionId } });
   if (!imp || imp.estado === 'ANULADA') return { ok: false };
-  const [duaEx, serviciosEx, factura, pagoTrib, transferencias, recibos, packingEx] = await Promise.all([
+  const [duaEx, serviciosEx, facturasAll, pagoTrib, transferencias, recibos, packingEx] = await Promise.all([
     prisma.importacionDocExtraccion.findFirst({ where: { importacionId, tipo: 'DUA' } }),
     prisma.importacionDocExtraccion.findMany({ where: { importacionId, tipo: 'FACTURA_SERVICIOS_UY' } }),
-    prisma.importacionFactura.findFirst({ where: { importacionId }, include: { articulos: { orderBy: { nro: 'asc' } } }, orderBy: { createdAt: 'asc' } }),
+    prisma.importacionFactura.findMany({ where: { importacionId }, include: { articulos: { orderBy: { nro: 'asc' } } }, orderBy: { createdAt: 'asc' } }),
     prisma.importacionDocExtraccion.findFirst({ where: { importacionId, tipo: 'PAGO_TRIBUTOS' } }),
     prisma.importacionTransferencia.findMany({ where: { importacionId }, orderBy: { fecha: 'asc' } }),
     prisma.importacionDocExtraccion.findMany({ where: { importacionId, tipo: 'RECIBO' } }),
     prisma.importacionDocExtraccion.findFirst({ where: { importacionId, tipo: 'PACKING_LIST' } }),
   ]);
   if (!duaEx) return { ok: false };
+  // Una importación puede traer VARIAS facturas comerciales del proveedor (p. ej. dos
+  // embarques, YZ…D-1 y YZ…D-2). Se CONSOLIDAN en una sola: se suman FOB/flete/seguro/
+  // total y se unifican los artículos por código (suma de cantidades e importes), para
+  // que el costeo tome TODO el FOB y no solo la primera factura.
+  const factura = facturasAll.length === 0 ? null : facturasAll.length === 1 ? facturasAll[0] : (() => {
+    const suma = (f: (x: typeof facturasAll[number]) => bigint) => facturasAll.reduce((s, x) => s + f(x), 0n);
+    const artMap = new Map<string, { nro: number; codigo: string | null; descripcion: string; cantidad: number; precioUnit: number; total: bigint; clasificacion: string }>();
+    for (const f of facturasAll) for (const a of f.articulos) {
+      const k = (a.codigo ?? a.descripcion ?? '').trim().toUpperCase();
+      const ex = artMap.get(k);
+      if (ex) { ex.cantidad += a.cantidad; ex.total += a.total; }
+      else artMap.set(k, { nro: artMap.size + 1, codigo: a.codigo, descripcion: a.descripcion, cantidad: a.cantidad, precioUnit: a.precioUnit, total: a.total, clasificacion: a.clasificacion });
+    }
+    return { ...facturasAll[0], fob: suma((x) => x.fob), flete: suma((x) => x.flete), seguro: suma((x) => x.seguro), cif: suma((x) => x.cif), total: suma((x) => x.total), articulos: [...artMap.values()] };
+  })();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const d: any = duaEx.datos ?? {};
   const moneda: string = imp.monedaOrigen || d.moneda || 'USD';

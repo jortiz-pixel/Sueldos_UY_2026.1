@@ -910,3 +910,48 @@ describe('clasificador — e-Factura de exportación (la venta, no es costo)', (
     expect(cfe.total).toBeCloseTo(32116.37, 2);
   });
 });
+
+// Factura comercial del proveedor del exterior en inglés ("Commercial Invoice",
+// números US). Texto tal cual lo extrae pdfjs del dossier real de STX.
+// (parseFacturaComercial ya está importado arriba.)
+describe('parser — factura comercial en inglés (Commercial Invoice, proveedor chino)', () => {
+  const invoice = [
+    'Shanghai Yizhuang Metal Co.,Ltd',
+    'Commercial Invoice',
+    'Invoice Number:YZ20251105D - 1 Date: 8 Jan 2026',
+    'STX STAINLESS STEEL S.A',
+    'Consignee & Notify&importer RUT - 219864670013',
+    '2.INCOTERM:FOB Fuan/Mawei, China',
+    '9. NCM: 7219',
+    'FOB TOTAL',
+    'Item Item Description Type Steel Grade Thickness Width Diameter (mm) Surface Edge QTY/TON',
+    'BOBINA 439 0.4 X 1250 BA',
+    '1 COLD ROLLED STAINLESS STEEL COILS COIL 439 0.4 1250 508 BA+PAPER MILL EDGE 32.616 1215 39,628',
+    'ASTM A240/A480',
+    'BOBINA 439 0.5 X 1250 BA',
+    '2 COLD ROLLED STAINLESS STEEL COILS COIL 439 0.5 1250 508 BA+PAPER MILL EDGE 10.898 1167 12,718',
+    'ASTM A240/A480',
+    'Total FOB Amount US$ 129,651.99',
+    'SWIFT/BIC Code:DHBKHKHH', // dato bancario: NO debe clasificar como SWIFT
+  ].join('\n');
+
+  it('clasifica como FACTURA_COMERCIAL aunque traiga "SWIFT/BIC Code"', () => {
+    expect(clasificarDocumento(invoice).tipo).toBe('FACTURA_COMERCIAL');
+  });
+  it('lee Nº, fecha, incoterm, importador, FOB total (formato US) y artículos', () => {
+    const f = parseFacturaComercial(invoice);
+    expect(f.numero).toBe('YZ20251105D-1');
+    expect(f.fecha).toBe('2026-01-08');
+    expect(f.incoterm).toBe('FOB');
+    expect(f.idImportador).toBe('219864670013');
+    expect(f.fob).toBeCloseTo(129651.99, 2);
+    expect(f.articulos.length).toBe(2);
+    expect(f.articulos[0].codigo).toMatch(/BOBINA 439 0\.4/);
+    expect(f.articulos[0].cantidad).toBeCloseTo(32.616, 3);
+    expect(f.articulos[0].total).toBe(39628);
+  });
+  it('el total FOB con texto intercalado ("109.912TON US$…") se lee igual', () => {
+    const inv2 = invoice.replace('Total FOB Amount US$ 129,651.99', 'Total FOB Amount 109.912TON US$129,821.35');
+    expect(parseFacturaComercial(inv2).fob).toBeCloseTo(129821.35, 2);
+  });
+});
