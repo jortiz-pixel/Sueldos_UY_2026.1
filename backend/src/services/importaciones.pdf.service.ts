@@ -124,6 +124,7 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
   const exServicios = docExtracciones.filter((e) => e.tipo === 'FACTURA_SERVICIOS_UY');
   const exPagosLocales = docExtracciones.filter((e) => e.tipo === 'PAGO_TRIBUTOS' || e.tipo === 'PAGO_SERVICIOS_LOCAL');
   const exRecibos = docExtracciones.filter((e) => e.tipo === 'RECIBO');
+  const exExport = docExtracciones.filter((e) => e.tipo === 'FACTURA_EXPORTACION');
   const exPacking = docExtracciones.find((e) => e.tipo === 'PACKING_LIST');
   const exCert = docExtracciones.find((e) => e.tipo === 'CERTIFICADO_ORIGEN');
   return new Promise((resolve, reject) => {
@@ -598,6 +599,56 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
         total2('Costo de mercadería vendida (CMV)', nMoney(vex.cmvUYU));
         total2('Resultado bruto (venta − CMV)', nMoney(vex.resultadoBrutoUYU), true);
         notaCol('El costo acumulado en «Importaciones en trámite» se imputó a Costo de Mercadería Vendida contra la venta de exportación: la cuenta de tránsito queda saldada (la mercadería vendida no permanece en existencias). El resultado bruto contable no es la base del IRAE — ver el encuadre más abajo (exoneración art. 66 lit. I → ficto 51/997 → general).', '#9a6700', false, 7.5);
+      }
+
+      // ── §1 — Trazabilidad: ventas de exportación ligadas a su DUA / carpeta ──
+      // Cada e-factura de exportación = un camión = una DUA de tránsito = una venta.
+      if (exExport.length) {
+        const sstr = (v: unknown): string | null => { const s = (v == null ? '' : String(v)).trim(); return s || null; };
+        // Carpetas/DUA referenciadas por las e-facturas del despachante (honorarios):
+        // se usan para completar la columna cuando la e-factura de venta no las trae.
+        const carpetasDesp = exServicios
+          .map((s: any) => ({ carpeta: sstr(s?.datos?.carpeta), dua: sstr(s?.datos?.dua) }))
+          .filter((x) => x.carpeta || x.dua);
+        const filas = exExport.map((e, i) => {
+          const dd: any = e.datos ?? {};
+          const carpeta = sstr(dd.carpeta) ?? sstr(carpetasDesp[i]?.carpeta);
+          const dua = sstr(dd.dua) ?? sstr(carpetasDesp[i]?.dua);
+          return [
+            `${e.serie ?? ''}${e.numero ?? ''}` || `Venta ${i + 1}`,
+            fdate(e.fecha ? new Date(e.fecha) : null),
+            dua ?? '—',
+            carpeta ?? '—',
+            `${e.moneda ?? ''} ${n2(e.total ?? 0n)}`,
+          ];
+        });
+        const totExport = exExport.reduce((s, e) => s + (e.total ?? 0n), 0n);
+        subheading('Trazabilidad — ventas de exportación por DUA / carpeta de tránsito');
+        tabla(
+          [ { w: 120, title: 'E-factura (venta)' }, { w: 70, title: 'Fecha' }, { w: 110, title: 'DUA tránsito' }, { w: 95, title: 'Carpeta' }, { w: 130, title: 'Importe', align: 'right' } ],
+          filas,
+        );
+        total2(`Total ventas de exportación (${exExport.length} e-factura${exExport.length === 1 ? '' : 's'})`, n2(totExport), true);
+        const faltanDua = filas.filter((f) => f[2] === '—').length;
+        notaCol(`Criterio 1 camión = 1 DUA de tránsito = 1 venta: ${exExport.length} e-factura(s) de exportación por ${n2(totExport)}. ${faltanDua ? `Faltan ${faltanDua} número(s) de DUA/carpeta por vincular (no vienen en la e-factura ni en las e-facturas del despachante): cargalos para completar la trazabilidad.` : 'Todas las ventas quedaron vinculadas a su DUA/carpeta.'}`, faltanDua ? '#b54708' : '#1a7f37', false, 7.5);
+      }
+
+      // ── §6 — Recibos del despachante: contar cada comprobante UNA sola vez ──
+      // El mismo recibo puede venir en varias páginas/carpetas del set: se deduplica
+      // por serie+número para no duplicar el importe.
+      if (exRecibos.length) {
+        const clave = (e: typeof exRecibos[number]) => `${(e.serie ?? '').trim()}${(e.numero ?? '').trim()}`.toUpperCase();
+        const vistos = new Map<string, { e: typeof exRecibos[number]; veces: number }>();
+        for (const e of exRecibos) { const k = clave(e) || `__${vistos.size}`; const ex = vistos.get(k); if (ex) ex.veces += 1; else vistos.set(k, { e, veces: 1 }); }
+        const duplicados = [...vistos.values()].filter((v) => v.veces > 1);
+        if (duplicados.length || exRecibos.length !== vistos.size) {
+          subheading('Recibos del despachante — deduplicación');
+          tabla(
+            [ { w: 150, title: 'Recibo (serie-número)' }, { w: 120, title: 'Emisor' }, { w: 70, title: 'Veces en el set', align: 'right' }, { w: 115, title: 'Importe (una vez)', align: 'right' } ],
+            [...vistos.values()].map((v) => [ `${v.e.serie ?? ''}${v.e.numero ?? ''}`, v.e.emisor ?? '—', String(v.veces), `${v.e.moneda ?? ''} ${n2(v.e.total ?? 0n)}` ]),
+          );
+          notaCol(`Se detectaron ${exRecibos.length} apariciones de recibo pero ${vistos.size} comprobante(s) distinto(s): cada recibo se cuenta UNA sola vez (el costeo ya toma un único recibo del despachante). Revisá que la cobranza duplicada en el set corresponda a varias carpetas de una misma operación, no a un doble cobro.`, '#b54708', false, 7.5);
+        }
       }
     }
 
