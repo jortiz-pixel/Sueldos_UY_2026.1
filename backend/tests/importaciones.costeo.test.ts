@@ -980,3 +980,23 @@ describe('parser — e-Factura del agente de carga (Savino, total en formato US)
     expect(c.total).toBeCloseTo(12022.10, 2);
   });
 });
+
+// Comprobante SWIFT (MT103) del pago al proveedor: el campo 32A trae la fecha en
+// formato DDMMMYYYY (mes en inglés) y el importe en la línea siguiente. Antes
+// quedaba en 0/sin fecha → el pago no se tomaba y el costeo quedaba PENDIENTE.
+import { parsePagoExterior } from '../src/services/importaciones.parsers.service';
+describe('parser — SWIFT del pago al proveedor (campo 32A, mes inglés)', () => {
+  const swift = [
+    'Transferencias a otros bancos (SWIFT)',
+    '20 Transaction reference number:', '495338',
+    '32A Value date, Currency Code, Amount:', '08MAY2026 USD213.842,00',
+    '59 Beneficiary Customer:', '/56567142010360005804 SHANGHAI YIZHUANG METAL CO LTD',
+  ].join('\n');
+  it('lee referencia, fecha (2026-05-08), moneda e importe', () => {
+    const p = parsePagoExterior(swift);
+    expect(p.ref).toBe('495338');
+    expect(p.fecha).toBe('2026-05-08');
+    expect(p.moneda).toBe('USD');
+    expect(p.importe).toBeCloseTo(213842.00, 2);
+  });
+});

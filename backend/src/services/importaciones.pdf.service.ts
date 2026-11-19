@@ -232,7 +232,14 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
 
     // ── Resumen ejecutivo (recuadro con cifras clave) ──
     const liq0 = liquidaciones[0];
-    const fac0 = facturas[0];
+    // Factura CONSOLIDADA: una importación puede traer varias facturas del proveedor
+    // (p. ej. dos embarques). Se suman para mostrar el FOB/CIF TOTAL (no solo la 1.ª).
+    const fac0 = facturas.length === 0 ? null : {
+      numero: facturas.length === 1 ? facturas[0].numero : `${facturas.length} facturas: ${facturas.map((f) => f.numero).filter(Boolean).join(' · ')}`,
+      fecha: facturas[0].fecha, moneda: facturas[0].moneda,
+      fob: facturas.reduce((s, f) => s + f.fob, 0n), flete: facturas.reduce((s, f) => s + f.flete, 0n),
+      seguro: facturas.reduce((s, f) => s + f.seguro, 0n), cif: facturas.reduce((s, f) => s + f.cif, 0n), total: facturas.reduce((s, f) => s + f.total, 0n),
+    };
     const totPagRes = transferencias.reduce((s, t) => s + t.importe, 0n);
     const cd0 = det?.cuentaDespachante ?? null;
     // TC CONTABLE: las cotizaciones REALES de los anticipos (criterio contable). Si hay
@@ -347,9 +354,9 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
       nota('Datos tomados de la declaración aduanera oficial (hoja de trabajo del DUA). Los tributos deben coincidir con el pago por SPE y con la liquidación del despachante.');
     } else { vacio('No se adjuntó el DUA oficial (expediente preliminar).'); }
 
-    // ── 2. Valor de importación ── (usa la factura extraída si existe)
+    // ── 2. Valor de importación ── (factura(s) consolidada(s) si existen)
     heading('Valor de importación');
-    const fac = facturas[0];
+    const fac = fac0;
     if (fac) {
       const m = sym(fac.moneda);
       kv('Factura comercial', `${fac.numero ?? '—'} · ${fdate(fac.fecha)} · ${fac.moneda}`);
@@ -535,7 +542,7 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
       const sumaArt = itemsDet.reduce((s, i) => s + BigInt(i.costo), 0n);
       const dif = (det?.costoInventario != null ? BigInt(det.costoInventario) : 0n) - sumaArt;
       notaCol(`Suma de costos por artículo: $ ${n2(sumaArt)} ${dif === 0n ? '= costo del inventario (OK)' : `(¡diferencia $ ${n2(dif)}!)`}.`, dif === 0n ? '#1a7f37' : '#c00');
-    } else if (fac && fac.articulos.length) {
+    } else if (facturas.some((f) => f.articulos.length)) {
       doc.fontSize(9).font('Helvetica').fillColor('#777').text('Costo por artículo PENDIENTE (falta completar el costo del inventario).', M + 4, y); y += 14;
     } else { doc.fontSize(9).font('Helvetica').fillColor('#777').text('Sin detalle de artículos (procesá la factura en "Datos extraídos").', M + 4, y); y += 14; }
 

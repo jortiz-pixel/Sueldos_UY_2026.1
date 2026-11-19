@@ -356,12 +356,21 @@ export function parsePagoExterior(texto: string): PagoParsed {
     const fecha = vm ? `${vm[3]}-${MESES_ES[vm[2].toUpperCase()] ?? '01'}-${vm[1].padStart(2, '0')}` : null;
     return { ref, fecha, moneda: 'USD', importe, comision, totalDebitado: totalDeb, beneficiario, esComprobante: true };
   }
-  // SWIFT MT103
+  // SWIFT MT103. El campo 32A (valor, moneda, importe) viene en la línea SIGUIENTE a
+  // la etiqueta, en formato "DDMMMYYYY CCCimporte" (mes en inglés, p. ej.
+  // "08MAY2026 USD22.003,34") o, en otros bancos, "YYMMDD CCC importe".
   const ref = texto.match(/Transaction reference number:\s*\n?\s*(\S+)/i)?.[1] ?? null;
-  const m32 = texto.match(/32A[^:]*:\s*\n?\s*(\d{6})\s*([A-Z]{3})\s*([\d.,]+)/i);
-  const fecha = m32 ? `20${m32[1].slice(0, 2)}-${m32[1].slice(2, 4)}-${m32[1].slice(4, 6)}` : null;
-  const moneda = m32 ? m32[2] : 'USD';
-  const importe = m32 ? parseNum(m32[3]) : null;
+  const bloque32 = texto.match(/32A[^:]*:\s*\n?\s*([^\n]+)/i)?.[1] ?? '';
+  let fecha: string | null = null; let moneda = 'USD'; let importe: number | null = null;
+  const mEN = bloque32.match(/(\d{1,2})([A-Za-z]{3})(\d{4})\s*([A-Z]{3})?\s*([\d.,]+)/);
+  const mNum = bloque32.match(/(\d{6})\s*([A-Z]{3})\s*([\d.,]+)/);
+  if (mEN) {
+    fecha = `${mEN[3]}-${MESES_EN[mEN[2].toLowerCase()] ?? MESES_ES[mEN[2].toUpperCase()] ?? '01'}-${mEN[1].padStart(2, '0')}`;
+    moneda = mEN[4] ?? 'USD'; importe = parseNum(mEN[5]);
+  } else if (mNum) {
+    fecha = `20${mNum[1].slice(0, 2)}-${mNum[1].slice(2, 4)}-${mNum[1].slice(4, 6)}`;
+    moneda = mNum[2]; importe = parseNum(mNum[3]);
+  }
   return { ref, fecha, moneda, importe, comision: 0, totalDebitado: importe, beneficiario, esComprobante: false };
 }
 
