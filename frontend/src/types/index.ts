@@ -64,6 +64,8 @@ export interface Company {
   observaciones?: string;
   active: boolean;
   hidden?: boolean;
+  soloTareas?: boolean;      // false ⇔ está en Sueldos
+  enImportaciones?: boolean; // habilitada en el módulo de Importaciones
   _count?: { employees: number };
 }
 

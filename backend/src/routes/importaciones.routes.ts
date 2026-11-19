@@ -440,8 +440,10 @@ importacionesRouter.put('/fiscal-config', async (req: Request, res: Response, ne
 importacionesRouter.get('/clientes', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const incluirInactivas = req.query.incluirInactivas === 'true';
+    // Solo las empresas habilitadas para Importaciones (toggle por módulo). Así el
+    // selector queda curado y la empresa se carga una sola vez.
     const empresas = await prisma.company.findMany({
-      where: incluirInactivas ? {} : { active: true },
+      where: { enImportaciones: true, ...(incluirInactivas ? {} : { active: true }) },
       orderBy: { razonSocial: 'asc' },
       select: { id: true, razonSocial: true, nombreFantasia: true, soloTareas: true, active: true },
     });

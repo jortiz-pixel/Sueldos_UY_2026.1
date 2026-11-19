@@ -143,6 +143,29 @@ companiesRouter.patch('/:id/visibility', authenticate, requireRole(UserRole.ADMI
   } catch (err) { next(err); }
 });
 
+// PATCH /api/companies/:id/modulos  → habilitar la MISMA empresa por módulo.
+// La empresa se carga UNA sola vez (en la Agenda/Sueldos) y se marca en qué módulos
+// participa, sin volver a cargarla. "enSueldos" = !soloTareas (si se apaga, deja de
+// aparecer en Sueldos pero conserva toda su historia); "enImportaciones" la habilita
+// en el selector de Importaciones. Reversible.
+companiesRouter.patch('/:id/modulos', authenticate, requireRole(UserRole.ADMIN, UserRole.OPERATOR), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { enSueldos, enImportaciones } = z.object({
+      enSueldos: z.boolean().optional(),
+      enImportaciones: z.boolean().optional(),
+    }).parse(req.body);
+    const company = await prisma.company.findUnique({ where: { id: req.params.id } });
+    if (!company) throw new NotFoundError('Empresa');
+    await assertCompanyAccess(req, company.id);
+    const data: { soloTareas?: boolean; enImportaciones?: boolean } = {};
+    if (enSueldos !== undefined) data.soloTareas = !enSueldos;
+    if (enImportaciones !== undefined) data.enImportaciones = enImportaciones;
+    const updated = await prisma.company.update({ where: { id: req.params.id }, data });
+    await recordAudit({ action: 'COMPANY_MODULOS', entity: 'company', entityId: updated.id, companyId: updated.id, newData: { enSueldos: !updated.soloTareas, enImportaciones: updated.enImportaciones }, req });
+    res.json({ id: updated.id, enSueldos: !updated.soloTareas, enImportaciones: updated.enImportaciones });
+  } catch (err) { next(err); }
+});
+
 // PATCH /api/companies/:id/active  → inactivar / reactivar (baja lógica)
 // Mantiene TODO el historial: solo cambia el flag `active`. Ese flag es
 // COMPARTIDO con Tareas (la Agenda también filtra `active: true`), así que al

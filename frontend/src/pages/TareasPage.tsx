@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { CalendarDays, ListChecks, Plus, Pencil, Trash2, ChevronLeft, ChevronRight, AlertTriangle, X, Building2 } from 'lucide-react';
-import { tareasApi, Tarea, Vencimiento, EstadoVenc } from '../services/api';
+import { tareasApi, companiesApi, Tarea, Vencimiento, EstadoVenc } from '../services/api';
 import { MESES } from '../types';
 
 const RECURRENCIAS = ['MENSUAL', 'BIMESTRAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL'];
@@ -327,6 +327,12 @@ function Tareas() {
     onSuccess: () => invalidar(),
     onError: (e: unknown) => alert((e as { response?: { data?: { error?: string } } })?.response?.data?.error || 'No se pudo cambiar el estado de la empresa.'),
   });
+  // Habilitar la MISMA empresa por módulo (Sueldos / Importaciones), sin volver a cargarla.
+  const setModulosMut = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { enSueldos?: boolean; enImportaciones?: boolean } }) => companiesApi.setModulos(id, data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['tareas-clientes'] }); qc.invalidateQueries({ queryKey: ['importaciones-clientes'] }); qc.invalidateQueries({ queryKey: ['companies'] }); },
+    onError: (e: unknown) => alert((e as { response?: { data?: { error?: string } } })?.response?.data?.error || 'No se pudo actualizar los módulos de la empresa.'),
+  });
   const abrirNuevoCliente = () => { setCliEditId(null); setCliError(''); setCliNombre(''); setCliRut(''); setCliModal(true); };
   const abrirEditCliente = () => {
     const c = clientes.find((x) => x.id === clienteSel);
@@ -449,6 +455,26 @@ function Tareas() {
       <>
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h2 className="text-lg font-semibold text-ink">{clienteNombre}</h2>
+        {/* Toggles de módulo: la MISMA empresa habilitada en Sueldos y/o Importaciones. */}
+        {clienteSel !== 'estudio' && clientes.find((c) => c.id === clienteSel) && (() => {
+          const cli = clientes.find((c) => c.id === clienteSel)!;
+          const enSueldos = !cli.soloTareas;
+          const enImport = !!cli.enImportaciones;
+          const chip = (on: boolean, label: string, onClick: () => void) => (
+            <button type="button" onClick={onClick} disabled={setModulosMut.isPending}
+              className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${on ? 'bg-ok/15 border-ok/40 text-ok' : 'bg-canvas border-hairline text-ink-subtle'}`}
+              title={on ? `Quitar de ${label}` : `Agregar a ${label}`}>
+              {on ? '✓' : '+'} {label}
+            </button>
+          );
+          return (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[11px] text-ink-subtle">También en:</span>
+              {chip(enSueldos, 'Sueldos', () => setModulosMut.mutate({ id: cli.id, data: { enSueldos: !enSueldos } }))}
+              {chip(enImport, 'Importaciones', () => setModulosMut.mutate({ id: cli.id, data: { enImportaciones: !enImport } }))}
+            </div>
+          );
+        })()}
         {clientes.find((c) => c.id === clienteSel)?.soloTareas && (
           <div className="flex items-center gap-2 flex-wrap">
             <button onClick={abrirEditCliente} className="btn-secondary btn-sm"><Pencil size={13} /> Editar empresa</button>

@@ -204,7 +204,11 @@ model Company {
   hidden     Boolean  @default(false)
   // Cliente creado desde la Agenda del estudio (Tareas): el estudio le hace
   // trabajos que NO son de sueldos. No aparece en el sistema de Sueldos.
+  // (soloTareas = true  ⇔  NO está en Sueldos ; false ⇔ SÍ está en Sueldos).
   soloTareas Boolean  @default(false)
+  // Participación en el módulo de IMPORTACIONES. La empresa se carga UNA vez (en la
+  // Agenda/Sueldos) y se habilita por módulo con un toggle, sin volver a cargarla.
+  enImportaciones Boolean @default(false)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 

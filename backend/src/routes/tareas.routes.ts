@@ -41,7 +41,7 @@ tareasRouter.get('/clientes', async (req: Request, res: Response, next: NextFunc
     const clientes = await prisma.company.findMany({
       where: incluirInactivas ? {} : { active: true },
       orderBy: { razonSocial: 'asc' },
-      select: { id: true, razonSocial: true, nombreFantasia: true, soloTareas: true, active: true },
+      select: { id: true, razonSocial: true, nombreFantasia: true, soloTareas: true, enImportaciones: true, active: true },
     });
     res.json(clientes);
   } catch (err) { next(err); }

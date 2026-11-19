@@ -207,6 +207,9 @@ export const companiesApi = {
   delete: (id: string) => api.delete(`/companies/${id}`).then((r) => r.data),
   setVisibility: (id: string, hidden: boolean) =>
     api.patch(`/companies/${id}/visibility`, { hidden }).then((r) => r.data),
+  // Habilitar la MISMA empresa por módulo (sin volver a cargarla).
+  setModulos: (id: string, data: { enSueldos?: boolean; enImportaciones?: boolean }) =>
+    api.patch<{ id: string; enSueldos: boolean; enImportaciones: boolean }>(`/companies/${id}/modulos`, data).then((r) => r.data),
   getUsers: (id: string) => api.get(`/companies/${id}/users`).then((r) => r.data),
   createUser: (id: string, data: object) => api.post(`/companies/${id}/users`, data).then((r) => r.data),
 };
@@ -577,7 +580,7 @@ export interface AgendaResumen {
   totalProximos: number;
 }
 
-export interface ClienteTareas { id: string; razonSocial: string; nombreFantasia: string | null; soloTareas: boolean; active?: boolean }
+export interface ClienteTareas { id: string; razonSocial: string; nombreFantasia: string | null; soloTareas: boolean; enImportaciones?: boolean; active?: boolean }
 
 export const tareasApi = {
   usuarios: () => api.get<Array<{ id: string; nombre: string; apellido: string; role: string }>>('/tareas/usuarios').then((r) => r.data),
