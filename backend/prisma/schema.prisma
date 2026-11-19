@@ -1064,6 +1064,12 @@ model Importacion {
   creditoFiscalIva BigInt @default(0) // IVA importación + IVA de gastos
   anticipos        BigInt @default(0) // anticipo IVA + anticipo IRAE
 
+  // TRÁNSITO / trading (re-exportación): valor total de la VENTA de exportación, en
+  // centésimos de la moneda de la operación (monedaOrigen). Se usa en el informe para
+  // encuadrar el IRAE (margen venta − compra; ficto trading Res. DGI 51/997 y régimen
+  // general). Sólo aplica a operaciones de tránsito; 0 = no informado.
+  valorVentaExportacion BigInt @default(0)
+
   // Estado del costeo documental: OK (completo y conciliado) | PENDIENTE (falta
   // cotización contable o datos; el costo no se distribuye y los asientos
   // definitivos quedan bloqueados). Null = costeo manual clásico.

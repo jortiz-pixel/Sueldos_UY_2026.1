@@ -391,6 +391,7 @@ export interface Importacion {
   costoMercaderia: string;
   creditoFiscalIva: string;
   anticipos: string;
+  valorVentaExportacion?: string; // tránsito/trading: total de la venta de exportación
   // Costeo documental (DUA). El costo DEFINITIVO de la mercadería sale de acá.
   costeoEstado?: string | null;
   costeoDetalle?: {
@@ -631,6 +632,7 @@ export interface ImportacionPayload {
   fob?: number;
   flete?: number;
   seguro?: number;
+  valorVentaExportacion?: number;
   notas?: string | null;
   items?: Array<{ descripcion: string; ncm?: string | null; cantidad?: number; fobUnitario?: number; fobTotal?: number; clasificacion?: 'MERCADERIA' | 'BIEN_DE_USO' }>;
   tributos?: Array<{ tipo: TributoTipo; baseImponible?: number; tasa?: number; monto?: number; recuperable?: boolean }>;

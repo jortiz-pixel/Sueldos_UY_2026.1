@@ -84,6 +84,7 @@ interface FormState {
   fob: number;
   flete: number;
   seguro: number;
+  valorVentaExportacion: number; // tránsito/trading: total de la venta de exportación
   notas: string;
   items: ItemForm[];
   tributos: TributoForm[];
@@ -96,7 +97,7 @@ function formVacio(): FormState {
     monedaOrigen: 'USD', tipoCambio: 1, facturaComercialNro: '', facturaComercialFecha: '',
     duaNumero: '', duaFecha: '', despachante: '', aduana: '', transporteDoc: '',
     certificadoOrigen: false, fechaEmbarque: '', fechaArribo: '', fechaNacionalizacion: '',
-    fob: 0, flete: 0, seguro: 0, notas: '',
+    fob: 0, flete: 0, seguro: 0, valorVentaExportacion: 0, notas: '',
     items: [], tributos: [], gastos: [],
   };
 }
@@ -120,7 +121,8 @@ function desdeImportacion(imp: Importacion): FormState {
     fechaEmbarque: imp.fechaEmbarque ?? '',
     fechaArribo: imp.fechaArribo ?? '',
     fechaNacionalizacion: imp.fechaNacionalizacion ?? '',
-    fob: c2p(imp.fob), flete: c2p(imp.flete), seguro: c2p(imp.seguro), notas: imp.notas ?? '',
+    fob: c2p(imp.fob), flete: c2p(imp.flete), seguro: c2p(imp.seguro),
+    valorVentaExportacion: c2p(imp.valorVentaExportacion ?? '0'), notas: imp.notas ?? '',
     items: imp.items.map((i) => ({ descripcion: i.descripcion, ncm: i.ncm ?? '', cantidad: i.cantidad, fobUnitario: c2p(i.fobUnitario), clasificacion: i.clasificacion ?? 'MERCADERIA' })),
     tributos: imp.tributos.map((t) => ({ tipo: t.tipo, tasa: t.tasa, monto: c2p(t.monto) })),
     gastos: imp.gastos.map((g) => ({ concepto: g.concepto, descripcion: g.descripcion ?? '', monto: c2p(g.monto), gravadoIva: g.gravadoIva, ivaGasto: c2p(g.ivaGasto) })),
@@ -169,6 +171,7 @@ function aPayload(companyId: string, f: FormState): ImportacionPayload {
     fechaArribo: nn(f.fechaArribo),
     fechaNacionalizacion: nn(f.fechaNacionalizacion),
     fob: f.fob, flete: f.flete, seguro: f.seguro,
+    valorVentaExportacion: f.valorVentaExportacion,
     notas: nn(f.notas),
     items: f.items.filter((i) => i.descripcion.trim()).map((i) => ({
       descripcion: i.descripcion.trim(), ncm: i.ncm.trim() || null, cantidad: i.cantidad, fobUnitario: i.fobUnitario, clasificacion: i.clasificacion,
@@ -512,6 +515,12 @@ function FormImportacion({ companyId, inicial, importacion, onClose, onSaved, on
           </Campo>
           <Campo label="Factura comercial N°"><input className="form-input" value={f.facturaComercialNro} onChange={(e) => set('facturaComercialNro', e.target.value)} /></Campo>
           <Campo label="Fecha factura"><input type="date" className="form-input" value={f.facturaComercialFecha} onChange={(e) => set('facturaComercialFecha', e.target.value)} /></Campo>
+          {esRegimenTransito(f.regimen) ? (
+            <Campo label={`Valor de venta / exportación (${f.monedaOrigen})`}>
+              <input type="number" step="0.01" className="form-input" value={f.valorVentaExportacion} onChange={(e) => set('valorVentaExportacion', Number(e.target.value))} placeholder="total re-exportado" />
+              <p className="mt-1 text-xs text-ink-subtle">Trading: total de la venta de exportación. Se usa en el informe para el encuadre de IRAE (ficto Res. DGI 51/997 y régimen general).</p>
+            </Campo>
+          ) : null}
         </div>
       </div>
 

@@ -27,6 +27,7 @@ export interface ImportacionPdf {
   fob: bigint; flete: bigint; seguro: bigint; cif: bigint;
   totalTributos: bigint; totalGastos: bigint;
   costoMercaderia: bigint; creditoFiscalIva: bigint; anticipos: bigint;
+  valorVentaExportacion?: bigint; // tránsito/trading: total de la venta de exportación
   gastos: { ivaGasto: bigint }[];
   tributos: { tipo: TributoImportacionTipo; monto: bigint }[];
   costeoEstado?: string | null; costeoMotivo?: string | null;
@@ -556,7 +557,41 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
         : (saldoEnTransito ? '   (pendiente de alta en stock)' : '');
       total2('Saldo en Importaciones en trámite', saldoEnTransito ? `${nMoney(cons.difTransito)}${notaSaldo}` : '0,00   (alta en stock dada)');
       notaCol(cons.ok ? 'OK — las tres igualdades se cumplen (sin diferencias).' : 'INCONSISTENTE — hay diferencias; expediente pendiente de aprobación.', cons.ok ? '#1a7f37' : '#c00', true, 8);
-      if (regimenTransito) notaCol('RÉGIMEN DE TRÁNSITO: los tributos de importación quedan SUSPENDIDOS (no integran el costo ni dan crédito fiscal) y la mercadería NO entra al stock. El costo (CIF + gastos) se mantiene en «Importaciones en trámite» hasta una eventual nacionalización.', '#9a6700', false, 6);
+      if (regimenTransito) notaCol('RÉGIMEN DE TRÁNSITO / TRADING: los tributos de importación quedan SUSPENDIDOS (no integran el costo ni dan crédito fiscal) y la mercadería NO entra al stock como inventario nacionalizado. El IVA de los honorarios del despachante NO se recupera y se capitaliza al costo. El costo acumulado en «Importaciones en trámite» es Costo de Mercadería Vendida contra la venta de exportación.', '#9a6700', false, 6);
+    }
+
+    // ── IRAE — operación de tránsito / trading (re-exportación) ──
+    if (det?.esTransito === true) {
+      heading('Encuadre de IRAE — operación de tránsito / trading');
+      const ventaME = imp.valorVentaExportacion ?? 0n;
+      if (!ventaME || ventaME <= 0n) {
+        vacio('Ingresá el valor de la venta de exportación en la ficha de la importación para calcular el encuadre de IRAE (ficto Res. DGI 51/997 y régimen general). La mercadería se compra en el exterior y se re-exporta: el costo acumulado es Costo de Mercadería Vendida contra la venta, no inventario nacionalizado.');
+      } else {
+        const tc = imp.tipoCambio || 1;
+        const bg = (v: unknown, fb: bigint): bigint => { try { return v == null || v === '' ? fb : BigInt(String(v).split('.')[0]); } catch { return fb; } };
+        const ventaUYU = BigInt(Math.round(Number(ventaME) * tc));
+        const compraUYU = bg(det?.adquisicionUYU, 0n);           // precio de compra (FOB / adquisición)
+        const costoTotalUYU = bg(det?.costoInventario, imp.costoMercaderia); // CMV (FOB + gastos de tránsito)
+        const margen = ventaUYU - compraUYU;                     // venta − compra
+        const baseFicta = margen > 0n ? (margen * 3n) / 100n : 0n;
+        const iraeFicto = (baseFicta * 25n) / 100n;
+        const rentaReal = ventaUYU - costoTotalUYU;              // venta − costo total
+        const iraeGeneral = rentaReal > 0n ? (rentaReal * 25n) / 100n : 0n;
+        kv('Moneda de la operación', `${imp.monedaOrigen} · TC ${tc}`);
+        total2('Precio de venta (exportación)', `${money(ventaME, imp.monedaOrigen)}   (${nMoney(ventaUYU.toString())})`);
+        total2('Precio de compra (adquisición FOB)', nMoney(compraUYU.toString()));
+        total2('Margen bruto (venta − compra)', nMoney(margen.toString()), true);
+        y += 2;
+        subheading('Régimen ficto de trading — Res. DGI 51/997 (a validar con DGI)');
+        total2('Renta neta ficta = 3% del margen', nMoney(baseFicta.toString()));
+        total2('IRAE 25% sobre la renta ficta', nMoney(iraeFicto.toString()), true);
+        notaCol('Res. DGI 51/997: la renta de fuente uruguaya en operaciones de trading se determina como el 3% de la diferencia entre el precio de venta y el de compra (efecto ≈ 0,75% del margen). Está pensado para mercadería situada en el exterior SIN origen ni destino en Uruguay; como en esta operación la mercadería TRANSITA físicamente el territorio, su aplicación debe validarse con una consulta a la DGI.', '#9a6700', false, 7.5);
+        y += 2;
+        subheading('Régimen general — renta real');
+        total2('Renta real = venta − costo total (CMV)', nMoney(rentaReal.toString()));
+        total2('IRAE 25% sobre la renta real', nMoney(iraeGeneral.toString()), true);
+        notaCol('Renta real: ingreso por la exportación menos el costo total de la mercadería (FOB + gastos de tránsito, con el IVA del despachante capitalizado). El costo acumulado en «Importaciones en trámite» se imputa a Costo de Mercadería Vendida contra la venta de exportación.', '#555', false, 7.5);
+      }
     }
 
     // ── Costo Fiscal de Adquisición — IRAE (SEPARADO del contable) ──

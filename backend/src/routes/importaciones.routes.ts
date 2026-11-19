@@ -98,6 +98,9 @@ const importacionSchema = z.object({
   fob: money.optional(),
   flete: money.optional(),
   seguro: money.optional(),
+  // Tránsito/trading: valor de la venta de exportación (centésimos de la moneda de
+  // la operación), para el encuadre de IRAE en el informe.
+  valorVentaExportacion: money.optional(),
   notas: z.string().optional().nullable(),
   items: z.array(itemSchema).optional(),
   tributos: z.array(tributoSchema).optional(),
@@ -120,6 +123,7 @@ function serializar(imp: ImportacionConLineas) {
     costoMercaderia: imp.costoMercaderia.toString(),
     creditoFiscalIva: imp.creditoFiscalIva.toString(),
     anticipos: imp.anticipos.toString(),
+    valorVentaExportacion: imp.valorVentaExportacion.toString(),
     facturaComercialFecha: fechaStr(imp.facturaComercialFecha),
     duaFecha: fechaStr(imp.duaFecha),
     fechaEmbarque: fechaStr(imp.fechaEmbarque),
@@ -211,6 +215,7 @@ function construirDatos(data: z.infer<typeof importacionSchema>) {
       costoMercaderia: costeo.costoMercaderia,
       creditoFiscalIva: costeo.creditoFiscalIva,
       anticipos: costeo.anticipos,
+      valorVentaExportacion: ctms(data.valorVentaExportacion),
       notas: data.notas ?? null,
     },
     items,
