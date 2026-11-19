@@ -978,6 +978,7 @@ describe('parser — e-Factura del agente de carga (Savino, total en formato US)
     const c = parseFacturasServiciosUY(savino)[0];
     expect(c.emisor).toMatch(/Savino/i);
     expect(c.total).toBeCloseTo(12022.10, 2);
+    expect(c.moneda).toBe('USD'); // "U$S" → USD (antes caía a UYU y el flete quedaba ÷40)
   });
 });
 

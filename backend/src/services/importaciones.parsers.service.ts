@@ -547,7 +547,10 @@ export function parseFacturaServiciosUY(texto: string): FacturaServiciosParsed {
   const serie = mSerie ? mSerie[1] : null;
   const numero = mSerie ? mSerie[2] : null;
   const fecha = fechaDMY(texto.match(/(\d{1,2}\/\d{1,2}\/\d{4})/)?.[1] || null);
-  const moneda = /pesos/i.test(texto) ? 'UYU' : (/d[oó]lar/i.test(texto) ? 'USD' : 'UYU');
+  // Moneda del CFE: señales de DÓLAR primero (U$S, USD, "Dólares/Dolares
+  // Americanos"); si no, pesos. Antes solo miraba "dólar" y los CFE que ponen
+  // "MONEDA USD / U$S" (p. ej. Savino) caían a UYU → el importe quedaba ÷40.
+  const moneda = /U\$S|\bUSD\b|d[oó]lar/i.test(texto) ? 'USD' : 'UYU';
 
   // Helper: monto de una etiqueta que puede traer el número en la misma línea,
   // en la anterior o en la siguiente (los CFE separan label e importe en renglones).
