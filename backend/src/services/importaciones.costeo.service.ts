@@ -965,7 +965,15 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
     estado: (costoInventario != null && !consistencia.ok) ? 'PROVISIONAL' : estado,
     motivos: [...new Set(motivos)],
     anticipos: anticiposCalc, adquisicionUYU, anticiposPagadosUYU, excesoPagado, saldoNoAnticipado, comisionesBancariasUYU,
-    tributos, totalTributos, tributosNoRecuperables, ivaImportacion, anticiposFiscales,
+    // En TRÁNSITO los tributos de importación (incluidos anticipos de IVA/IRAE) están
+    // SUSPENDIDOS: no hay tributo liquidado, ni crédito, ni pago a cuenta. Se reportan
+    // en 0 para que el informe nunca muestre IVA importación/anticipos en una carpeta
+    // de tránsito (el DUA de tránsito no los trae; esto además blinda ante datos sueltos).
+    tributos: esTransito ? [] : tributos,
+    totalTributos: esTransito ? 0n : totalTributos,
+    tributosNoRecuperables: tributosNoRecuperablesCosto,
+    ivaImportacion: ivaImportacionCredito,
+    anticiposFiscales: esTransito ? 0n : anticiposFiscales,
     gastos, totalGastosUYU, ivaGastosUYU, creditoFiscalIva,
     costoInventario, costoMercaderia: costoMercaderiaCap, costoBienesDeUso, altaEnStock, esTransito,
     items, cuentaDespachante, asientos, consistencia, conciliacion: conc,

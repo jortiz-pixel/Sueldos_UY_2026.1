@@ -193,6 +193,14 @@ describe('Costeo histórico — Nacionalización vs Tránsito (régimen)', () =>
     expect(r.costoInventario).toBe(4000000n);
     // El IVA importación NO es crédito en tránsito; sí lo sería el IVA de gastos (acá 0).
     expect(r.creditoFiscalIva).toBe(0n);
+    // El DUA de tránsito no trae anticipos de IVA/IRAE ni tributo liquidado: todo en 0.
+    expect(r.anticiposFiscales).toBe(0n);
+    expect(r.ivaImportacion).toBe(0n);
+    expect(r.totalTributos).toBe(0n);
+    expect(r.tributosNoRecuperables).toBe(0n);
+    expect(r.asientos.some((a) => /Anticipos de IVA\/IRAE/i.test(a.glosa))).toBe(false);
+    // Igual queda OK (el DUA y la factura están; el costo no depende de anticipos fiscales).
+    expect(r.estado).toBe('OK');
     // Nunca se da alta en stock: la mercadería queda en Importaciones en trámite.
     expect(r.altaEnStock).toBe(false);
     expect(r.asientos.some((a) => /Alta en stock/i.test(a.glosa))).toBe(false);
