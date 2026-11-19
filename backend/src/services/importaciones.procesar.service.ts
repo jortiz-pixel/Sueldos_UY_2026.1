@@ -333,6 +333,12 @@ export async function reconstruirCosteoDesdeExtraccion(importacionId: string): P
   })();
   const costeoFiscalDetalle = rf ? JSON.parse(JSON.stringify(rf, bigintReplacer)) : null;
 
+  // Venta de EXPORTACIÓN (triangulación/tránsito): suma de las e-Facturas de
+  // exportación del propio importador (fuente autoritativa para el encuadre de IRAE).
+  // Se calcula acá para que el valor quede persistido siempre que se rehace el costeo.
+  const exportEx = await prisma.importacionDocExtraccion.findMany({ where: { importacionId, tipo: 'FACTURA_EXPORTACION' }, select: { total: true } });
+  const ventaExportacionCtms = exportEx.reduce((s, e) => s + (e.total ?? 0n), 0n);
+
   await prisma.$transaction([
     prisma.itemImportacion.deleteMany({ where: { importacionId } }),
     prisma.tributoImportacion.deleteMany({ where: { importacionId } }),
@@ -341,7 +347,10 @@ export async function reconstruirCosteoDesdeExtraccion(importacionId: string): P
       where: { id: importacionId },
       data: {
         regimen: regimenEfectivo, // auto-detectado desde los documentos (tránsito/definitiva)
-        proveedorExterior: sanitizarIdentificador(d.proveedor) ?? imp.proveedorExterior,
+        valorVentaExportacion: ventaExportacionCtms > 0n ? ventaExportacionCtms : imp.valorVentaExportacion,
+        proveedorExterior: sanitizarIdentificador(d.proveedor) ?? factura?.proveedor ?? imp.proveedorExterior,
+        // Incoterm limpio desde la factura (p. ej. "FOB"), pisa el autocompletado sucio.
+        incoterm: factura?.incoterm ?? imp.incoterm,
         paisOrigen: d.paisOrigen ?? imp.paisOrigen,
         monedaOrigen: moneda,
         tipoCambio: tcRepresentativo ?? imp.tipoCambio,
