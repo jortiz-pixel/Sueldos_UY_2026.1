@@ -8,7 +8,7 @@
 import { TipoDocumentoImportacion, EstadoProcesamientoDoc, ImportacionRegimen } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { storageService } from './storage.service';
-import { textoDelPdf } from './importaciones.pdf-extract.service';
+import { textoPorPagina } from './importaciones.pdf-extract.service';
 import { GastoImportacionConcepto } from '@prisma/client';
 import { construirCosteoHistorico, sanitizarIdentificador, validarTipoCambio, CosteoDocInput } from './importaciones.costeo.service';
 import { construirCostoFiscalAdquisicion, CostoFiscalInput } from './importaciones.fiscal.service';
@@ -165,7 +165,11 @@ export async function reconstruirCosteoDesdeExtraccion(importacionId: string): P
     prisma.importacionDocExtraccion.findMany({ where: { importacionId, tipo: 'RECIBO' } }),
     prisma.importacionDocExtraccion.findFirst({ where: { importacionId, tipo: 'PACKING_LIST' } }),
   ]);
-  if (!duaEx) return { ok: false };
+  // El DUA formal (DNA) puede NO estar: en operaciones de TRÁNSITO los números de DUA
+  // vienen dentro de las e-facturas del despachante y no hay un PDF de DUA aparte. En
+  // ese caso se costea igual desde la factura + servicios (sin tributos de importación).
+  // Sin DUA y sin factura no hay nada que costear.
+  if (!duaEx && facturasAll.length === 0) return { ok: false };
   // Una importación puede traer VARIAS facturas comerciales del proveedor (p. ej. dos
   // embarques, YZ…D-1 y YZ…D-2). Se CONSOLIDAN en una sola: se suman FOB/flete/seguro/
   // total y se unifican los artículos por código (suma de cantidades e importes), para
@@ -182,7 +186,7 @@ export async function reconstruirCosteoDesdeExtraccion(importacionId: string): P
     return { ...facturasAll[0], fob: suma((x) => x.fob), flete: suma((x) => x.flete), seguro: suma((x) => x.seguro), cif: suma((x) => x.cif), total: suma((x) => x.total), articulos: [...artMap.values()] };
   })();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const d: any = duaEx.datos ?? {};
+  const d: any = duaEx?.datos ?? {};
   const moneda: string = imp.monedaOrigen || d.moneda || 'USD';
   const tcAdVal = validarTipoCambio(d.tipoCambio);
   const duaDate = d.fechaPago ? new Date(`${d.fechaPago}T00:00:00Z`) : (factura?.fecha ?? null);
@@ -416,30 +420,50 @@ export async function procesarExpediente(importacionId: string): Promise<Procesa
     },
   });
 
+  // Separa un PDF que trae VARIOS documentos (el set completo del expediente: factura
+  // + packing + DUA + e-facturas + SWIFT…) en segmentos, clasificando CADA página.
+  // Agrupa páginas consecutivas del mismo tipo (p. ej. una póliza de 6 hojas), salvo
+  // los tipos "uno por página" (facturas, recibos, pagos), que se separan por página
+  // para no perder ninguno. Las páginas escaneadas/vacías se adjuntan al segmento previo.
+  const UNO_POR_PAGINA = new Set<TipoDoc>(['FACTURA_COMERCIAL', 'FACTURA_EXPORTACION', 'FACTURA_SERVICIOS_UY', 'RECIBO', 'SWIFT', 'PAGO_TRIBUTOS', 'PAGO_SERVICIOS_LOCAL']);
+  const segmentar = (paginas: string[]): Array<{ tipo: TipoDoc; confianza: number; texto: string }> => {
+    const segs: Array<{ tipo: TipoDoc; confianza: number; texto: string }> = [];
+    for (const pag of paginas) {
+      if (pag.trim().length < 40) { if (segs.length) segs[segs.length - 1].texto += `\n${pag}`; continue; }
+      const { tipo, confianza } = clasificarDocumento(pag);
+      const prev = segs[segs.length - 1];
+      if (prev && prev.tipo === tipo && !UNO_POR_PAGINA.has(tipo)) prev.texto += `\n${pag}`;
+      else segs.push({ tipo, confianza, texto: pag });
+    }
+    return segs;
+  };
+
   for (const doc of docs) {
     if (doc.mimeType !== 'application/pdf') {
       await prisma.importacionDocumento.update({ where: { id: doc.id }, data: { estadoProc: EstadoProcesamientoDoc.PENDIENTE, errorProc: 'Requiere OCR (no es PDF con texto) — próxima etapa' } });
       continue;
     }
-    let texto = '';
-    try { texto = await storageService.read(doc.storageKey).then((b) => textoDelPdf(b)); }
+    let paginas: string[] = [];
+    try { paginas = await storageService.read(doc.storageKey).then((b) => textoPorPagina(b)); }
     catch { await prisma.importacionDocumento.update({ where: { id: doc.id }, data: { estadoProc: EstadoProcesamientoDoc.ERROR, errorProc: 'No se pudo leer el PDF' } }); continue; }
 
-    const { tipo, confianza } = clasificarDocumento(texto);
-    tiposVistos.add(tipo);
-
-    // PDF escaneado sin capa de texto (p. ej. conocimiento aéreo): no se puede
-    // leer sin OCR. Se deja PENDIENTE con aviso; el AWB ya se obtiene del DUA.
-    if (texto.trim().length < 40) {
-      await prisma.importacionDocumento.update({ where: { id: doc.id }, data: { tipoDetectado: TIPO_PRISMA[tipo], confianzaTipo: confianza, estadoProc: EstadoProcesamientoDoc.PENDIENTE, errorProc: 'PDF escaneado sin texto — requiere OCR (el Nº de AWB ya se toma del DUA)' } });
+    // PDF escaneado sin capa de texto (p. ej. conocimiento aéreo): no se puede leer
+    // sin OCR. Se deja PENDIENTE con aviso; el AWB ya se obtiene del DUA.
+    if (paginas.join('').trim().length < 40) {
+      await prisma.importacionDocumento.update({ where: { id: doc.id }, data: { estadoProc: EstadoProcesamientoDoc.PENDIENTE, errorProc: 'PDF escaneado sin texto — requiere OCR (el Nº de AWB ya se toma del DUA)' } });
       advertencias.push(`"${doc.fileName}" parece escaneado (sin texto): no se pudo leer automáticamente; se requeriría OCR.`);
       continue;
     }
 
-    await prisma.importacionDocumento.update({ where: { id: doc.id }, data: { tipoDetectado: TIPO_PRISMA[tipo], confianzaTipo: confianza, estadoProc: EstadoProcesamientoDoc.PROCESADO, errorProc: null } });
+    const segmentos = segmentar(paginas);
+    const tipoArchivo = segmentos.length === 1 ? segmentos[0].tipo : 'OTRO';
+    await prisma.importacionDocumento.update({ where: { id: doc.id }, data: { tipoDetectado: TIPO_PRISMA[tipoArchivo], confianzaTipo: segmentos[0]?.confianza ?? 0, estadoProc: EstadoProcesamientoDoc.PROCESADO, errorProc: segmentos.length > 1 ? `PDF combinado: ${segmentos.length} documentos detectados` : null } });
     docsProcesados += 1;
 
-    if (tipo === 'FACTURA_COMERCIAL') {
+    for (const seg of segmentos) {
+      const { texto, tipo, confianza } = seg;
+      tiposVistos.add(tipo);
+      if (tipo === 'FACTURA_COMERCIAL') {
       const f = parseFacturaComercial(texto);
       await prisma.importacionFactura.create({
         data: {
@@ -560,6 +584,7 @@ export async function procesarExpediente(importacionId: string): Promise<Procesa
       });
       otros += 1;
     }
+    } // fin for segmentos
   }
 
   // Venta de exportación detectada (triangulación/tránsito): se persiste como el
@@ -595,7 +620,7 @@ export async function procesarExpediente(importacionId: string): Promise<Procesa
   // Recalcular el costeo desde los documentos oficiales (DUA + factura + CFE):
   // CIF, tributos y gastos pasan a reflejar lo realmente declarado/liquidado.
   let costeoActualizado = false;
-  if (dua > 0) {
+  if (dua > 0 || facturas > 0) {
     try {
       const rc = await reconstruirCosteoDesdeExtraccion(importacionId);
       costeoActualizado = rc.ok;

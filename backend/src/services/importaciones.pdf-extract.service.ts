@@ -29,32 +29,47 @@ export async function contarPaginasPdf(buffer: Buffer): Promise<number> {
 }
 
 /** Extrae el texto del PDF reconstruyendo las líneas por su posición vertical. */
+// Texto de UNA página, reconstruido por filas (y) y columnas (x). Compartido por
+// textoDelPdf (todo junto) y textoPorPagina (una entrada por página, para separar
+// un PDF que trae VARIOS documentos en un mismo archivo).
+function textoDeContenido(content: { items: Array<{ str?: string; transform?: number[] }> }): string {
+  const filas = new Map<number, Array<{ x: number; s: string }>>();
+  for (const it of content.items) {
+    if (typeof it.str !== 'string' || !it.transform) continue;
+    const y = Math.round(it.transform[5]);
+    const x = it.transform[4];
+    if (!filas.has(y)) filas.set(y, []);
+    filas.get(y)!.push({ x, s: it.str });
+  }
+  const ys = [...filas.keys()].sort((a, b) => b - a); // de arriba hacia abajo
+  const lineas: string[] = [];
+  for (const y of ys) {
+    const linea = filas.get(y)!.sort((a, b) => a.x - b.x).map((p) => p.s).join(' ').replace(/\s+/g, ' ').trim();
+    if (linea) lineas.push(linea);
+  }
+  return lineas.join('\n');
+}
+
 export async function textoDelPdf(buffer: Buffer): Promise<string> {
+  return (await textoPorPagina(buffer)).join('\n');
+}
+
+// Devuelve el texto de CADA página por separado. Permite separar un PDF que trae
+// varios documentos (factura + packing + DUA + e-facturas + SWIFT…) en uno solo.
+export async function textoPorPagina(buffer: Buffer): Promise<string[]> {
   const doc = await pdfjs.getDocument({
     data: new Uint8Array(buffer),
     isEvalSupported: false,
     useSystemFonts: true,
     disableFontFace: true,
   }).promise;
-  const lineasOut: string[] = [];
+  const paginas: string[] = [];
   for (let i = 1; i <= doc.numPages; i++) {
     const page = await doc.getPage(i);
     const content = await page.getTextContent();
-    const filas = new Map<number, Array<{ x: number; s: string }>>();
-    for (const it of content.items as Array<{ str?: string; transform?: number[] }>) {
-      if (typeof it.str !== 'string' || !it.transform) continue;
-      const y = Math.round(it.transform[5]);
-      const x = it.transform[4];
-      if (!filas.has(y)) filas.set(y, []);
-      filas.get(y)!.push({ x, s: it.str });
-    }
-    const ys = [...filas.keys()].sort((a, b) => b - a); // de arriba hacia abajo
-    for (const y of ys) {
-      const linea = filas.get(y)!.sort((a, b) => a.x - b.x).map((p) => p.s).join(' ').replace(/\s+/g, ' ').trim();
-      if (linea) lineasOut.push(linea);
-    }
+    paginas.push(textoDeContenido(content));
   }
-  return lineasOut.join('\n');
+  return paginas;
 }
 
 function normalize(s: string): string {

@@ -955,3 +955,28 @@ describe('parser — factura comercial en inglés (Commercial Invoice, proveedor
     expect(parseFacturaComercial(inv2).fob).toBeCloseTo(129821.35, 2);
   });
 });
+
+// Agente de carga (Savino del Bene): e-Factura con TOTAL en formato US (punto
+// decimal) y etiqueta "Monto Total". Antes quedaba en 0 → el flete no entraba al
+// costo. Texto tal cual lo extrae pdfjs del dossier real.
+describe('parser — e-Factura del agente de carga (Savino, total en formato US)', () => {
+  const savino = [
+    'RUT EMISOR TIPO DE DOCUMENTO', '216550150012 e-Factura', 'RUT COMPRADOR 219864670013',
+    'STX STAINLESS STEEL SA EN FORMACION',
+    'OI FLETE MARITIMO 4X20GP 1,000 5400,000000 0,00 0,00 5400,00',
+    'OI MVD LOCAL CHARGES 4X20GP 1,000 3000,000000 0,00 0,00 3000,00',
+    'OI GASTOS TERMINAL 4X20GP 1,000 2472,000000 0,00 0,00 2472,00',
+    'OI SEGURO 1,000 270,100000 0,00 0,00 270,10',
+    'OI DEVOLUCION DE VACIO 4X20GP 1,000 880,000000 0,00 0,00 880,00',
+    'TOTALES', 'Monto no Gravado 12.022,10', 'Monto IVA en Suspenso 0,00',
+    'Puede verificar comprobante en: Monto Total 12.022,10',
+    'Total a Pagar U$S 12022.10',
+    'Código de Seguridad otqlpP',
+  ].join('\n');
+
+  it('reconoce el emisor y lee el total aunque esté en formato US (12022.10)', () => {
+    const c = parseFacturasServiciosUY(savino)[0];
+    expect(c.emisor).toMatch(/Savino/i);
+    expect(c.total).toBeCloseTo(12022.10, 2);
+  });
+});

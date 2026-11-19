@@ -61,7 +61,12 @@ export function clasificarDocumento(texto: string): { tipo: TipoDoc; confianza: 
   const t = norm(texto);
   const corto = texto.trim().length < 40; // PDF escaneado sin capa de texto
   if (t.includes('documento unico aduanero')) return { tipo: 'DUA', confianza: 0.97 };
-  if (t.includes('certificado de origen')) return { tipo: 'CERTIFICADO_ORIGEN', confianza: 0.95 };
+  if (t.includes('certificado de origen') || t.includes('certificate of origin')) return { tipo: 'CERTIFICADO_ORIGEN', confianza: 0.95 };
+  // Hoja de COSTEO del cliente (p. ej. planilla brasileña de landed cost): NO es un
+  // documento fuente, no se parsea. Se descarta para que no se confunda con una factura.
+  if (t.includes('custo total da importacao') || t.includes('composicao do valor aduaneiro') || t.includes('valor por tonelada') || t.includes('total da composicao')) return { tipo: 'OTRO', confianza: 0.6 };
+  // Póliza / certificado de seguro de transporte (no integra el costeo documental).
+  if (t.includes('certificado de cobertura') || (t.includes('poliza flotante') && t.includes('asegurado'))) return { tipo: 'OTRO', confianza: 0.7 };
   if (t.includes('autorizacion para sociedad comercial') || (t.includes('despachante') && t.includes('director') && t.includes('aduana'))) return { tipo: 'AUTORIZACION', confianza: 0.9 };
   // Facturas (compra y venta) con señales FUERTES y sin ambigüedad: van ANTES que los
   // chequeos de pagos, porque una factura comercial trae "SWIFT/BIC Code" en los datos
@@ -516,6 +521,7 @@ const EMISORES_UY: Record<string, string> = {
   '217369500013X': 'Estudio Pacini — Despachante de Aduana',
   '214902340010': 'TCU S.A. — Terminal de Cargas Uruguay',
   '217127640018': 'KIXOLER S.A. (Cielosur) — Agencia de carga aérea',
+  '216550150012': 'Savino del Bene Uruguay S.A. — Agente de carga',
   '213372720018': 'Danico — Imprenta',
 };
 
@@ -545,15 +551,18 @@ export function parseFacturaServiciosUY(texto: string): FacturaServiciosParsed {
     }
     return null;
   };
-  // Total a pagar: en línea, o con el número en el renglón anterior/siguiente
-  // (los CFE de la agencia ponen el importe en otra línea que la etiqueta).
-  const total = (() => {
-    const inline = texto.match(/TOTAL\s+A\s+PAGAR:?\s*([\d.]+,\d{2})/i)?.[1];
-    if (inline) return parseNum(inline);
-    const m = montoEtiqueta(/total\s*a\s*pagar/i); if (m != null) return m;
-    const sub = montoEtiqueta(/sub\s*total\s*:/i); if (sub != null) return sub;
-    const v = texto.match(/\bTOTAL:?\s*([\d.,]+)/i)?.[1]; return v ? parseNum(v) : null;
-  })();
+  // Total a pagar: en línea, o con el número en el renglón anterior/siguiente (los
+  // CFE ponen el importe en otra columna que la etiqueta). Robusto a AMBOS formatos
+  // de número: coma decimal (12.022,10) y punto decimal (12022.10, p. ej. Savino),
+  // y a varias etiquetas ("Total a Pagar", "Monto Total").
+  const numImporte = (s: string): number | null => { const m = s.match(/(\d[\d.,]*[.,]\d{2})\b/); return m ? parseNum(m[1]) : null; };
+  const totalEtiqueta = (re: RegExp): number | null => {
+    const i = lineas.findIndex((l) => re.test(l));
+    if (i === -1) return null;
+    for (const cand of [lineas[i], lineas[i + 1] ?? '', lineas[i - 1] ?? '']) { const v = numImporte(cand); if (v != null) return v; }
+    return null;
+  };
+  const total = totalEtiqueta(/total\s*a\s*pagar/i) ?? totalEtiqueta(/monto\s*total/i) ?? totalEtiqueta(/^\s*total\b/i) ?? montoEtiqueta(/sub\s*total/i);
   const subtotalGravado = montoEtiqueta(/SUBTOTAL GRAVADO/i);
   const subtotalNoGravado = montoEtiqueta(/SUBTOTAL NO GRAVADO/i);
   const iva = montoEtiqueta(/TOTAL IVA/i);
