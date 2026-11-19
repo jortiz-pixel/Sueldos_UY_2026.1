@@ -12,7 +12,7 @@ import { textoPorPagina } from './importaciones.pdf-extract.service';
 import { GastoImportacionConcepto } from '@prisma/client';
 import { construirCosteoHistorico, sanitizarIdentificador, validarTipoCambio, CosteoDocInput } from './importaciones.costeo.service';
 import { construirCostoFiscalAdquisicion, CostoFiscalInput } from './importaciones.fiscal.service';
-import { cotizacionBcu } from './cotizaciones.service';
+import { cotizacionBcu, BCU_MONEDA } from './cotizaciones.service';
 import {
   clasificarDocumento, parseFacturaComercial, parseLiquidacionDespachante,
   parsePagoExterior, consolidarPagos, TipoDoc, PagoParsed,
@@ -69,7 +69,7 @@ async function obtenerTcFiscalOperacion(moneda: string, fecha: Date | null, tcDu
   //    de 4 días para cubrir fines de semana/feriados). NUNCA una cotización vieja
   //    de otro período: la ventana acotada evita reutilizar, p. ej., junio para agosto.
   if (fecha) {
-    const desde = new Date(fecha); desde.setUTCDate(desde.getUTCDate() - 4);
+    const desde = new Date(fecha); desde.setUTCDate(desde.getUTCDate() - 7);
     const guardada = await prisma.cotizacion.findFirst({
       where: { monedaOrigen: moneda, tipo: 'CONTABLE', fecha: { gte: desde, lte: fecha } },
       orderBy: { fecha: 'desc' },
@@ -83,23 +83,26 @@ async function obtenerTcFiscalOperacion(moneda: string, fecha: Date | null, tcDu
   const vDua = validarTipoCambio(tcDua);
   if (vDua.valido && vDua.valor != null) return { valor: vDua.valor, fuente: 'DUA (cotización oficial del día de la operación)' };
   // 3) BCU: la cotización de ESA fecha; si no hay (fin de semana/feriado) se toma
-  //    el último día hábil inmediato (hasta 4 días atrás), nunca más lejos.
+  //    el último día hábil inmediato (hasta 7 días atrás, cubre feriados largos).
+  //    Un fallo TRANSITORIO del BCU (red/timeout) NO salta de día: corta y deja la
+  //    cotización PROVISIONAL (saltar daría una cotización de otro día, equivocada).
   if (fecha && fechaStr) {
-    for (let atras = 0; atras <= 4; atras++) {
-      try {
-        const f = new Date(fecha); f.setUTCDate(f.getUTCDate() - atras);
-        const fStr = f.toISOString().slice(0, 10);
-        const bcu = await cotizacionBcu(moneda, fStr);
-        const v = validarTipoCambio(bcu?.venta);
-        if (bcu && v.valido && v.valor != null) {
-          await prisma.cotizacion.upsert({
-            where: { fecha_monedaOrigen_monedaDestino_tipo: { fecha: f, monedaOrigen: moneda, monedaDestino: 'UYU', tipo: 'CONTABLE' } },
-            create: { fecha: f, monedaOrigen: moneda, monedaDestino: 'UYU', tipo: 'CONTABLE', valor: v.valor, compra: bcu.compra, venta: bcu.venta, fuente: 'BCU' },
-            update: { valor: v.valor, compra: bcu.compra, venta: bcu.venta, fuente: 'BCU' },
-          });
-          return { valor: v.valor, fuente: `BCU ${fStr} (venta)${atras ? ` — último día hábil para ${fechaStr}` : ''}` };
-        }
-      } catch { /* probar el día anterior */ }
+    for (let atras = 0; atras <= 7; atras++) {
+      const f = new Date(fecha); f.setUTCDate(f.getUTCDate() - atras);
+      const fStr = f.toISOString().slice(0, 10);
+      let bcu: Awaited<ReturnType<typeof cotizacionBcu>>;
+      try { bcu = await cotizacionBcu(moneda, fStr); }
+      catch { return { valor: null, fuente: null }; } // BCU no disponible → provisional, sin saltar de día
+      const v = validarTipoCambio(bcu?.venta);
+      if (bcu && v.valido && v.valor != null) {
+        await prisma.cotizacion.upsert({
+          where: { fecha_monedaOrigen_monedaDestino_tipo: { fecha: f, monedaOrigen: moneda, monedaDestino: 'UYU', tipo: 'CONTABLE' } },
+          create: { fecha: f, monedaOrigen: moneda, monedaDestino: 'UYU', tipo: 'CONTABLE', valor: v.valor, compra: bcu.compra, venta: bcu.venta, fuente: 'BCU' },
+          update: { valor: v.valor, compra: bcu.compra, venta: bcu.venta, fuente: 'BCU' },
+        });
+        return { valor: v.valor, fuente: `BCU ${fStr} (venta)${atras ? ` — último día hábil para ${fechaStr}` : ''}` };
+      }
+      // bcu === null → el BCU no tiene dato ese día: probar el día hábil anterior.
     }
   }
   return { valor: null, fuente: null };
@@ -126,20 +129,51 @@ async function tcFiscalArt74(moneda: string, fechaOperacion: Date | null): Promi
     const guardada = await prisma.cotizacion.findFirst({ where: { monedaOrigen: moneda, monedaDestino: 'UYU', tipo: 'FISCAL', fecha: f } });
     const gv = guardada ? validarTipoCambio(guardada.compra ?? guardada.valor) : { valido: false, valor: null as number | null };
     if (guardada && gv.valido && gv.valor != null) return { valor: gv.valor, fuente: `${guardada.fuente || 'cotización fiscal'} ${fStr} (comprador billete, Art. 74)` };
-    try {
-      const bcu = await cotizacionBcu(moneda, fStr);
-      const v = validarTipoCambio(bcu?.compra); // comprador billete (TCC)
-      if (bcu && v.valido && v.valor != null) {
-        await prisma.cotizacion.upsert({
-          where: { fecha_monedaOrigen_monedaDestino_tipo: { fecha: f, monedaOrigen: moneda, monedaDestino: 'UYU', tipo: 'FISCAL' } },
-          create: { fecha: f, monedaOrigen: moneda, monedaDestino: 'UYU', tipo: 'FISCAL', valor: v.valor, compra: bcu.compra, venta: bcu.venta, fuente: 'BCU interbancario comprador billete (Art. 74 Dec. 150/007)' },
-          update: { valor: v.valor, compra: bcu.compra, venta: bcu.venta, fuente: 'BCU interbancario comprador billete (Art. 74 Dec. 150/007)' },
-        });
-        return { valor: v.valor, fuente: `BCU ${fStr} comprador billete (Art. 74 Dec. 150/007)${atras > 1 ? ` — último día hábil anterior` : ''}` };
-      }
-    } catch { /* probar el día anterior */ }
+    let bcu: Awaited<ReturnType<typeof cotizacionBcu>>;
+    try { bcu = await cotizacionBcu(moneda, fStr); }
+    catch { return null; } // BCU no disponible (transitorio) → fiscal PENDIENTE, sin saltar de día
+    const v = validarTipoCambio(bcu?.compra); // comprador billete (TCC)
+    if (bcu && v.valido && v.valor != null) {
+      await prisma.cotizacion.upsert({
+        where: { fecha_monedaOrigen_monedaDestino_tipo: { fecha: f, monedaOrigen: moneda, monedaDestino: 'UYU', tipo: 'FISCAL' } },
+        create: { fecha: f, monedaOrigen: moneda, monedaDestino: 'UYU', tipo: 'FISCAL', valor: v.valor, compra: bcu.compra, venta: bcu.venta, fuente: 'BCU interbancario comprador billete (Art. 74 Dec. 150/007)' },
+        update: { valor: v.valor, compra: bcu.compra, venta: bcu.venta, fuente: 'BCU interbancario comprador billete (Art. 74 Dec. 150/007)' },
+      });
+      return { valor: v.valor, fuente: `BCU ${fStr} comprador billete (Art. 74 Dec. 150/007)${atras > 1 ? ` — último día hábil anterior` : ''}` };
+    }
+    // bcu === null → el BCU no tiene dato ese día: probar el día hábil anterior.
   }
   return null;
+}
+
+/**
+ * Sincroniza automáticamente las cotizaciones del BCU de los últimos `dias` días
+ * para las monedas con código BCU (USD, EUR), guardando CONTABLE (venta) y FISCAL
+ * (comprador billete). Best-effort: deja pre-cargada la tabla para que el costeo no
+ * dependa de una consulta en vivo. Salta los días ya guardados, corta ante un fallo
+ * transitorio del BCU (no reintenta todo el rango) y nunca inventa cotizaciones.
+ */
+export async function sincronizarCotizacionesRecientes(dias = 10): Promise<{ guardadas: number; monedas: string[] }> {
+  const monedas = Object.keys(BCU_MONEDA);
+  let guardadas = 0;
+  const hoy = new Date();
+  for (const moneda of monedas) {
+    for (let atras = 0; atras <= dias; atras++) {
+      const f = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth(), hoy.getUTCDate() - atras));
+      const fStr = f.toISOString().slice(0, 10);
+      const yaCont = await prisma.cotizacion.findFirst({ where: { monedaOrigen: moneda, monedaDestino: 'UYU', tipo: 'CONTABLE', fecha: f } });
+      const yaFisc = await prisma.cotizacion.findFirst({ where: { monedaOrigen: moneda, monedaDestino: 'UYU', tipo: 'FISCAL', fecha: f } });
+      if (yaCont && yaFisc) continue;
+      let bcu;
+      try { bcu = await cotizacionBcu(moneda, fStr); }
+      catch { break; } // BCU no disponible (transitorio): no seguir con este rango ahora
+      if (!bcu) continue; // feriado/fin de semana: no hay dato ese día
+      const vVenta = validarTipoCambio(bcu.venta); const vCompra = validarTipoCambio(bcu.compra);
+      if (!yaCont && vVenta.valido) { await prisma.cotizacion.upsert({ where: { fecha_monedaOrigen_monedaDestino_tipo: { fecha: f, monedaOrigen: moneda, monedaDestino: 'UYU', tipo: 'CONTABLE' } }, create: { fecha: f, monedaOrigen: moneda, monedaDestino: 'UYU', tipo: 'CONTABLE', valor: bcu.venta, compra: bcu.compra, venta: bcu.venta, fuente: 'BCU (sync diaria)' }, update: { valor: bcu.venta, compra: bcu.compra, venta: bcu.venta, fuente: 'BCU (sync diaria)' } }); guardadas += 1; }
+      if (!yaFisc && vCompra.valido) { await prisma.cotizacion.upsert({ where: { fecha_monedaOrigen_monedaDestino_tipo: { fecha: f, monedaOrigen: moneda, monedaDestino: 'UYU', tipo: 'FISCAL' } }, create: { fecha: f, monedaOrigen: moneda, monedaDestino: 'UYU', tipo: 'FISCAL', valor: bcu.compra, compra: bcu.compra, venta: bcu.venta, fuente: 'BCU interbancario comprador billete (Art. 74 Dec. 150/007)' }, update: { valor: bcu.compra, compra: bcu.compra, venta: bcu.venta, fuente: 'BCU interbancario comprador billete (Art. 74 Dec. 150/007)' } }); guardadas += 1; }
+    }
+  }
+  return { guardadas, monedas };
 }
 
 const bigintReplacer = (_k: string, v: unknown) => (typeof v === 'bigint' ? v.toString() : v);

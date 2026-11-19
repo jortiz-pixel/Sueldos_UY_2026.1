@@ -27,7 +27,7 @@ import { procesarExpediente, reconstruirCosteoDesdeExtraccion } from '../service
 import { NORMAS_IRAE } from '../services/importaciones.fiscal.service';
 import { validarTipoCambio, sanitizarIdentificador, armarAsientosImportacion, asientoInputDesdeImportacion } from '../services/importaciones.costeo.service';
 import { CUENTAS_IMPORTACION, PlanCuentas, etiquetaCuenta } from '../services/importaciones.config.service';
-import { cotizacionBcu, BCU_MONEDA } from '../services/cotizaciones.service';
+import { cotizacionBcu, BCU_MONEDA, BcuNoDisponibleError } from '../services/cotizaciones.service';
 
 export const importacionesRouter = Router();
 
@@ -298,7 +298,9 @@ importacionesRouter.post('/cotizaciones/bcu', async (req: Request, res: Response
     const { moneda, fecha, tipo } = z.object({
       moneda: z.string().min(1), fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), tipo: z.nativeEnum(CotizacionTipo),
     }).parse(req.body);
-    const dato = await cotizacionBcu(moneda, fecha);
+    let dato: Awaited<ReturnType<typeof cotizacionBcu>>;
+    try { dato = await cotizacionBcu(moneda, fecha); }
+    catch (e) { if (e instanceof BcuNoDisponibleError) throw new AppError(503, `No se pudo consultar el BCU en este momento (servicio no disponible). Reintentá en unos minutos.`); throw e; }
     if (!dato) throw new AppError(404, `El BCU no tiene cotización de ${moneda.toUpperCase()} para el ${fecha} (feriado, fin de semana, fecha futura o moneda sin código).`);
     const clave = { fecha: new Date(`${dato.fecha}T00:00:00Z`), monedaOrigen: dato.moneda, monedaDestino: 'UYU', tipo };
     const cot = await prisma.cotizacion.upsert({

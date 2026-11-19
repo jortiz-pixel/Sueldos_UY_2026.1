@@ -168,6 +168,7 @@ app.listen(PORT, () => {
   logger.info(`Sueldos UY server corriendo en puerto ${PORT}`);
   logger.info(`Ambiente: ${process.env.NODE_ENV || 'development'}`);
   programarActualizacionValoresBps();
+  programarSincronizacionCotizaciones();
 });
 
 // Actualización automática de los valores comunes (BPC, BFC, UR, UI, salario
@@ -187,6 +188,27 @@ function programarActualizacionValoresBps(): void {
     }
   };
   setTimeout(correr, 2 * 60 * 1000);
+  setInterval(correr, 24 * 60 * 60 * 1000);
+}
+
+// Sincronización automática de las cotizaciones del BCU (USD, EUR): una corrida
+// ~3 min después de arrancar y luego cada 24 h, para dejar pre-cargadas las
+// cotizaciones recientes (CONTABLE y FISCAL) y que el costeo nunca dependa de una
+// consulta en vivo. Best-effort: cualquier error se registra y no rompe nada (el
+// costeo igual consulta el BCU en el momento si falta un día). Se apaga con
+// COTIZACIONES_AUTO_SYNC=0.
+function programarSincronizacionCotizaciones(): void {
+  if (process.env.COTIZACIONES_AUTO_SYNC === '0') return;
+  const correr = async () => {
+    try {
+      const { sincronizarCotizacionesRecientes } = await import('./services/importaciones.procesar.service');
+      const r = await sincronizarCotizacionesRecientes(10);
+      if (r.guardadas) logger.info(`Cotizaciones BCU sincronizadas: ${r.guardadas} (${r.monedas.join(', ')}).`);
+    } catch (err) {
+      logger.warn(`No se pudieron sincronizar las cotizaciones del BCU: ${(err as Error).message}`);
+    }
+  };
+  setTimeout(correr, 3 * 60 * 1000);
   setInterval(correr, 24 * 60 * 60 * 1000);
 }
 
