@@ -212,4 +212,32 @@ describe('Costeo histórico — Nacionalización vs Tránsito (régimen)', () =>
     for (const i of r.items!) { expect(i.tributos).toBe(0n); expect(i.adquisicion + i.tributos + i.gastos).toBe(i.costo); }
     expect(r.items!.reduce((s, i) => s + i.costo, 0n)).toBe(r.costoInventario);
   });
+
+  // Detección automática de régimen por el DUA (sin impuestos de nacionalización = tránsito).
+  const inputTributos = (esTransito: boolean, tributos: Array<{ codigo: string; nombre: string; monto: number }>) => ({
+    dua: { nroDua: '123', tipoCambio: 40, valorAduanaPesos: 40000, importadorRut: '210000000011', declaranteRut: null, unidadesComerciales: 1, importeFacturas: 1000, moneda: 'USD', tributos },
+    factura: { fob: 100000n, flete: 0n, seguro: 0n, total: 100000n, moneda: 'USD', articulos: [{ descripcion: 'X', codigo: 'A1', cantidad: 1, total: 100000n, clasificacion: 'MERCADERIA' }] },
+    servicios: [], anticipos: [{ fecha: '2026-06-09', referencia: 'OP1', moneda: 'USD', monto: 1000, comision: 0, cotizacion: 40, fuente: 'BCU 2026-06-09' }],
+    pagoSpeCtms: null, pagoDespachanteCtms: null, fechaReconocimiento: '2026-06-10', cotizacionReconocimiento: 40,
+    tcProvisional: null, unidadesPacking: null, esTransito, etiqueta: (k: string) => k,
+  });
+  const CON_IVA = [{ codigo: '01', nombre: 'Recargo', monto: 100 }, { codigo: '15', nombre: 'IVA importación', monto: 220 }];
+  const SIN_IMP: Array<{ codigo: string; nombre: string; monto: number }> = []; // DUA de tránsito: sin impuestos de nacionalización
+
+  test('marcada NACIONALIZACIÓN pero el DUA no liquida impuestos → avisa que parece tránsito', () => {
+    const r = construirCosteoHistorico(inputTributos(false, SIN_IMP));
+    expect(r.avisoRegimen).toBeTruthy();
+    expect(r.avisoRegimen).toMatch(/TRÁNSITO/);
+  });
+
+  test('marcada TRÁNSITO pero el DUA liquida impuestos → avisa que parece nacionalización', () => {
+    const r = construirCosteoHistorico(inputTributos(true, CON_IVA));
+    expect(r.avisoRegimen).toBeTruthy();
+    expect(r.avisoRegimen).toMatch(/NACIONALIZACIÓN/);
+  });
+
+  test('régimen coherente con el DUA → sin aviso', () => {
+    expect(construirCosteoHistorico(inputTributos(false, CON_IVA)).avisoRegimen).toBeNull(); // nacionalización con impuestos
+    expect(construirCosteoHistorico(inputTributos(true, SIN_IMP)).avisoRegimen).toBeNull();  // tránsito sin impuestos
+  });
 });

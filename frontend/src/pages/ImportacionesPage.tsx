@@ -554,6 +554,15 @@ function FormImportacion({ companyId, inicial, importacion, onClose, onSaved, on
       {/* Ítems (opcional) */}
       <LineasItems items={f.items} onChange={(i) => set('items', i)} />
 
+      {/* Aviso de incoherencia régimen vs DUA (marcada nacionalización pero el DUA no
+          liquida impuestos de nacionalización → parece tránsito, o a la inversa). */}
+      {importacion?.costeoDetalle?.avisoRegimen ? (
+        <div className="card p-4 border border-warn/40 bg-warn/10 flex items-start gap-2 text-sm">
+          <AlertCircle size={18} className="text-warn shrink-0 mt-0.5" />
+          <div><span className="font-semibold">Revisá el régimen: </span>{importacion.costeoDetalle.avisoRegimen}</div>
+        </div>
+      ) : null}
+
       {/* Resumen de costeo */}
       <div className="card p-5 bg-canvas/50">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-ink-subtle mb-3">Resumen del costeo</h2>

@@ -419,6 +419,10 @@ export interface CosteoHistorico {
   // gastos) queda acumulado en Importaciones en trámite. false = Nacionalización
   // (importación definitiva): criterio completo (tributos al costo, IVA crédito, alta).
   esTransito: boolean;
+  // Aviso de incoherencia entre el RÉGIMEN elegido y lo que muestra el DUA: si está
+  // marcada como Nacionalización pero el DUA no liquida impuestos de nacionalización
+  // (IVA importación / anticipos) parece tránsito; o a la inversa. null = sin aviso.
+  avisoRegimen: string | null;
   // Por artículo: desglose del costo prorrateado por componente (Adquisición CIF +
   // Tributos no recuperables + Gastos de plaza = costo), todos por participación en FOB.
   items: Array<{ codigo: string | null; descripcion: string; cantidad: number; fobME: bigint; adquisicion: bigint; tributos: bigint; gastos: bigint; costo: bigint; clasificacion: string }> | null;
@@ -961,9 +965,23 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
     motivos.push(`Inconsistencia interna: costo de inventario $${(Number(ci) / 100).toLocaleString('es-UY')} vs artículos (dif ${Number(difArticulos) / 100}) / asientos (dif ${Number(difAsientos) / 100}) / adquisición (dif ${Number(difAdquisicion) / 100}).`);
   }
 
+  // ── Detección de régimen por el DUA ──────────────────────────────────────────
+  // Una NACIONALIZACIÓN (definitiva) SIEMPRE liquida impuestos de nacionalización
+  // (IVA importación y, normalmente, anticipos de IVA/IRAE). Un DUA de TRÁNSITO no
+  // los trae. Si el régimen elegido no coincide con lo que muestra el DUA, se avisa
+  // (no bloquea: es una alerta para que el operador corrija el régimen si corresponde).
+  const sinImpuestosNacionalizacion = ivaImportacion === 0n && anticiposFiscales === 0n;
+  let avisoRegimen: string | null = null;
+  if (dua != null && !esTransito && sinImpuestosNacionalizacion) {
+    avisoRegimen = 'La importación está marcada como NACIONALIZACIÓN, pero el DUA no liquida impuestos de nacionalización (sin IVA importación ni anticipos de IVA/IRAE). Esto corresponde a una operación de TRÁNSITO. Si es así, cambiá el régimen a Tránsito; si debía nacionalizarse, revisá el DUA.';
+  } else if (esTransito && !sinImpuestosNacionalizacion) {
+    avisoRegimen = 'La importación está marcada como TRÁNSITO, pero el DUA liquida impuestos de nacionalización (IVA importación / anticipos). Esto corresponde a una NACIONALIZACIÓN. Si es así, cambiá el régimen a Nacionalización.';
+  }
+
   return {
     estado: (costoInventario != null && !consistencia.ok) ? 'PROVISIONAL' : estado,
     motivos: [...new Set(motivos)],
+    avisoRegimen,
     anticipos: anticiposCalc, adquisicionUYU, anticiposPagadosUYU, excesoPagado, saldoNoAnticipado, comisionesBancariasUYU,
     // En TRÁNSITO los tributos de importación (incluidos anticipos de IVA/IRAE) están
     // SUSPENDIDOS: no hay tributo liquidado, ni crédito, ni pago a cuenta. Se reportan

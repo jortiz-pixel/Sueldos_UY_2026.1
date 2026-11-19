@@ -225,6 +225,8 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
     linea(`Proveedor: ${imp.proveedorExterior ?? '—'}`, 10, 'Helvetica', '#555', 2);
     linea(`Expediente / DUA: ${imp.duaNumero ?? '—'}   ·   Régimen: ${REGIMEN[imp.regimen]}   ·   Estado: ${imp.estado}`, 10, 'Helvetica', '#555', 2);
     linea(`Fecha de elaboración: ${new Date().toISOString().slice(0, 10)}`, 10, 'Helvetica', '#555', 4);
+    // Aviso de incoherencia de régimen (el DUA no coincide con el régimen elegido).
+    if (det?.avisoRegimen) linea(`⚠ ${det.avisoRegimen}`, 9, 'Helvetica-Bold', '#9a6700', 4);
     doc.moveTo(M, y).lineTo(RIGHT, y).strokeColor('#1E5BFF').lineWidth(1).stroke(); y += 14;
 
     // ── Resumen ejecutivo (recuadro con cifras clave) ──

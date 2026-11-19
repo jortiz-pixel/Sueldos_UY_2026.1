@@ -395,6 +395,10 @@ export interface Importacion {
   costeoEstado?: string | null;
   costeoDetalle?: {
     costoInventario?: string | null; costoMercaderia?: string | null; costoBienesDeUso?: string | null;
+    altaEnStock?: boolean; esTransito?: boolean;
+    // Aviso de incoherencia régimen vs DUA (marcada nacionalización pero sin impuestos
+    // de nacionalización → parece tránsito, o a la inversa). null/undefined = sin aviso.
+    avisoRegimen?: string | null;
     // Desglose por artículo (prorrateo por FOB): Adquisición + Tributos + Gastos = Costo.
     items?: Array<{ codigo?: string | null; descripcion: string; cantidad: number; fobME: string; adquisicion?: string; tributos?: string; gastos?: string; costo: string; clasificacion?: string }>;
   } | null;
