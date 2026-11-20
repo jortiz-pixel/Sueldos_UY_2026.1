@@ -299,11 +299,21 @@ export async function reconstruirCosteoDesdeExtraccion(importacionId: string): P
     const monedaVenta = (prim.moneda as string) || moneda || 'USD';
     return { montoME: Number(totalCtms) / 100, moneda: monedaVenta, fecha: iso(exportEx[0]?.fecha ?? null), tc: null as number | null };
   })();
-  // §3 NIC 21/2 — transferencia de control = fecha "a bordo" del BL (fechaEmbarque en
-  // una venta FOB). Se valúa la mercadería a la cotización de ESE día; la diferencia
-  // contra el TC de los pagos es diferencia de cambio (resultado), no costo.
-  const fechaControl = imp.fechaEmbarque ? iso(imp.fechaEmbarque) : null;
-  const cotControl = imp.fechaEmbarque ? await tcFiscalDia(moneda, imp.fechaEmbarque) : { valor: null, fuente: null };
+  // §3 NIC 21/2 — fecha de RECONOCIMIENTO (transferencia de control). La fecha "a
+  // bordo" del BL rara vez viene legible en la documentación, así que se usa, por
+  // prioridad DOCUMENTAL: (1) la fecha de embarque si el operador la cargó a mano
+  // (dato más preciso); (2) si no, la fecha de la FACTURA COMERCIAL —que sí se
+  // extrae— como proxy razonable de la transferencia de control. Se valúa la
+  // mercadería a la cotización de ESA fecha y la diferencia contra el TC de los pagos
+  // es diferencia de cambio (resultado), no costo.
+  const ctrl: { fecha: Date; origen: string } | null = (() => {
+    if (imp.fechaEmbarque) return { fecha: imp.fechaEmbarque, origen: 'fecha de embarque (a bordo del BL)' };
+    const ff = imp.facturaComercialFecha ?? factura?.fecha ?? null;
+    if (ff) return { fecha: ff, origen: 'fecha de la factura comercial (proxy de transferencia de control)' };
+    return null;
+  })();
+  const fechaControl = ctrl ? iso(ctrl.fecha) : null;
+  const cotControl = ctrl ? await tcFiscalDia(moneda, ctrl.fecha) : { valor: null, fuente: null };
 
   const r = construirCosteoHistorico({
     dua: {
@@ -336,9 +346,11 @@ export async function reconstruirCosteoDesdeExtraccion(importacionId: string): P
     // (TRÁNSITO, DEPÓSITO, ADMISIÓN TEMPORARIA, ZONA FRANCA) = régimen suspensivo →
     // tributos de importación suspendidos (fuera de costo y crédito) y sin alta en stock.
     esTransito: regimenEfectivo !== ImportacionRegimen.DEFINITIVA,
-    // §3 NIC 21: reconocimiento a la transferencia de control (BL a bordo) + su TC.
+    // §3 NIC 21: reconocimiento a la transferencia de control (BL a bordo o, si no
+    // está, la fecha de la factura comercial como proxy) + su TC.
     fechaControlTransferencia: fechaControl,
     cotizacionControlTransferencia: cotControl.valor,
+    origenReconocimiento: ctrl?.origen ?? null,
     // §7: venta de exportación (re-exportación) → CMV contra la venta, salda el tránsito.
     ventaExportacion: ventaExportacionInput,
     etiqueta: (k) => k, // en el informe/asiento se re-etiqueta con el plan de cuentas

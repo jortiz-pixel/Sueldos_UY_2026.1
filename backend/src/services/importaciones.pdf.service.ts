@@ -578,16 +578,17 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
       if (rec) {
         subheading('Reconocimiento de la adquisición (NIC 21/2)');
         if (rec.base === 'CONTROL') {
-          kv('Base de reconocimiento', `Transferencia de control (BL a bordo) · ${rec.fecha ?? '—'} · TC ${rec.cotizacion ?? '—'}`);
-          total2('Adquisición reconocida (al TC de control)', nMoney(rec.adquisicionReconocidaUYU));
+          const esProxy = /factura/i.test(String(rec.origen ?? ''));
+          kv('Base de reconocimiento', `${rec.origen ?? 'Transferencia de control'} · ${rec.fecha ?? '—'} · TC ${rec.cotizacion ?? '—'}`);
+          total2('Adquisición reconocida (al TC de reconocimiento)', nMoney(rec.adquisicionReconocidaUYU));
           const dc = BigInt(rec.diferenciaCambioUYU ?? 0);
           total2('Diferencia de cambio (resultado, NO costo)', `${nMoney(rec.diferenciaCambioUYU)}   ${dc > 0n ? '(pérdida)' : dc < 0n ? '(ganancia)' : ''}`, true);
-          notaCol('La mercadería se reconoce al TC del día de transferencia de control (BL a bordo); la diferencia contra el TC de los pagos es diferencia de cambio (resultado financiero) y NO integra el costo del inventario (NIC 21 §28 / NIC 2).', '#1a7f37', false, 7.5);
+          notaCol(`La mercadería se reconoce al TC de la ${rec.origen ?? 'transferencia de control'}; la diferencia contra el TC de los pagos es diferencia de cambio (resultado financiero) y NO integra el costo del inventario (NIC 21 §28 / NIC 2).${esProxy ? ' La fecha "a bordo" del BL no viene en la documentación: se usa la fecha de la factura comercial como proxy. Si cargás la fecha de embarque real en la ficha, el reconocimiento se ajusta a ella.' : ''}`, '#1a7f37', false, 7.5);
         } else if (rec.costoAlPagoProvisional) {
-          kv('Base de reconocimiento', `Fecha de control informada (${rec.fecha ?? '—'}) — falta su cotización`);
+          kv('Base de reconocimiento', `Fecha de reconocimiento (${rec.fecha ?? '—'}) — falta su cotización`);
           notaCol(`PROVISIONAL: ${rec.nota}`, '#b54708', false, 7.5);
         } else {
-          notaCol('Reconocimiento por el TC de los pagos (anticipos no monetarios, NIC 21). Para separar una diferencia de cambio, cargá la fecha "a bordo" del BL (transferencia de control) y su cotización en la ficha de la importación.', '#555', false, 7.5);
+          notaCol('Reconocimiento por el TC de los pagos (anticipos no monetarios, NIC 21). No se detectó una fecha de factura comercial ni de embarque para anclar la transferencia de control; cargá la fecha de embarque en la ficha si querés separar la diferencia de cambio.', '#555', false, 7.5);
         }
       }
 

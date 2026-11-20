@@ -1067,4 +1067,12 @@ describe('construirCosteoHistorico — §3 NIC 21/2 (reconocimiento al control +
     expect(r.reconocimiento.diferenciaCambioUYU).toBe(0n);
     expect(r.reconocimiento.costoAlPagoProvisional).toBe(false);
   });
+  it('usa el origen informado (p. ej. fecha de la factura comercial como proxy) en la nota y el asiento', () => {
+    const base = marpolos(40.10, 40.20);
+    const r = construirCosteoHistorico({ ...base, fechaControlTransferencia: '2026-05-20', cotizacionControlTransferencia: 39.5, origenReconocimiento: 'fecha de la factura comercial (proxy de transferencia de control)' });
+    expect(r.reconocimiento.base).toBe('CONTROL');
+    expect(r.reconocimiento.origen).toMatch(/factura comercial/i);
+    const rec = r.asientos.find((a) => /Reconocimiento/.test(a.glosa))!;
+    expect(rec.referencias?.[0]?.regla).toMatch(/factura comercial/i);
+  });
 });

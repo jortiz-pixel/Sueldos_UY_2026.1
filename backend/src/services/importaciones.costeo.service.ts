@@ -418,6 +418,7 @@ export interface CosteoHistorico {
   // cotización del día de control y el costo quedó valuado al TC de pago (a confirmar).
   reconocimiento: {
     base: 'CONTROL' | 'PAGO';
+    origen: string;                       // de dónde sale la fecha (BL / factura comercial / …)
     fecha: string | null; cotizacion: number | null;
     adquisicionReconocidaUYU: bigint;     // costo al TC de reconocimiento
     diferenciaCambioUYU: bigint;          // + ganancia / − pérdida de cambio (resultado)
@@ -543,6 +544,10 @@ export interface CosteoHistoricoInput {
   // marca que falta la cotización del día de control para separar la dif. de cambio.
   fechaControlTransferencia?: string | null;
   cotizacionControlTransferencia?: number | null;
+  // Texto que describe DE DÓNDE sale la fecha de reconocimiento (p. ej. "fecha de
+  // embarque (a bordo del BL)" o "fecha de la factura comercial (proxy…)"). Solo
+  // afecta la redacción del asiento y la nota; si falta se usa "transferencia de control".
+  origenReconocimiento?: string | null;
   // ── §7 — venta de exportación (re-exportación en tránsito) ──
   // Cuando la carpeta es de TRÁNSITO y la mercadería se re-exporta, el costo acumulado
   // en «Importaciones en trámite» se imputa a Costo de Mercadería Vendida contra la
@@ -654,6 +659,7 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
   // como DIFERENCIA DE CAMBIO (resultado), que NO integra el costo. Sin esa cotización
   // se mantiene el criterio por TC de pago y se marca que falta para separar la dif.
   const fechaControlTransferencia = input.fechaControlTransferencia ?? null;
+  const origenReconocimiento = (input.origenReconocimiento && input.origenReconocimiento.trim()) || 'transferencia de control';
   const controlCot = validarTipoCambio(input.cotizacionControlTransferencia);
   const hayFechaControl = !!fechaControlTransferencia;
   let adquisicionUYU: bigint;          // costo de la mercadería que SE CAPITALIZA
@@ -822,7 +828,7 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
     }
     mk(fechaControlTransferencia ?? fechaReconocimiento, 'Reconocimiento de la compra (importaciones en trámite / mercadería en tránsito)', lineasRec,
       [{ documento: `Factura comercial`, regla: reconocimientoBase === 'CONTROL'
-        ? `Adquisición reconocida a la transferencia de control (BL a bordo${fechaControlTransferencia ? ` ${fechaControlTransferencia}` : ''}), valuada al TC de ese día (NIC 21/2). La diferencia contra el TC de los pagos es diferencia de cambio (resultado), no integra el costo. El exceso pagado no se capitaliza; el saldo no anticipado al TC de reconocimiento.`
+        ? `Adquisición reconocida a la ${origenReconocimiento}${fechaControlTransferencia ? ` ${fechaControlTransferencia}` : ''}, valuada al TC de ese día (NIC 21/2). La diferencia contra el TC de los pagos es diferencia de cambio (resultado), no integra el costo. El exceso pagado no se capitaliza; el saldo no anticipado al TC de reconocimiento.`
         : 'Adquisición al CIF de la factura valuado por los anticipos (TC de cada pago); se acumula en Importaciones en trámite. El exceso pagado NO se capitaliza (crédito con el proveedor); el saldo no anticipado al TC de reconocimiento. No se divide el importe del proveedor del exterior.' }], estado === 'OK');
   }
   // Flujos de fondos reconstruidos de los comprobantes, SIN duplicar bancos:
@@ -1135,11 +1141,12 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
       adquisicionReconocidaUYU: adquisicionUYU,
       diferenciaCambioUYU,
       costoAlPagoProvisional,
+      origen: origenReconocimiento,
       nota: reconocimientoBase === 'CONTROL'
-        ? `Adquisición reconocida a la transferencia de control (BL a bordo${fechaControlTransferencia ? ` ${fechaControlTransferencia}` : ''}) y valuada al TC de ese día (NIC 21/2). La diferencia contra el TC de los pagos (${(Number(diferenciaCambioUYU) / 100).toLocaleString('es-UY')}) se reconoce como diferencia de cambio (resultado) y NO integra el costo.`
+        ? `Adquisición reconocida a la ${origenReconocimiento}${fechaControlTransferencia ? ` ${fechaControlTransferencia}` : ''} y valuada al TC de ese día (NIC 21/2). La diferencia contra el TC de los pagos (${(Number(diferenciaCambioUYU) / 100).toLocaleString('es-UY')}) se reconoce como diferencia de cambio (resultado) y NO integra el costo.`
         : (costoAlPagoProvisional
-          ? `Se informó la fecha de transferencia de control (${fechaControlTransferencia}) pero falta la cotización de ese día: el costo quedó valuado al TC de pago (provisional). Cargá la cotización del día de control para separar la diferencia de cambio (NIC 21).`
-          : 'Adquisición valuada al TC de los pagos (anticipos no monetarios, NIC 21). Sin diferencia de cambio a separar mientras los pagos no sean posteriores a una transferencia de control a otro TC.'),
+          ? `Se informó la fecha de reconocimiento (${fechaControlTransferencia}) pero falta la cotización de ese día: el costo quedó valuado al TC de pago (provisional). Cargá la cotización de ese día para separar la diferencia de cambio (NIC 21).`
+          : 'Adquisición valuada al TC de los pagos (anticipos no monetarios, NIC 21). Sin diferencia de cambio a separar mientras los pagos no sean posteriores a la transferencia de control a otro TC.'),
     },
     ventaExportacion: ventaExportacionOut,
     items, cuentaDespachante, asientos, consistencia, conciliacion: conc,
