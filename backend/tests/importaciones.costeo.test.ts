@@ -536,10 +536,10 @@ describe('construirCosteoHistorico — recálculo automático y consistencia', (
   it('el pago al despachante queda sujeto a confirmación salvo comprobante bancario', () => {
     const r1 = construirCosteoHistorico(marpolosFlujos());
     expect(r1.cuentaDespachante?.pagoConfirmado).toBe(false);
-    expect(r1.conciliacion.despachante?.nota).toMatch(/SUJETO A CONFIRMACI/i);
+    expect(r1.conciliacion.despachante?.nota).toMatch(/NO acreditados|pendientes de verificar/i);
     const r2 = construirCosteoHistorico({ ...marpolosFlujos(), pagoDespachanteConfirmado: true });
     expect(r2.cuentaDespachante?.pagoConfirmado).toBe(true);
-    expect(r2.conciliacion.despachante?.nota).not.toMatch(/SUJETO A CONFIRMACI/i);
+    expect(r2.conciliacion.despachante?.nota).not.toMatch(/NO acreditados|pendientes de verificar/i);
   });
 });
 
@@ -755,8 +755,11 @@ describe('cuenta del despachante — saldo CONFIRMADO vs PROYECTADO', () => {
     expect(cd.saldoConfirmadoUYU).toBe(-C(95456));
     expect(cd.pagosPendientesUYU).toBe(C(96137));
     expect(cd.pagosConfirmadosUYU).toBe(0n);
-    expect(r.conciliacion.despachante?.nota).toMatch(/CONFIRMADO/);
-    expect(r.conciliacion.despachante?.nota).toMatch(/PROYECTADO/);
+    // El saldo real (con pagos ACREDITADOS) es a pagar al despachante; el recibo
+    // pendiente se informa pero no reduce el saldo hasta acreditarse.
+    expect(r.conciliacion.despachante?.nota).toMatch(/a pagar al despachante/i);
+    expect(r.conciliacion.despachante?.nota).toMatch(/NO acreditados|pendientes de verificar/i);
+    expect(cd.saldada).toBe(false);
   });
 
   it('con el pago confirmado, confirmado = proyectado (+681 a favor)', () => {
@@ -1226,5 +1229,62 @@ describe('construirCosteoHistorico — recibo del despachante en USD se conviert
     expect(lineaDesp.debe).toBe(BigInt(Math.round(7900.88 * tc * 100))); // convertido, NO 7.900,88 pesos
     // La contrapartida es banco en ME.
     expect(pago.lineas.some((l) => l.cuenta === 'bancoMe')).toBe(true);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CONCILIACIÓN DE LA CUENTA DEL DESPACHANTE (DUA 001-2025-230183): todos los
+// recibos (dedup por serie+número, no por importe), tributos pagados por el
+// despachante sin doble banco, y saldo por pagos ACREDITADOS.
+// ═════════════════════════════════════════════════════════════════════════════
+describe('construirCosteoHistorico — cuenta del despachante (varios recibos)', () => {
+  function base230183(pagos: CosteoHistoricoInput['pagosDespachante']): CosteoHistoricoInput {
+    return {
+      dua: { nroDua: '001-2025-230183', tipoCambio: 39.753, valorAduanaPesos: 0, importadorRut: '220616930019', declaranteRut: '217369500013', importeFacturas: 50000, moneda: 'USD',
+        tributos: [ { codigo: '15', nombre: 'IVA importación', monto: 256215 }, { codigo: '16', nombre: 'Anticipo IVA', monto: 116462 } ] } as any,
+      factura: { fob: C(50000), flete: C(0), seguro: C(0), total: C(50000), moneda: 'USD', articulos: [ { descripcion: 'M', codigo: 'M1', cantidad: 1, total: C(50000) } ] },
+      servicios: [ { rutComprador: '220616930019', rutEmisor: '217369500013', moneda: 'UYU', serie: 'A', numero: '0033282', emisor: 'Despachante',
+        honorarios: null, gastosOperativos: null, iva: 0, total: 372677, noFacturable: null, tributosPorCuenta: 372677 } as any ],
+      anticipos: [ { fecha: '2025-08-10', referencia: '1', moneda: 'USD', monto: 50000, comision: 0, cotizacion: 39.753 } ],
+      pagoSpeCtms: null, pagoDespachanteCtms: null, pagosDespachante: pagos,
+      fechaReconocimiento: '2025-08-10', cotizacionReconocimiento: 39.753, tcProvisional: 39.753, unidadesPacking: null, etiqueta: et,
+    };
+  }
+  it('los tributos del DUA re-facturados van contra Despachantes (no al banco del importador)', () => {
+    const r = construirCosteoHistorico(base230183([]));
+    const asTrib = r.asientos.find((a) => /Tributos aduaneros/i.test(a.glosa))!;
+    expect(asTrib.lineas.some((l) => l.cuenta === 'despachantes' && l.haber > 0n)).toBe(true);
+    expect(asTrib.lineas.some((l) => l.cuenta === 'bancoPesos')).toBe(false);
+  });
+  it('procesa DOS recibos distintos con el MISMO importe (no los confunde)', () => {
+    const r = construirCosteoHistorico(base230183([
+      { serie: 'A', numero: '33115', fecha: '2025-08-12', moneda: 'USD', montoOrig: 7900.88, tc: 39.753, montoUYU: String(Math.round(7900.88 * 39.753 * 100)), confirmado: false },
+      { serie: 'A', numero: '33116', fecha: '2025-08-13', moneda: 'USD', montoOrig: 7900.88, tc: 39.80, montoUYU: String(Math.round(7900.88 * 39.80 * 100)), confirmado: false },
+    ]));
+    const pagos = r.asientos.filter((a) => /Pago al despachante/i.test(a.glosa));
+    expect(pagos.length).toBe(2); // dos comprobantes distintos, aunque igual importe en USD
+    expect(pagos.map((p) => p.glosa).join(' ')).toMatch(/33115/);
+    expect(pagos.map((p) => p.glosa).join(' ')).toMatch(/33116/);
+  });
+  it('un recibo en USD se convierte al TC de SU fecha y conserva la moneda original', () => {
+    const r = construirCosteoHistorico(base230183([
+      { serie: 'A', numero: '33115', fecha: '2025-08-12', moneda: 'USD', montoOrig: 7900.88, tc: 39.753, montoUYU: String(Math.round(7900.88 * 39.753 * 100)), confirmado: false },
+    ]));
+    const pago = r.asientos.find((a) => /Pago al despachante/i.test(a.glosa))!;
+    const l = pago.lineas.find((x) => x.cuenta === 'despachantes')!;
+    expect(l.monedaOrig).toBe('USD');
+    expect(l.debe).toBe(BigInt(Math.round(7900.88 * 39.753 * 100)));
+  });
+  it('no informa «saldada» con recibos pendientes de acreditar; el saldo sale por documento', () => {
+    const r = construirCosteoHistorico(base230183([
+      { serie: 'A', numero: '33115', fecha: '2025-08-12', moneda: 'USD', montoOrig: 7900.88, tc: 39.753, montoUYU: String(Math.round(7900.88 * 39.753 * 100)), confirmado: false },
+    ]));
+    const cd = r.cuentaDespachante!;
+    expect(cd.saldada).toBe(false);
+    expect(cd.pagosPendientesUYU).toBeGreaterThan(0n);
+    expect(cd.movimientos.length).toBeGreaterThan(1); // mayor por documento
+    // El saldo acumulado del último movimiento = cargos − pagos (positivo = a pagar).
+    const ult = cd.movimientos[cd.movimientos.length - 1];
+    expect(BigInt(String(ult.saldoUYU))).toBeGreaterThan(0n);
   });
 });

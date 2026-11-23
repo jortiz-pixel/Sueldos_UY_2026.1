@@ -428,7 +428,35 @@ export function generateInformePDF(input: InformeInput): Promise<Buffer> {
 
     // ── 5. Estado de cuenta del despachante ──
     heading('Estado de cuenta del despachante');
-    if (liq0) {
+    const cdCta = det?.cuentaDespachante ?? null;
+    const concDesp = det?.conciliacion?.despachante ?? null;
+    if (cdCta && Array.isArray(cdCta.movimientos) && cdCta.movimientos.length) {
+      // Mayor del despachante: conciliación por documento con moneda original, importe
+      // convertido, cargo, pago y saldo acumulado (una sola fuente: los asientos).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      tabla(
+        [ { w: 56, title: 'Fecha' }, { w: W - 56 - 30 - 66 - 60 - 60 - 74, title: 'Documento / concepto' }, { w: 30, title: 'Mon.' }, { w: 66, title: 'Orig.', align: 'right' }, { w: 60, title: 'Cargo', align: 'right' }, { w: 60, title: 'Pago', align: 'right' }, { w: 74, title: 'Saldo', align: 'right' } ],
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (cdCta.movimientos as any[]).map((m) => [
+          m.fecha ?? '—',
+          `${m.concepto}${m.confirmado ? '' : ' (s/conf.)'}`,
+          m.monedaOrig && String(m.monedaOrig).toUpperCase() !== 'UYU' ? String(m.monedaOrig) : '',
+          m.monedaOrig && String(m.monedaOrig).toUpperCase() !== 'UYU' && m.montoOrig != null ? Number(m.montoOrig).toLocaleString('es-UY', { minimumFractionDigits: 2 }) : '',
+          BigInt(String(m.cargoUYU)) !== 0n ? n2(BigInt(String(m.cargoUYU))) : '',
+          BigInt(String(m.pagoUYU)) !== 0n ? n2(BigInt(String(m.pagoUYU))) : '',
+          n2(BigInt(String(m.saldoUYU))),
+        ]),
+      );
+      y += 3;
+      total2('Cargos documentados (lo que se le debe al despachante)', nMoney(cdCta.cargosUYU), true);
+      if (Number(cdCta.pagosConfirmadosUYU ?? 0) > 0) total2('Pagos confirmados (egreso bancario verificado)', nMoney(cdCta.pagosConfirmadosUYU));
+      if (Number(cdCta.pagosPendientesUYU ?? 0) > 0) total2('Pagos pendientes de confirmación (recibos de cobranza)', `${nMoney(cdCta.pagosPendientesUYU)}  (no acreditados)`);
+      // saldoConfirmado = Σ(debe − haber). Lo que SE DEBE al despachante = −saldoConfirmado.
+      const oweConf = -Number(cdCta.saldoConfirmadoUYU ?? cdCta.saldoUYU); // >0 = a pagar al despachante
+      total2('Saldo (cargos − pagos acreditados)', cdCta.saldada ? 'SALDADA' : (oweConf > 0 ? `${nMoney(oweConf)} a pagar al despachante` : (oweConf < 0 ? `${nMoney(-oweConf)} a favor del importador` : nMoney(0))), true);
+      if (concDesp?.nota) notaCol(concDesp.nota, cdCta.saldada ? '#1a7f37' : '#b54708', false, 8);
+      notaCol('La columna Saldo del mayor es PROYECTADA (incluye los recibos aún no acreditados); la posición REAL es el «Saldo (cargos − pagos acreditados)» de arriba. Los tributos del DUA que el despachante pagó por cuenta se le reintegran (cargo), no generan un egreso bancario del importador. Los recibos de cobranza son pagos PENDIENTES hasta verificar el egreso bancario; no se informa la cuenta como saldada mientras haya diferencias sin conciliar.', '#777', false, 7.5);
+    } else if (liq0) {
       const monD = sym(liq0.moneda);
       kv('Despachante', liq0.despachante ?? '—');
       total2('Total liquidación de gastos', money(liq0.total, monD), true);

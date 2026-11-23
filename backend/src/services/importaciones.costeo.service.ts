@@ -467,6 +467,17 @@ export interface CosteoHistorico {
     // el saldo real mientras el pago no se acredite. saldoProyectadoUYU = con el pago.
     saldoUYU: bigint; saldoConfirmadoUYU: bigint; saldoProyectadoUYU: bigint;
     pagoConfirmado: boolean;
+    // true SOLO si los cargos documentados están cubiertos por pagos ACREDITADOS
+    // (confirmados), sin pendientes ni diferencias sin conciliar. Si es false, la
+    // cuenta NO se informa como «saldada».
+    saldada: boolean;
+    // Mayor del despachante: un renglón por movimiento (cargo o pago), con moneda
+    // original, importe convertido y saldo acumulado, para la conciliación por documento.
+    movimientos: Array<{
+      fecha: string | null; documento: string; concepto: string;
+      monedaOrig: string | null; montoOrig: number | null;
+      cargoUYU: bigint; pagoUYU: bigint; saldoUYU: bigint; confirmado: boolean;
+    }>;
   } | null;
   asientos: AsientoHist[];
   // Verificación automática de consistencia (PASO 6): todas las igualdades deben dar 0.
@@ -518,6 +529,11 @@ export interface CosteoHistoricoInput {
   pagoDespachanteMonedaOrig?: string | null;
   pagoDespachanteMontoOrig?: number | null; // importe en la moneda original del recibo
   pagoDespachanteTc?: number | null;        // TC contable aplicado (1 si ya está en pesos)
+  // TODOS los recibos del despachante (deduplicados por serie+número, NO por importe).
+  // Cada uno con su moneda original, fecha y TC contable de ESA fecha. Si se informa,
+  // reemplaza al pago único de arriba: se emite un asiento por recibo. confirmado =
+  // true solo con comprobante de egreso bancario; un recibo de cobranza es pendiente.
+  pagosDespachante?: Array<{ serie: string | null; numero: string | null; fecha: string | null; moneda: string; montoOrig: number; tc: number | null; montoUYU: string | null; confirmado?: boolean; sinCotizacion?: boolean }>;
   pagoAgencia?: { fecha: string | null; moneda: string; montoME: number } | null; // evidencia de la transferencia a la agencia (fecha + ME)
   fechaReconocimiento: string | null;      // DUA / nacionalización
   cotizacionReconocimiento: number | null; // para el saldo no anticipado
@@ -879,9 +895,15 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
   // pagó el despachante (SPE por cuenta) y el importador los reintegra en el
   // recibo → la contrapartida es DESPACHANTES, no Banco (el pago único es el
   // recibo). Si no, los pagó el importador directo por SPE → contrapartida Banco.
-  const noFacDespachante = servicios.reduce((s, x) => s + (Number(x.noFacturable) || 0), 0);
-  const difNoFac = P(noFacDespachante) - totalTributos;
-  const tributosPorDespachante = noFacDespachante > 0 && (difNoFac < 0n ? -difNoFac : difNoFac) <= 200n;
+  // Tributos del DUA que el despachante re-facturó (los pagó por cuenta del importador):
+  // "NO FACTURABLE" o la suma de líneas de tributos (tributosPorCuenta). Si los
+  // re-facturó, el desembolso lo hizo el DESPACHANTE → la contrapartida de los tributos
+  // del DUA es la cuenta Despachantes (obligación de reintegro), NO el banco del
+  // importador (no se registra un egreso bancario que no ocurrió). Si NO los re-facturó
+  // y hay un pago directo del importador (SPE), la contrapartida es el banco.
+  const tributosReFacturados = servicios.reduce((s, x) => s + Math.max(Number(x.noFacturable) || 0, Number(x.tributosPorCuenta) || 0), 0);
+  const difTrib = P(tributosReFacturados) - totalTributos; // para conciliar DUA vs factura
+  const tributosPorDespachante = tributosReFacturados > 0;
 
   // Gastos divididos por prestador: despachante (cuenta corriente) vs agencia/plaza.
   // La cuenta de la agencia incluye TODOS sus comprobantes: los servicios que integran
@@ -923,21 +945,31 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
       { cuenta: et('proveedoresLocales'), monedaOrig: gAgencia[0]?.moneda, montoOrig: gAgencia.reduce((s, g) => s + g.montoME, 0), debe: 0n, haber: montoAg + ivaAg },
     ], [{ documento: gAgencia.map((g) => g.documento).filter((v, i, a) => a.indexOf(v) === i).join(', '), regla: 'Servicio de un prestador distinto del despachante (agencia de carga); se paga por separado, no integra la cuenta del despachante.' }], estado === 'OK');
   }
-  // Pago al despachante (recibo) — ÚNICO egreso bancario que cubre tributos + gastos.
-  // SUJETO A CONFIRMACIÓN del pago bancario mientras solo se cuente con el recibo.
-  if (pagoDespachanteCtms && pagoDespachanteCtms > 0n) {
-    // Moneda ORIGINAL del recibo: si es en ME (p. ej. USD 7.900,88), el asiento en
-    // pesos muestra la moneda original y el importe YA CONVERTIDO al TC contable
-    // (pagoDespachanteCtms viene convertido). Si es en pesos, moneda UYU y TC 1.
-    const recMonedaOrig = input.pagoDespachanteMonedaOrig ?? null;
-    const recMontoOrig = input.pagoDespachanteMontoOrig ?? null;
-    const recEsME = !!recMonedaOrig && recMonedaOrig.toUpperCase() !== 'UYU';
-    const recTc = input.pagoDespachanteTc ?? null;
+  // Pagos al despachante (recibos): se procesan TODOS los recibos (deduplicados por
+  // serie+número, NO por importe), cada uno con su moneda original, fecha y TC
+  // contable de ESE día. Un recibo en ME se convierte a pesos y el asiento conserva la
+  // moneda original. Un recibo de cobranza es PENDIENTE de confirmación (no hay egreso
+  // bancario probado); confirmado solo con comprobante del banco.
+  const pagosRecibos = (input.pagosDespachante && input.pagosDespachante.length)
+    ? input.pagosDespachante
+    : (pagoDespachanteCtms && pagoDespachanteCtms > 0n
+        ? [{ serie: null, numero: null, fecha: fechaPagoDespachante ?? null, moneda: (input.pagoDespachanteMonedaOrig ?? 'UYU'), montoOrig: input.pagoDespachanteMontoOrig ?? (Number(pagoDespachanteCtms) / 100), tc: input.pagoDespachanteTc ?? 1, montoUYU: pagoDespachanteCtms.toString(), confirmado: !!pagoDespachanteConfirmado, sinCotizacion: false }]
+        : []);
+  for (const rp of pagosRecibos) {
+    const etiq = `${rp.serie ?? ''}${rp.numero ?? ''}`.trim();
+    if (rp.sinCotizacion || rp.montoUYU == null) {
+      provisionalCosto = true;
+      motivos.push(`Recibo del despachante ${etiq || '(s/n)'} en ${rp.moneda} ${rp.montoOrig.toLocaleString('es-UY', { minimumFractionDigits: 2 })}: falta la cotización del ${rp.fecha ?? 's/f'} para convertirlo a pesos (no se registra el pago hasta cotizarlo).`);
+      continue;
+    }
+    const montoPagoUYU = BigInt(rp.montoUYU);
+    if (montoPagoUYU <= 0n) continue;
+    const recEsME = !!rp.moneda && rp.moneda.toUpperCase() !== 'UYU';
     const cuentaBanco = recEsME ? 'bancoMe' : 'bancoPesos';
-    mk(fechaPagoDespachante ?? fechaReconocimiento, `Pago al despachante de aduana (recibo)${pagoDespachanteConfirmado ? '' : ' — sujeto a confirmación'}`, [
-      { cuenta: et('despachantes'), monedaOrig: recEsME ? recMonedaOrig : undefined, montoOrig: recEsME ? (recMontoOrig ?? undefined) : undefined, debe: pagoDespachanteCtms, haber: 0n },
-      { cuenta: et(cuentaBanco), monedaOrig: recEsME ? recMonedaOrig : undefined, montoOrig: recEsME ? (recMontoOrig ?? undefined) : undefined, debe: 0n, haber: pagoDespachanteCtms },
-    ], [{ documento: 'Recibo del despachante (cobranza)', regla: `Cancela la cuenta del despachante (tributos reintegrados + gastos + honorarios).${recEsME ? ` Recibo en ${recMonedaOrig} ${(recMontoOrig ?? 0).toLocaleString('es-UY', { minimumFractionDigits: 2 })} convertido a pesos al TC contable ${recTc ?? '—'}.` : ''} ${pagoDespachanteConfirmado ? 'Pago confirmado por comprobante bancario.' : 'SUJETO A CONFIRMACIÓN del egreso bancario (solo consta el recibo de cobranza).'}` }], !!pagoDespachanteConfirmado);
+    mk(rp.fecha ?? fechaPagoDespachante ?? fechaReconocimiento, `Pago al despachante de aduana (recibo${etiq ? ` ${etiq}` : ''})${rp.confirmado ? '' : ' — sujeto a confirmación'}`, [
+      { cuenta: et('despachantes'), monedaOrig: recEsME ? rp.moneda : undefined, montoOrig: recEsME ? rp.montoOrig : undefined, debe: montoPagoUYU, haber: 0n },
+      { cuenta: et(cuentaBanco), monedaOrig: recEsME ? rp.moneda : undefined, montoOrig: recEsME ? rp.montoOrig : undefined, debe: 0n, haber: montoPagoUYU },
+    ], [{ documento: `Recibo del despachante (cobranza)${etiq ? ` ${etiq}` : ''}`, regla: `Cancela parte de la cuenta del despachante (tributos reintegrados + gastos + honorarios).${recEsME ? ` Recibo en ${rp.moneda} ${rp.montoOrig.toLocaleString('es-UY', { minimumFractionDigits: 2 })} convertido a pesos al TC contable ${rp.tc ?? '—'} del ${rp.fecha ?? 's/f'}.` : ''} ${rp.confirmado ? 'Pago confirmado por comprobante bancario.' : 'SUJETO A CONFIRMACIÓN del egreso bancario (solo consta el recibo de cobranza).'}` }], !!rp.confirmado);
   }
   // Pago a la agencia de carga (transferencia en plaza): cancela su cuenta por el
   // valor contabilizado del servicio (la ME pagada se muestra como referencia).
@@ -1009,8 +1041,26 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
   // Saldo CONFIRMADO = neto de los movimientos de asientos DEFINITIVOS (el pago sin
   // confirmar no cuenta). Saldo PROYECTADO = neto de todos (como si el pago se acreditara).
   const saldoConfirmadoDesp = asientos.filter((a) => a.definitivo).reduce((s, a) => s + a.lineas.filter((l) => l.cuenta === 'despachantes').reduce((ss, l) => ss + l.debe - l.haber, 0n), 0n);
+  // MAYOR del despachante (conciliación por documento): un renglón por movimiento, en
+  // orden cronológico, con moneda original, importe convertido y saldo acumulado.
+  const movimientosDesp: NonNullable<CosteoHistorico['cuentaDespachante']>['movimientos'] = [];
+  {
+    let acum = 0n;
+    for (const a of asientos) {
+      for (const l of a.lineas.filter((x) => x.cuenta === 'despachantes')) {
+        acum += l.haber - l.debe; // saldo = cargos (haber) − pagos (debe) = lo que se debe al despachante
+        movimientosDesp.push({ fecha: a.fecha, documento: a.referencias[0]?.documento ?? a.glosa, concepto: a.glosa, monedaOrig: l.monedaOrig ?? null, montoOrig: l.montoOrig ?? null, cargoUYU: l.haber, pagoUYU: l.debe, saldoUYU: acum, confirmado: a.definitivo });
+      }
+    }
+  }
+  // Diferencias SIN CONCILIAR que impiden declarar la cuenta «saldada»: pagos aún no
+  // acreditados (recibos sin egreso bancario), recibos sin cotización, o tributos del
+  // DUA que no cuadran con lo re-facturado por el despachante.
+  const algunReciboSinCotizacion = !!(input.pagosDespachante && input.pagosDespachante.some((p) => p.sinCotizacion || p.montoUYU == null));
+  const tributosSinConciliar = tributosReFacturados > 0 && (difTrib < 0n ? -difTrib : difTrib) > 200n;
+  const saldadaDesp = cargosDespachante > 0n && saldoConfirmadoDesp === 0n && pagosPendientesDesp === 0n && !algunReciboSinCotizacion && !tributosSinConciliar;
   const cuentaDespachante = (cargosDespachante > 0n || pagosDespachanteAs > 0n)
-    ? { cargosUYU: cargosDespachante, pagosUYU: pagosDespachanteAs, pagosConfirmadosUYU: pagosConfirmadosDesp, pagosPendientesUYU: pagosPendientesDesp, saldoUYU: movDespachante, saldoConfirmadoUYU: saldoConfirmadoDesp, saldoProyectadoUYU: movDespachante, pagoConfirmado: !!pagoDespachanteConfirmado }
+    ? { cargosUYU: cargosDespachante, pagosUYU: pagosDespachanteAs, pagosConfirmadosUYU: pagosConfirmadosDesp, pagosPendientesUYU: pagosPendientesDesp, saldoUYU: movDespachante, saldoConfirmadoUYU: saldoConfirmadoDesp, saldoProyectadoUYU: movDespachante, pagoConfirmado: pagosConfirmadosDesp > 0n && pagosPendientesDesp === 0n, saldada: saldadaDesp, movimientos: movimientosDesp }
     : null;
 
   // ── Conciliaciones ──
@@ -1019,23 +1069,37 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
   const conc: CosteoHistorico['conciliacion'] = {
     despachante: cuentaDespachante ? (() => {
       const cargos: Array<{ concepto: string; monto: bigint }> = [];
-      if (tributosPorDespachante) cargos.push({ concepto: 'Tributos del DUA (pagados por el despachante por cuenta)', monto: totalTributos });
+      if (tributosPorDespachante) cargos.push({ concepto: 'Tributos del DUA (pagados por el despachante por cuenta, se le reintegran)', monto: totalTributos });
       for (const g of gDesp) cargos.push({ concepto: `${g.documento}: ${g.concepto}`, monto: g.montoUYU });
       if (ivaDesp > 0n) cargos.push({ concepto: 'IVA de servicios del despachante', monto: ivaDesp });
       const saldo = cuentaDespachante.saldoUYU; // debe − haber: >0 = a favor del importador (pagó de más)
-      const conf = cuentaDespachante.pagoConfirmado ? '' : ' Pago SUJETO A CONFIRMACIÓN (solo consta el recibo de cobranza, falta el comprobante de egreso bancario).';
+      const money2 = (v: bigint) => `$ ${(Number(v < 0n ? -v : v) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2 })}`;
       // Pagos diferenciados: confirmados (egreso verificado) vs pendientes de confirmación.
       const pagos: Array<{ concepto: string; monto: bigint }> = [];
       if (cuentaDespachante.pagosConfirmadosUYU > 0n) pagos.push({ concepto: 'Pagos confirmados (egreso bancario verificado)', monto: cuentaDespachante.pagosConfirmadosUYU });
       if (cuentaDespachante.pagosPendientesUYU > 0n) pagos.push({ concepto: 'Pagos pendientes de confirmación (solo recibo de cobranza)', monto: cuentaDespachante.pagosPendientesUYU });
       if (!pagos.length) pagos.push({ concepto: 'Sin pagos registrados', monto: 0n });
-      const sC = cuentaDespachante.saldoConfirmadoUYU; // saldo real mientras el pago no se acredita
-      const sP = cuentaDespachante.saldoProyectadoUYU; // saldo si el pago se acredita
-      const fmtSaldo = (v: bigint) => (v > 0n ? `$ ${(Number(v) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2 })} a favor del importador` : (v < 0n ? `$ ${(Number(-v) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2 })} a pagar al despachante` : 'saldada'));
-      // Diferencia explícita entre el saldo CONFIRMADO y el PROYECTADO (si hay pagos sin confirmar).
-      const nota = cuentaDespachante.pagosPendientesUYU > 0n
-        ? `Saldo CONFIRMADO: ${fmtSaldo(sC)} (el pago de $ ${(Number(cuentaDespachante.pagosPendientesUYU) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2 })} aún NO está acreditado). Saldo PROYECTADO si se acredita ese pago: ${fmtSaldo(sP)}.${conf}`
-        : (saldo > 0n ? `Saldo a favor del importador de $ ${(Number(saldo) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2 })} (entrega a cuenta mayor; documentado en el recibo y la adenda).` : (saldo < 0n ? `Saldo pendiente con el despachante de $ ${(Number(-saldo) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2 })}.` : 'Cuenta saldada.')) + conf;
+      // saldoConfirmadoUYU = Σ(debe − haber) con pagos ACREDITADOS. En la cuenta del
+      // despachante (pasivo) debe = pago y haber = cargo, así que lo que SE DEBE al
+      // despachante = cargos − pagos = −saldoConfirmado (positivo = a pagar).
+      const oweC = -cuentaDespachante.saldoConfirmadoUYU;
+      // Conciliación de los tributos del DUA con lo re-facturado por el despachante.
+      const trib = tributosReFacturados > 0
+        ? (tributosSinConciliar
+            ? ` Tributos del DUA (${money2(totalTributos)}) vs re-facturados por el despachante (${money2(P(tributosReFacturados))}): diferencia de ${money2(difTrib)} SIN CONCILIAR — revisar qué tributo falta o sobra.`
+            : ` Tributos del DUA (${money2(totalTributos)}) conciliados con lo re-facturado por el despachante.`)
+        : '';
+      // Saldo = cargos documentados − pagos ACREDITADOS (confirmados). Los pendientes no
+      // reducen el saldo real. Nunca se informa «saldada» con diferencias sin conciliar.
+      const estadoSaldo = cuentaDespachante.saldada
+        ? 'Cuenta SALDADA (cargos documentados cubiertos por pagos acreditados, sin diferencias).'
+        : (oweC > 0n
+            ? `Saldo a pagar al despachante de ${money2(oweC)} (cargos documentados menos pagos acreditados).`
+            : (oweC < 0n ? `Saldo a favor del importador de ${money2(oweC)}.` : 'Cargos cubiertos por pagos acreditados.'));
+      const pend = cuentaDespachante.pagosPendientesUYU > 0n
+        ? ` Hay ${money2(cuentaDespachante.pagosPendientesUYU)} en recibos de cobranza aún NO acreditados (pendientes de verificar el egreso bancario); no se computan como pago hasta confirmarlos.`
+        : '';
+      const nota = `${estadoSaldo}${pend}${trib}`;
       return { cargos, totalCargos: cuentaDespachante.cargosUYU, pagos, totalPagos: cuentaDespachante.pagosUYU, saldo, nota };
     })() : null,
     tributos: (dua && pagoSpeCtms != null) ? { dua: totalTributos, spe: pagoSpeCtms, ok: (totalTributos - pagoSpeCtms < 0n ? pagoSpeCtms - totalTributos : totalTributos - pagoSpeCtms) <= 100n, detalle: tributos.map((t) => ({ codigo: t.codigo, nombre: (dua.tributos.find((x) => x.codigo === t.codigo)?.nombre) ?? t.codigo, monto: t.monto })) } : null,

@@ -245,23 +245,40 @@ export async function reconstruirCosteoDesdeExtraccion(importacionId: string): P
     const primeraLinea = sd.concepto ?? (Array.isArray(sd.lineas) && sd.lineas[0] ? String(sd.lineas[0].descripcion ?? '') : '');
     return { rutComprador: sd.rutComprador ?? null, rutEmisor: sd.rutEmisor ?? s.rutEmisor ?? null, moneda: sd.moneda ?? null, monedaAmbigua: sd.monedaAmbigua === true, monedaMotivo: sd.monedaMotivo ?? null, serie: sd.serie ?? null, numero: sd.numero ?? null, emisor: s.emisor, honorarios: sd.honorarios ?? null, gastosOperativos: sd.gastosOperativos ?? null, iva: sd.iva ?? null, total: sd.total ?? null, noFacturable: sd.noFacturable ?? null, tributosPorCuenta: sd.tributosPorCuenta ?? null, concepto: primeraLinea, fecha: iso(s.fecha), cotizacion: esUsd ? cot.valor : null, fuenteCotizacion: esUsd ? cot.fuente : 'operación en pesos' };
   }));
-  // Pago al despachante: recibo emitido por el despachante (RUT declarante).
-  const reciboDesp = recibos.find((rc) => rc.rutEmisor && d.declaranteRut && rc.rutEmisor === d.declaranteRut) ?? recibos[0] ?? null;
-  // Moneda del recibo: si está en ME (p. ej. USD 7.900,88), se CONVIERTE a pesos al TC
-  // contable del día del recibo; el asiento conserva la moneda original y el importe
-  // convertido. reciboDesp.total viene en centésimos de la moneda ORIGINAL del recibo.
-  const reciboEsME = !!reciboDesp && (reciboDesp.moneda ?? '').toUpperCase() !== 'UYU' && (reciboDesp.moneda ?? '') !== '';
-  const reciboMontoOrig = reciboDesp ? Number(reciboDesp.total) / 100 : null; // en la moneda original
-  const reciboCot = reciboEsME && reciboDesp ? await tcFiscalDia(reciboDesp.moneda!, reciboDesp.fecha) : { valor: null, fuente: null };
-  // Importe del recibo EN PESOS: convertido si es ME (y hay cotización), o tal cual si
-  // ya está en pesos. Sin cotización para un recibo en ME, queda sin convertir y se
-  // marca (abajo) para que no pase como definitivo.
-  const pagoDespachanteCtms = reciboDesp
-    ? (reciboEsME
-        ? (reciboCot.valor ? BigInt(Math.round((reciboMontoOrig ?? 0) * reciboCot.valor * 100)) : null)
-        : reciboDesp.total)
-    : null;
-  if (reciboEsME && reciboDesp && !reciboCot.valor) logger.warn(`Recibo del despachante en ${reciboDesp.moneda} sin cotización del ${reciboDesp.fecha ? iso(reciboDesp.fecha) : 's/f'}: no se pudo convertir a pesos.`);
+  // Pagos al despachante: TODOS los recibos emitidos por el despachante (RUT
+  // declarante). Se deduplican por SERIE+NÚMERO (comprobante distinto), NUNCA por
+  // importe —dos recibos distintos pueden tener el mismo importe—. Cada recibo
+  // conserva su moneda y fecha; si está en ME se convierte a pesos al TC contable de
+  // ESA fecha. Un recibo de cobranza es PENDIENTE (no hay egreso bancario probado).
+  const recibosDesp = recibos.filter((rc) => rc.rutEmisor && d.declaranteRut && rc.rutEmisor === d.declaranteRut);
+  const recibosUsar = recibosDesp.length ? recibosDesp : recibos;
+  const recibosDedup = (() => {
+    const vistos = new Map<string, typeof recibosUsar[number]>();
+    for (const rc of recibosUsar) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rd: any = rc.datos ?? {};
+      const k = `${(rc.serie ?? rd.serie ?? '').trim()}|${(rc.numero ?? rd.numero ?? '').trim()}`.toUpperCase();
+      const clave = k === '|' ? `__${vistos.size}` : k; // sin serie/número → no se puede deduplicar: se conserva
+      if (!vistos.has(clave)) vistos.set(clave, rc);
+    }
+    return [...vistos.values()];
+  })();
+  const pagosDespachante = await Promise.all(recibosDedup.map(async (rc) => {
+    const esME = (rc.moneda ?? '').toUpperCase() !== 'UYU' && (rc.moneda ?? '') !== '';
+    const montoOrig = Number(rc.total) / 100; // en la moneda original del recibo
+    const cot = esME ? await tcFiscalDia(rc.moneda!, rc.fecha) : { valor: 1, fuente: 'pesos' };
+    const tc = esME ? cot.valor : 1;
+    const montoUYU = tc ? BigInt(Math.round(montoOrig * tc * 100)) : null;
+    if (esME && !cot.valor) logger.warn(`Recibo del despachante en ${rc.moneda} sin cotización del ${rc.fecha ? iso(rc.fecha) : 's/f'}: no se pudo convertir a pesos.`);
+    return {
+      serie: rc.serie ?? null, numero: rc.numero ?? null, fecha: rc.fecha ? iso(rc.fecha) : null,
+      moneda: rc.moneda ?? 'UYU', montoOrig, tc,
+      montoUYU: montoUYU != null ? montoUYU.toString() : null,
+      confirmado: false, // recibo de cobranza: pendiente hasta el comprobante de egreso bancario
+      sinCotizacion: esME && !cot.valor,
+    };
+  }));
+  const reciboDesp = recibosDedup[0] ?? null; // referencia para fecha del cabezal
   // Pago a la agencia de carga: transferencia en plaza (PAGO_SERVICIOS_LOCAL).
   const pagoAgenciaEx = await prisma.importacionDocExtraccion.findFirst({ where: { importacionId, tipo: 'PAGO_SERVICIOS_LOCAL' } });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -347,11 +364,11 @@ export async function reconstruirCosteoDesdeExtraccion(importacionId: string): P
     } : null,
     servicios, anticipos,
     pagoSpeCtms: pagoTrib ? pagoTrib.total : null,
-    pagoDespachanteCtms, // ya en PESOS (convertido si el recibo es en ME)
+    // TODOS los recibos del despachante (deduplicados por serie+número), cada uno con
+    // su moneda original, fecha y TC contable de ese día. Reemplaza al pago único.
+    pagosDespachante,
+    pagoDespachanteCtms: null,
     fechaPagoDespachante: reciboDesp?.fecha ? iso(reciboDesp.fecha) : null,
-    pagoDespachanteMonedaOrig: reciboDesp?.moneda ?? null,
-    pagoDespachanteMontoOrig: reciboMontoOrig,
-    pagoDespachanteTc: reciboEsME ? reciboCot.valor : 1,
     pagoAgencia,
     fechaReconocimiento: iso(duaDate), cotizacionReconocimiento: cotReconoc.valor,
     // El TC aduanero del DUA NO se usa para valuar el COSTO (criterio contable): si
