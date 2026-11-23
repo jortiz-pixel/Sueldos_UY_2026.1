@@ -7,6 +7,7 @@
  */
 import { TipoDocumentoImportacion, EstadoProcesamientoDoc, ImportacionRegimen } from '@prisma/client';
 import { prisma } from '../utils/prisma';
+import { logger } from '../utils/logger';
 import { storageService } from './storage.service';
 import { textoPorPagina } from './importaciones.pdf-extract.service';
 import { GastoImportacionConcepto } from '@prisma/client';
@@ -242,10 +243,25 @@ export async function reconstruirCosteoDesdeExtraccion(importacionId: string): P
     const esUsd = (sd.moneda ?? '').toUpperCase() === 'USD' && sd.monedaAmbigua !== true;
     const cot = esUsd ? await tcFiscalDia(sd.moneda, s.fecha) : { valor: null, fuente: null };
     const primeraLinea = sd.concepto ?? (Array.isArray(sd.lineas) && sd.lineas[0] ? String(sd.lineas[0].descripcion ?? '') : '');
-    return { rutComprador: sd.rutComprador ?? null, rutEmisor: sd.rutEmisor ?? s.rutEmisor ?? null, moneda: sd.moneda ?? null, monedaAmbigua: sd.monedaAmbigua === true, monedaMotivo: sd.monedaMotivo ?? null, serie: sd.serie ?? null, numero: sd.numero ?? null, emisor: s.emisor, honorarios: sd.honorarios ?? null, gastosOperativos: sd.gastosOperativos ?? null, iva: sd.iva ?? null, total: sd.total ?? null, noFacturable: sd.noFacturable ?? null, concepto: primeraLinea, fecha: iso(s.fecha), cotizacion: esUsd ? cot.valor : null, fuenteCotizacion: esUsd ? cot.fuente : 'operación en pesos' };
+    return { rutComprador: sd.rutComprador ?? null, rutEmisor: sd.rutEmisor ?? s.rutEmisor ?? null, moneda: sd.moneda ?? null, monedaAmbigua: sd.monedaAmbigua === true, monedaMotivo: sd.monedaMotivo ?? null, serie: sd.serie ?? null, numero: sd.numero ?? null, emisor: s.emisor, honorarios: sd.honorarios ?? null, gastosOperativos: sd.gastosOperativos ?? null, iva: sd.iva ?? null, total: sd.total ?? null, noFacturable: sd.noFacturable ?? null, tributosPorCuenta: sd.tributosPorCuenta ?? null, concepto: primeraLinea, fecha: iso(s.fecha), cotizacion: esUsd ? cot.valor : null, fuenteCotizacion: esUsd ? cot.fuente : 'operación en pesos' };
   }));
   // Pago al despachante: recibo emitido por el despachante (RUT declarante).
   const reciboDesp = recibos.find((rc) => rc.rutEmisor && d.declaranteRut && rc.rutEmisor === d.declaranteRut) ?? recibos[0] ?? null;
+  // Moneda del recibo: si está en ME (p. ej. USD 7.900,88), se CONVIERTE a pesos al TC
+  // contable del día del recibo; el asiento conserva la moneda original y el importe
+  // convertido. reciboDesp.total viene en centésimos de la moneda ORIGINAL del recibo.
+  const reciboEsME = !!reciboDesp && (reciboDesp.moneda ?? '').toUpperCase() !== 'UYU' && (reciboDesp.moneda ?? '') !== '';
+  const reciboMontoOrig = reciboDesp ? Number(reciboDesp.total) / 100 : null; // en la moneda original
+  const reciboCot = reciboEsME && reciboDesp ? await tcFiscalDia(reciboDesp.moneda!, reciboDesp.fecha) : { valor: null, fuente: null };
+  // Importe del recibo EN PESOS: convertido si es ME (y hay cotización), o tal cual si
+  // ya está en pesos. Sin cotización para un recibo en ME, queda sin convertir y se
+  // marca (abajo) para que no pase como definitivo.
+  const pagoDespachanteCtms = reciboDesp
+    ? (reciboEsME
+        ? (reciboCot.valor ? BigInt(Math.round((reciboMontoOrig ?? 0) * reciboCot.valor * 100)) : null)
+        : reciboDesp.total)
+    : null;
+  if (reciboEsME && reciboDesp && !reciboCot.valor) logger.warn(`Recibo del despachante en ${reciboDesp.moneda} sin cotización del ${reciboDesp.fecha ? iso(reciboDesp.fecha) : 's/f'}: no se pudo convertir a pesos.`);
   // Pago a la agencia de carga: transferencia en plaza (PAGO_SERVICIOS_LOCAL).
   const pagoAgenciaEx = await prisma.importacionDocExtraccion.findFirst({ where: { importacionId, tipo: 'PAGO_SERVICIOS_LOCAL' } });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -331,8 +347,11 @@ export async function reconstruirCosteoDesdeExtraccion(importacionId: string): P
     } : null,
     servicios, anticipos,
     pagoSpeCtms: pagoTrib ? pagoTrib.total : null,
-    pagoDespachanteCtms: reciboDesp ? reciboDesp.total : null,
+    pagoDespachanteCtms, // ya en PESOS (convertido si el recibo es en ME)
     fechaPagoDespachante: reciboDesp?.fecha ? iso(reciboDesp.fecha) : null,
+    pagoDespachanteMonedaOrig: reciboDesp?.moneda ?? null,
+    pagoDespachanteMontoOrig: reciboMontoOrig,
+    pagoDespachanteTc: reciboEsME ? reciboCot.valor : 1,
     pagoAgencia,
     fechaReconocimiento: iso(duaDate), cotizacionReconocimiento: cotReconoc.valor,
     // El TC aduanero del DUA NO se usa para valuar el COSTO (criterio contable): si

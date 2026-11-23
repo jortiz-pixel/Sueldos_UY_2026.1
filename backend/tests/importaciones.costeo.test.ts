@@ -1154,3 +1154,77 @@ describe('construirCosteoHistorico — un gasto en PESOS no se multiplica por el
     expect(g.cotizacion).toBe(1); // ambigua → no se multiplica por el TC
   });
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// DESCOMPOSICIÓN DE LA FACTURA DEL DESPACHANTE Y MONEDA DEL RECIBO
+// (DUA 001-2025-230183): no capitalizar tributos del DUA re-facturados ni
+// duplicarlos; y convertir el recibo en ME al TC contable.
+// ═════════════════════════════════════════════════════════════════════════════
+describe('parser — tributos del despachante y moneda del recibo', () => {
+  it('suma las líneas de tributos del DUA en tributosPorCuenta (no en honorarios)', () => {
+    const texto = [
+      'e-Factura  A 0033282',
+      'RUT COMPRADOR 220616930019',
+      '256.215,00 3',
+      'IVA Importación',
+      '116.462,00 3',
+      'Anticipo de IVA',
+      '50.000,00 3',
+      'Honorarios de despacho',
+      'TOTAL A PAGAR 422.677,00',
+    ].join('\n');
+    const p = parseFacturaServiciosUY(texto);
+    expect(p.tributosPorCuenta).toBeCloseTo(256215 + 116462, 0);
+  });
+  it('parseRecibo reconoce USD en "USD 7.900,88"', () => {
+    const r = parseRecibo('RECIBO OFICIAL  A 33115\nUSD 7.900,88\nTOTAL: 7.900,88');
+    expect(r.moneda).toBe('USD');
+    expect(r.total).toBeCloseTo(7900.88, 2);
+  });
+});
+
+describe('construirCosteoHistorico — tributos re-facturados NO se capitalizan', () => {
+  function facturaTributos(): CosteoHistoricoInput {
+    const base = marpolos(40.10, 40.20);
+    return {
+      ...base,
+      servicios: [
+        { rutComprador: '220616930019', rutEmisor: '217369500013', moneda: 'UYU', serie: 'A', numero: '0033282', emisor: 'Despachante',
+          honorarios: null, gastosOperativos: null, iva: 0, total: 422531, noFacturable: null, tributosPorCuenta: 372677 /* 256215 + 116462 */ },
+      ],
+    };
+  }
+  it('el gasto capitalizable excluye los tributos del DUA re-facturados', () => {
+    const r = construirCosteoHistorico(facturaTributos());
+    const ppc = r.gastos.find((g) => /Pagos por cuenta/i.test(g.concepto))!;
+    expect(ppc).toBeTruthy();
+    expect(ppc.incluidoEnCosto).toBe(false);
+    expect(ppc.montoME).toBeCloseTo(372677, 0);
+    // El remanente de servicio capitalizable = 422.531 − 372.677 = 49.854.
+    const capitalizable = r.gastos.filter((g) => g.incluidoEnCosto).reduce((s, g) => s + Number(g.montoUYU) / 100, 0);
+    expect(capitalizable).toBeCloseTo(49854, 0);
+    // Los tributos NO suman al crédito de IVA (no se duplican con el DUA).
+    expect(ppc.ivaUYU).toBe(0n);
+  });
+});
+
+describe('construirCosteoHistorico — recibo del despachante en USD se convierte', () => {
+  it('el asiento de pago registra la moneda original USD y el importe convertido', () => {
+    const base = marpolos(40.10, 40.20);
+    const tc = 39.753;
+    const r = construirCosteoHistorico({
+      ...base,
+      pagoDespachanteCtms: BigInt(Math.round(7900.88 * tc * 100)), // ya convertido a pesos
+      fechaPagoDespachante: '2025-08-12', pagoDespachanteConfirmado: true,
+      pagoDespachanteMonedaOrig: 'USD', pagoDespachanteMontoOrig: 7900.88, pagoDespachanteTc: tc,
+    });
+    const pago = r.asientos.find((a) => /Pago al despachante/i.test(a.glosa))!;
+    expect(pago).toBeTruthy();
+    const lineaDesp = pago.lineas.find((l) => l.cuenta === 'despachantes')!;
+    expect(lineaDesp.monedaOrig).toBe('USD');
+    expect(lineaDesp.montoOrig).toBeCloseTo(7900.88, 2);
+    expect(lineaDesp.debe).toBe(BigInt(Math.round(7900.88 * tc * 100))); // convertido, NO 7.900,88 pesos
+    // La contrapartida es banco en ME.
+    expect(pago.lineas.some((l) => l.cuenta === 'bancoMe')).toBe(true);
+  });
+});

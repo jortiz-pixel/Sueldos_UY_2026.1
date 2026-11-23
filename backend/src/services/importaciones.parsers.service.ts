@@ -509,6 +509,11 @@ export interface FacturaServiciosParsed {
   monedaAmbigua: boolean; monedaMotivo: string | null;
   subtotalGravado: number | null; iva: number | null; subtotalNoGravado: number | null; noFacturable: number | null;
   honorarios: number | null; gastosOperativos: number | null;
+  // Suma de las líneas que son TRIBUTOS del DUA / pagos a cuenta (IVA importación,
+  // anticipo/adelanto de IVA, tasas oficiales) que el despachante pagó por cuenta del
+  // importador y re-factura. NO son gasto capitalizable ni un segundo crédito de IVA:
+  // ya están reconocidos en el DUA. Sirve para descomponer la factura y no duplicar.
+  tributosPorCuenta: number | null;
   carpeta: string | null; dua: string | null; tipoCambio: number | null;
   tipoOperacion: string | null; // "TRANSITO" / "IMPORTACION" / … (adenda del despachante)
   concepto: string | null; // concepto principal (1.ª línea de detalle, o detectado)
@@ -660,12 +665,32 @@ export function parseFacturaServiciosUY(texto: string): FacturaServiciosParsed {
   const concepto = detalle[0]?.descripcion
     ?? (/sobre\s*flete|s\/\s*flete/i.test(texto) ? 'IVA sobre flete' : (/\b(iva|lva)\b/i.test(texto) && /flete|transporte|carga/i.test(texto) ? 'IVA sobre flete' : null));
 
+  // TRIBUTOS del DUA / pagos a cuenta re-facturados por el despachante: se suman los
+  // importes de los conceptos que son TRIBUTOS OFICIALES (IVA importación, anticipo/
+  // adelanto de IVA, IMADUNI, recargo, tasas DNA, etc.). Se escanean por etiqueta
+  // —no por el detalle, que filtra las líneas de "IVA"— para capturarlos aunque el
+  // parser de detalle los descarte. NO cuenta la "TOTAL IVA" del servicio (IVA sobre
+  // los honorarios) ni el "IVA sobre flete" de plaza: esos no son tributos del DUA.
+  // Sirve para descomponer la factura, NO capitalizar tributos ni duplicar los del DUA.
+  const TRIBUTOS_DUA: RegExp[] = [
+    /IVA\s*Importaci[oó]n/i,
+    /(?:Anticipo|Adelanto)\s*(?:de\s*)?IVA|IVA\s*(?:Anticipad|Adelantad)\w*/i,
+    /IMADUNI/i, /\bRecargo\b/i, /Tasa\s*Consular/i, /\bT\.?S\.?A\b/i,
+    /Tasa\s*(?:de\s*Servicio|DNA|Escaner|Esc[áa]ner)/i, /\bTimbre\b/i, /\bVUCE\b/i,
+    /Gu[ií]a\s*(?:de\s*)?Tr[áa]nsito/i, /\bEsc[áa]ner\b/i, /\bExtraordinario\b/i,
+  ];
+  const tributosPorCuenta = (() => {
+    let acc = 0; let hubo = false;
+    for (const re of TRIBUTOS_DUA) { const v = montoEtiqueta(re); if (v != null) { acc += v; hubo = true; } }
+    return hubo ? acc : null;
+  })();
+
   return {
     emisor: (rutEmisor && EMISORES_UY[rutEmisor]) || null,
     rutEmisor, tipoDoc, serie, numero, rutComprador,
     comprador: despues.match(/(?:NOMBRE\s+)?\b([A-ZÑ][A-ZÑ ]+?(?:SAS|SRL))\b/)?.[1]?.replace(/^NOMBRE\s+/i, '').trim() ?? null,
     fecha, moneda, monedaAmbigua: monedaDet.ambigua, monedaMotivo: monedaDet.motivo,
-    total, subtotalGravado, iva, subtotalNoGravado, noFacturable,
+    total, subtotalGravado, iva, subtotalNoGravado, noFacturable, tributosPorCuenta,
     honorarios, gastosOperativos, carpeta, dua, tipoCambio, tipoOperacion, concepto, lineas: detalle,
   };
 }
@@ -759,7 +784,10 @@ export function parseRecibo(texto: string): ReciboParsed {
     serie: mSerie ? mSerie[1] : null,
     numero: mSerie ? mSerie[2] : null,
     fecha: fechaDMY(texto.match(/(\d{1,2}\/\d{1,2}\/\d{4})/)?.[1] || null),
-    moneda: /pesos/i.test(texto) ? 'UYU' : (/d[oó]lar/i.test(texto) ? 'USD' : 'UYU'),
+    // Moneda del recibo: se identifica igual que un CFE (reconoce U$S / USD / dólar,
+    // antes solo miraba "dólar" y un recibo "USD 7.900,88" caía a UYU → el asiento lo
+    // registraba en pesos sin convertir).
+    moneda: detectarMonedaCfe(texto).moneda,
     total,
     concepto: texto.match(/D E S C R I P C I [ÓO] N\s+IMPORTE\s*\n\s*[\d.,]+\s*\n\s*([^\n]+)/i)?.[1]?.trim()
       || texto.match(/\bcobro\s+\w+/i)?.[0]?.trim() || null,

@@ -78,6 +78,10 @@ export interface ServicioCosteo {
   // Moneda del CFE marcada como AMBIGUA/contradictoria por el parser: el costeo se
   // bloquea (no se convierte a ciegas) hasta verificar la moneda del comprobante.
   monedaAmbigua?: boolean; monedaMotivo?: string | null;
+  // Tributos del DUA / pagos a cuenta re-facturados por el despachante (IVA
+  // importación, anticipo IVA, tasas): NO se capitalizan ni crean un segundo crédito;
+  // ya están en el DUA. Se descuentan del importe capitalizable de la factura.
+  tributosPorCuenta?: number | null;
 }
 
 export interface CosteoDocInput {
@@ -506,9 +510,14 @@ export interface CosteoHistoricoInput {
   servicios: ServicioFechado[];
   anticipos: AnticipoProveedor[];
   pagoSpeCtms: bigint | null;
-  pagoDespachanteCtms: bigint | null;
+  pagoDespachanteCtms: bigint | null;       // importe del recibo YA EN PESOS (convertido si el recibo es en ME)
   fechaPagoDespachante?: string | null;    // fecha del recibo del despachante
   pagoDespachanteConfirmado?: boolean;      // true solo con comprobante de egreso bancario (si no, sujeto a confirmación)
+  // Moneda ORIGINAL del recibo y su valor en esa moneda (para el asiento: moneda
+  // original + importe convertido). Si el recibo es en pesos, moneda 'UYU' y tc 1.
+  pagoDespachanteMonedaOrig?: string | null;
+  pagoDespachanteMontoOrig?: number | null; // importe en la moneda original del recibo
+  pagoDespachanteTc?: number | null;        // TC contable aplicado (1 si ya está en pesos)
   pagoAgencia?: { fecha: string | null; moneda: string; montoME: number } | null; // evidencia de la transferencia a la agencia (fecha + ME)
   fechaReconocimiento: string | null;      // DUA / nacionalización
   cotizacionReconocimiento: number | null; // para el saldo no anticipado
@@ -717,12 +726,33 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
       pushG({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, fecha: s.fecha ?? null, fuenteCotizacion: s.fuenteCotizacion ?? null, esDelDespachante: rutDespachante ? (s.rutEmisor === rutDespachante) : false, concepto: 'Servicio facturado al despachante', moneda: s.moneda ?? 'UYU', montoME: Number(s.total) || 0, cotizacion: tcS ?? 1, montoUYU: 0n, ivaUYU: 0n, gravado: false, porCuentaDeTerceros: true, incluidoEnCosto: false, tratamiento: 'Facturado a un tercero (el despachante); se evita duplicar — el costo entra por su re-facturación.' });
       continue;
     }
+    // TRIBUTOS del DUA / pagos a cuenta que el despachante re-factura (IVA importación,
+    // anticipo IVA, tasas): NO se capitalizan ni crean un segundo crédito —ya están en
+    // el DUA— y se descuentan del importe facturado. "NO FACTURABLE" (si viene) y la
+    // suma de líneas de tributos describen lo mismo: se toma el mayor para no partir el
+    // importe, sin sumarlos dos veces.
+    const noFac = Number(s.noFacturable) || 0;
+    const tribFactura = Number(s.tributosPorCuenta) || 0;
+    const pagosPorCuenta = Math.max(noFac, tribFactura);
+    const pushPagosPorCuenta = () => {
+      if (pagosPorCuenta <= 0) return;
+      pushG({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, fecha: s.fecha ?? null, fuenteCotizacion: s.fuenteCotizacion ?? null, esDelDespachante: rutDespachante ? (s.rutEmisor === rutDespachante) : false, concepto: 'Pagos por cuenta del importador (tributos / tasas oficiales)', moneda: s.moneda ?? 'UYU', montoME: pagosPorCuenta, cotizacion: 1, montoUYU: 0n, ivaUYU: 0n, gravado: false, porCuentaDeTerceros: false, incluidoEnCosto: false, tratamiento: 'Tributos del DUA (IVA importación, anticipo IVA, tasas) pagados por cuenta y re-facturados: NO integran el costo ni dan un segundo crédito; ya están reconocidos en el DUA. Integran solo la cuenta del despachante.' });
+    };
     if (hon || gop) {
       if (hon) pushG({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, fecha: s.fecha ?? null, fuenteCotizacion: s.fuenteCotizacion ?? null, esDelDespachante: rutDespachante ? (s.rutEmisor === rutDespachante) : false, concepto: 'Honorarios del despachante', moneda: s.moneda ?? 'UYU', montoME: hon, cotizacion: tcS ?? 1, montoUYU: cents(hon, tcS ?? 1), ivaUYU: cents(Math.round(hon * 0.22 * 100) / 100, tcS ?? 1), gravado: true, porCuentaDeTerceros: false, incluidoEnCosto: true, tratamiento: 'Gasto directamente atribuible (gravado 22%, IVA crédito).' });
       if (gop) pushG({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, fecha: s.fecha ?? null, fuenteCotizacion: s.fuenteCotizacion ?? null, esDelDespachante: rutDespachante ? (s.rutEmisor === rutDespachante) : false, concepto: 'Gastos operativos', moneda: s.moneda ?? 'UYU', montoME: gop, cotizacion: tcS ?? 1, montoUYU: cents(gop, tcS ?? 1), ivaUYU: cents(Math.round(gop * 0.22 * 100) / 100, tcS ?? 1), gravado: true, porCuentaDeTerceros: false, incluidoEnCosto: true, tratamiento: 'Gasto directamente atribuible (gravado 22%, IVA crédito).' });
-      // El "no facturable" de la e-factura del despachante = tributos del DUA (NO es gasto).
-      const noFac = Number(s.noFacturable) || 0;
-      if (noFac) pushG({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, fecha: s.fecha ?? null, fuenteCotizacion: s.fuenteCotizacion ?? null, esDelDespachante: rutDespachante ? (s.rutEmisor === rutDespachante) : false, concepto: 'Pagos por cuenta del importador (tributos / tasas oficiales)', moneda: s.moneda ?? 'UYU', montoME: noFac, cotizacion: 1, montoUYU: 0n, ivaUYU: 0n, gravado: false, porCuentaDeTerceros: false, incluidoEnCosto: false, tratamiento: 'No es gasto: son los tributos del DUA pagados por cuenta; ya se cuentan en la liquidación aduanera.' });
+      pushPagosPorCuenta();
+    } else if (pagosPorCuenta > 0) {
+      // Factura que es (mayormente) TRIBUTOS re-facturados: no se capitaliza el tributo;
+      // solo el remanente de SERVICIO del despachante (total − tributos − su IVA) es
+      // gasto atribuible. Así $422.531 de tributos no entran al costo (DUA 001-2025-230183).
+      pushPagosPorCuenta();
+      const total = Number(s.total) || 0;
+      const ivaFactura = Number(s.iva) || 0;
+      const servicioResidual = Math.round((total - pagosPorCuenta - ivaFactura) * 100) / 100;
+      if (servicioResidual > 0.009) {
+        pushG({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, fecha: s.fecha ?? null, fuenteCotizacion: s.fuenteCotizacion ?? null, esDelDespachante: rutDespachante ? (s.rutEmisor === rutDespachante) : false, concepto: 'Servicio del despachante', moneda: s.moneda ?? 'UYU', montoME: servicioResidual, cotizacion: tcS ?? 1, montoUYU: cents(servicioResidual, tcS ?? 1), ivaUYU: cents(ivaFactura, tcS ?? 1), gravado: ivaFactura > 0, porCuentaDeTerceros: false, incluidoEnCosto: true, tratamiento: 'Remanente de servicio del despachante (total de la factura menos los tributos del DUA re-facturados y su IVA): gasto atribuible al costo.' });
+      }
     } else {
       const total = Number(s.total) || 0;
       if (total > 0) {
@@ -896,10 +926,18 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
   // Pago al despachante (recibo) — ÚNICO egreso bancario que cubre tributos + gastos.
   // SUJETO A CONFIRMACIÓN del pago bancario mientras solo se cuente con el recibo.
   if (pagoDespachanteCtms && pagoDespachanteCtms > 0n) {
+    // Moneda ORIGINAL del recibo: si es en ME (p. ej. USD 7.900,88), el asiento en
+    // pesos muestra la moneda original y el importe YA CONVERTIDO al TC contable
+    // (pagoDespachanteCtms viene convertido). Si es en pesos, moneda UYU y TC 1.
+    const recMonedaOrig = input.pagoDespachanteMonedaOrig ?? null;
+    const recMontoOrig = input.pagoDespachanteMontoOrig ?? null;
+    const recEsME = !!recMonedaOrig && recMonedaOrig.toUpperCase() !== 'UYU';
+    const recTc = input.pagoDespachanteTc ?? null;
+    const cuentaBanco = recEsME ? 'bancoMe' : 'bancoPesos';
     mk(fechaPagoDespachante ?? fechaReconocimiento, `Pago al despachante de aduana (recibo)${pagoDespachanteConfirmado ? '' : ' — sujeto a confirmación'}`, [
-      { cuenta: et('despachantes'), debe: pagoDespachanteCtms, haber: 0n },
-      { cuenta: et('bancoPesos'), debe: 0n, haber: pagoDespachanteCtms },
-    ], [{ documento: 'Recibo del despachante (cobranza)', regla: `Cancela la cuenta del despachante (tributos reintegrados + gastos + honorarios). ${pagoDespachanteConfirmado ? 'Pago confirmado por comprobante bancario.' : 'SUJETO A CONFIRMACIÓN del egreso bancario (solo consta el recibo de cobranza).'}` }], !!pagoDespachanteConfirmado);
+      { cuenta: et('despachantes'), monedaOrig: recEsME ? recMonedaOrig : undefined, montoOrig: recEsME ? (recMontoOrig ?? undefined) : undefined, debe: pagoDespachanteCtms, haber: 0n },
+      { cuenta: et(cuentaBanco), monedaOrig: recEsME ? recMonedaOrig : undefined, montoOrig: recEsME ? (recMontoOrig ?? undefined) : undefined, debe: 0n, haber: pagoDespachanteCtms },
+    ], [{ documento: 'Recibo del despachante (cobranza)', regla: `Cancela la cuenta del despachante (tributos reintegrados + gastos + honorarios).${recEsME ? ` Recibo en ${recMonedaOrig} ${(recMontoOrig ?? 0).toLocaleString('es-UY', { minimumFractionDigits: 2 })} convertido a pesos al TC contable ${recTc ?? '—'}.` : ''} ${pagoDespachanteConfirmado ? 'Pago confirmado por comprobante bancario.' : 'SUJETO A CONFIRMACIÓN del egreso bancario (solo consta el recibo de cobranza).'}` }], !!pagoDespachanteConfirmado);
   }
   // Pago a la agencia de carga (transferencia en plaza): cancela su cuenta por el
   // valor contabilizado del servicio (la ME pagada se muestra como referencia).
