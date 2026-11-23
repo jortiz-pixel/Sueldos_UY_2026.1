@@ -514,6 +514,9 @@ export interface FacturaServiciosParsed {
   // importador y re-factura. NO son gasto capitalizable ni un segundo crédito de IVA:
   // ya están reconocidos en el DUA. Sirve para descomponer la factura y no duplicar.
   tributosPorCuenta: number | null;
+  // Detalle por concepto de esos tributos (para conciliar uno a uno con el DUA y
+  // detectar conceptos que figuran en la factura del despachante pero no en el DUA).
+  tributosDetalle: Array<{ concepto: string; importe: number }>;
   carpeta: string | null; dua: string | null; tipoCambio: number | null;
   tipoOperacion: string | null; // "TRANSITO" / "IMPORTACION" / … (adenda del despachante)
   concepto: string | null; // concepto principal (1.ª línea de detalle, o detectado)
@@ -672,25 +675,38 @@ export function parseFacturaServiciosUY(texto: string): FacturaServiciosParsed {
   // parser de detalle los descarte. NO cuenta la "TOTAL IVA" del servicio (IVA sobre
   // los honorarios) ni el "IVA sobre flete" de plaza: esos no son tributos del DUA.
   // Sirve para descomponer la factura, NO capitalizar tributos ni duplicar los del DUA.
-  const TRIBUTOS_DUA: RegExp[] = [
-    /IVA\s*Importaci[oó]n/i,
-    /(?:Anticipo|Adelanto)\s*(?:de\s*)?IVA|IVA\s*(?:Anticipad|Adelantad)\w*/i,
-    /IMADUNI/i, /\bRecargo\b/i, /Tasa\s*Consular/i, /\bT\.?S\.?A\b/i,
-    /Tasa\s*(?:de\s*Servicio|DNA|Escaner|Esc[áa]ner)/i, /\bTimbre\b/i, /\bVUCE\b/i,
-    /Gu[ií]a\s*(?:de\s*)?Tr[áa]nsito/i, /\bEsc[áa]ner\b/i, /\bExtraordinario\b/i,
+  const TRIBUTOS_DUA: Array<{ re: RegExp; nombre: string }> = [
+    { re: /IVA\s*Importaci[oó]n/i, nombre: 'IVA Importación' },
+    { re: /(?:Anticipo|Adelanto)\s*(?:de\s*)?IVA|IVA\s*(?:Anticipad|Adelantad)\w*/i, nombre: 'Anticipo IVA' },
+    { re: /IMADUNI/i, nombre: 'IMADUNI' },
+    { re: /\bRecargo\b/i, nombre: 'Recargo de importación' },
+    { re: /Tasa\s*Consular/i, nombre: 'Tasa consular' },
+    { re: /\bT\.?S\.?A\b/i, nombre: 'TSA' },
+    { re: /Tasa\s*(?:de\s*Servicio|DNA)/i, nombre: 'Tasa de servicio' },
+    { re: /\bTimbre\b/i, nombre: 'Timbre' },
+    { re: /\bVUCE\b/i, nombre: 'VUCE' },
+    { re: /Gu[ií]a\s*(?:de\s*)?Tr[áa]nsito/i, nombre: 'Guía de tránsito' },
+    { re: /Esc[áa]ner/i, nombre: 'Tasa de escáner' },
+    { re: /\bExtraordinario\b/i, nombre: 'Extraordinario' },
   ];
-  const tributosPorCuenta = (() => {
-    let acc = 0; let hubo = false;
-    for (const re of TRIBUTOS_DUA) { const v = montoEtiqueta(re); if (v != null) { acc += v; hubo = true; } }
-    return hubo ? acc : null;
-  })();
+  // Detalle por concepto de los tributos del DUA que el despachante re-factura, para
+  // poder CONCILIARLOS uno a uno con el DUA (y detectar conceptos que están en la
+  // factura pero no en el DUA, o viceversa). Se evita duplicar un mismo monto si dos
+  // patrones matchean la misma línea.
+  const tributosDetalle: Array<{ concepto: string; importe: number }> = [];
+  const vistosTrib = new Set<number>();
+  for (const t of TRIBUTOS_DUA) {
+    const v = montoEtiqueta(t.re);
+    if (v != null && !vistosTrib.has(Math.round(v * 100))) { tributosDetalle.push({ concepto: t.nombre, importe: v }); vistosTrib.add(Math.round(v * 100)); }
+  }
+  const tributosPorCuenta = tributosDetalle.length ? tributosDetalle.reduce((s, t) => s + t.importe, 0) : null;
 
   return {
     emisor: (rutEmisor && EMISORES_UY[rutEmisor]) || null,
     rutEmisor, tipoDoc, serie, numero, rutComprador,
     comprador: despues.match(/(?:NOMBRE\s+)?\b([A-ZÑ][A-ZÑ ]+?(?:SAS|SRL))\b/)?.[1]?.replace(/^NOMBRE\s+/i, '').trim() ?? null,
     fecha, moneda, monedaAmbigua: monedaDet.ambigua, monedaMotivo: monedaDet.motivo,
-    total, subtotalGravado, iva, subtotalNoGravado, noFacturable, tributosPorCuenta,
+    total, subtotalGravado, iva, subtotalNoGravado, noFacturable, tributosPorCuenta, tributosDetalle,
     honorarios, gastosOperativos, carpeta, dua, tipoCambio, tipoOperacion, concepto, lineas: detalle,
   };
 }
@@ -772,6 +788,10 @@ export interface ReciboParsed {
   emisor: string | null; rutEmisor: string | null; serie: string | null; numero: string | null;
   fecha: string | null; moneda: string; total: number | null; concepto: string | null;
   carpeta: string | null; banco: string | null;
+  // Señales de que el recibo NO es un pago independiente a imputar sin verificar:
+  // anulación, sustitución de otro comprobante, nota de crédito o entrega a cuenta de
+  // otra factura. El costeo lo deja PENDIENTE y bloquea hasta confirmar su imputación.
+  anuladoOSustituido: boolean; motivoRevision: string | null;
 }
 
 export function parseRecibo(texto: string): ReciboParsed {
@@ -793,6 +813,13 @@ export function parseRecibo(texto: string): ReciboParsed {
       || texto.match(/\bcobro\s+\w+/i)?.[0]?.trim() || null,
     carpeta: texto.match(/(\d{5,6}\/\d{4})/)?.[1] ?? null,
     banco: texto.match(/\b(SANTANDER|ITAU|ITA[UÚ]|BROU|BBVA|SCOTIABANK)\b/i)?.[1] ?? null,
+    ...(() => {
+      // Marcas de que el recibo requiere verificación antes de imputarlo como pago.
+      const m = texto.match(/\bANULAD[OA]\b|\bANULACI[OÓ]N\b|\bSUSTITU\w+/i) ? 'anulación o sustitución'
+        : (/\bNOTA\s+DE\s+CR[EÉ]DITO\b/i.test(texto) ? 'nota de crédito'
+        : (/entrega\s+a\s+cuenta|aplicad[oa]\s+a|a\s+cuenta\s+de\s+(?:la\s+)?factura|imputad[oa]\s+a/i.test(texto) ? 'entrega/aplicación a cuenta de otra factura' : null));
+      return { anuladoOSustituido: m != null, motivoRevision: m };
+    })(),
   };
 }
 

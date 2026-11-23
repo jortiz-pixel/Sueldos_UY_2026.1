@@ -243,7 +243,7 @@ export async function reconstruirCosteoDesdeExtraccion(importacionId: string): P
     const esUsd = (sd.moneda ?? '').toUpperCase() === 'USD' && sd.monedaAmbigua !== true;
     const cot = esUsd ? await tcFiscalDia(sd.moneda, s.fecha) : { valor: null, fuente: null };
     const primeraLinea = sd.concepto ?? (Array.isArray(sd.lineas) && sd.lineas[0] ? String(sd.lineas[0].descripcion ?? '') : '');
-    return { rutComprador: sd.rutComprador ?? null, rutEmisor: sd.rutEmisor ?? s.rutEmisor ?? null, moneda: sd.moneda ?? null, monedaAmbigua: sd.monedaAmbigua === true, monedaMotivo: sd.monedaMotivo ?? null, serie: sd.serie ?? null, numero: sd.numero ?? null, emisor: s.emisor, honorarios: sd.honorarios ?? null, gastosOperativos: sd.gastosOperativos ?? null, iva: sd.iva ?? null, total: sd.total ?? null, noFacturable: sd.noFacturable ?? null, tributosPorCuenta: sd.tributosPorCuenta ?? null, concepto: primeraLinea, fecha: iso(s.fecha), cotizacion: esUsd ? cot.valor : null, fuenteCotizacion: esUsd ? cot.fuente : 'operación en pesos' };
+    return { rutComprador: sd.rutComprador ?? null, rutEmisor: sd.rutEmisor ?? s.rutEmisor ?? null, moneda: sd.moneda ?? null, monedaAmbigua: sd.monedaAmbigua === true, monedaMotivo: sd.monedaMotivo ?? null, serie: sd.serie ?? null, numero: sd.numero ?? null, emisor: s.emisor, honorarios: sd.honorarios ?? null, gastosOperativos: sd.gastosOperativos ?? null, iva: sd.iva ?? null, total: sd.total ?? null, noFacturable: sd.noFacturable ?? null, tributosPorCuenta: sd.tributosPorCuenta ?? null, tributosDetalle: Array.isArray(sd.tributosDetalle) ? sd.tributosDetalle : [], concepto: primeraLinea, fecha: iso(s.fecha), cotizacion: esUsd ? cot.valor : null, fuenteCotizacion: esUsd ? cot.fuente : 'operación en pesos' };
   }));
   // Pagos al despachante: TODOS los recibos emitidos por el despachante (RUT
   // declarante). Se deduplican por SERIE+NÚMERO (comprobante distinto), NUNCA por
@@ -264,6 +264,8 @@ export async function reconstruirCosteoDesdeExtraccion(importacionId: string): P
     return [...vistos.values()];
   })();
   const pagosDespachante = await Promise.all(recibosDedup.map(async (rc) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rd: any = rc.datos ?? {};
     const esME = (rc.moneda ?? '').toUpperCase() !== 'UYU' && (rc.moneda ?? '') !== '';
     const montoOrig = Number(rc.total) / 100; // en la moneda original del recibo
     const cot = esME ? await tcFiscalDia(rc.moneda!, rc.fecha) : { valor: 1, fuente: 'pesos' };
@@ -276,6 +278,8 @@ export async function reconstruirCosteoDesdeExtraccion(importacionId: string): P
       montoUYU: montoUYU != null ? montoUYU.toString() : null,
       confirmado: false, // recibo de cobranza: pendiente hasta el comprobante de egreso bancario
       sinCotizacion: esME && !cot.valor,
+      anuladoOSustituido: rd.anuladoOSustituido === true,
+      motivoRevision: rd.motivoRevision ?? null,
     };
   }));
   const reciboDesp = recibosDedup[0] ?? null; // referencia para fecha del cabezal

@@ -300,7 +300,7 @@ describe('construirCosteoHistorico — MARPOLOS', () => {
     expect(reemb?.incluidoEnCosto).toBe(true);
     // Honorarios y gastos operativos entran; el "no facturable" NO.
     expect(r.gastos.some((g) => /Honorarios/.test(g.concepto) && g.incluidoEnCosto)).toBe(true);
-    expect(r.gastos.some((g) => /Pagos por cuenta/.test(g.concepto) && !g.incluidoEnCosto)).toBe(true);
+    expect(r.gastos.some((g) => /re-facturados por el despachante|Pagos por cuenta/.test(g.concepto) && !g.incluidoEnCosto)).toBe(true);
   });
 
   it('costo de inventario = adquisición + no recuperables + gastos; ítems cuadran', () => {
@@ -1199,7 +1199,7 @@ describe('construirCosteoHistorico — tributos re-facturados NO se capitalizan'
   }
   it('el gasto capitalizable excluye los tributos del DUA re-facturados', () => {
     const r = construirCosteoHistorico(facturaTributos());
-    const ppc = r.gastos.find((g) => /Pagos por cuenta/i.test(g.concepto))!;
+    const ppc = r.gastos.find((g) => /re-facturados por el despachante|Pagos por cuenta/i.test(g.concepto))!;
     expect(ppc).toBeTruthy();
     expect(ppc.incluidoEnCosto).toBe(false);
     expect(ppc.montoME).toBeCloseTo(372677, 0);
@@ -1286,5 +1286,67 @@ describe('construirCosteoHistorico — cuenta del despachante (varios recibos)',
     // El saldo acumulado del último movimiento = cargos − pagos (positivo = a pagar).
     const ult = cd.movimientos[cd.movimientos.length - 1];
     expect(BigInt(String(ult.saldoUYU))).toBeGreaterThan(0n);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SALDO DEL DESPACHANTE Y DIFERENCIA DE TRIBUTOS (DUA 001-2025-230183, v4):
+// saldo = TODOS los cargos − pagos acreditados; tributos de la factura que no están
+// en el DUA se concilian aparte y bloquean; recibos a verificar antes de imputar.
+// ═════════════════════════════════════════════════════════════════════════════
+describe('construirCosteoHistorico — saldo y diferencia de tributos del despachante', () => {
+  function expediente(opts: { pagos?: CosteoHistoricoInput['pagosDespachante']; detalle: Array<{ concepto: string; importe: number }>; honorarios?: number; total: number }): CosteoHistoricoInput {
+    const duaTrib = [ { codigo: '15', nombre: 'IVA importación', monto: 256215 }, { codigo: '16', nombre: 'Anticipo IVA', monto: 116462 }, { codigo: '26', nombre: 'Tasa consular', monto: 20000 }, { codigo: '06', nombre: 'TSA', monto: 6476 } ];
+    return {
+      dua: { nroDua: '001-2025-230183', tipoCambio: 39.753, valorAduanaPesos: 0, importadorRut: '220616930019', declaranteRut: '217369500013', importeFacturas: 50000, moneda: 'USD', tributos: duaTrib } as any,
+      factura: { fob: C(50000), flete: C(0), seguro: C(0), total: C(50000), moneda: 'USD', articulos: [ { descripcion: 'M', codigo: 'M1', cantidad: 1, total: C(50000) } ] },
+      servicios: [ { rutComprador: '220616930019', rutEmisor: '217369500013', moneda: 'UYU', serie: 'A', numero: '0033282', emisor: 'Despachante',
+        honorarios: opts.honorarios ?? null, gastosOperativos: null, iva: 0, total: opts.total,
+        noFacturable: null, tributosPorCuenta: opts.detalle.reduce((s, t) => s + t.importe, 0), tributosDetalle: opts.detalle } as any ],
+      anticipos: [ { fecha: '2025-08-10', referencia: '1', moneda: 'USD', monto: 50000, comision: 0, cotizacion: 39.753 } ],
+      pagoSpeCtms: null, pagoDespachanteCtms: null, pagosDespachante: opts.pagos ?? [],
+      fechaReconocimiento: '2025-08-10', cotizacionReconocimiento: 39.753, tcProvisional: 39.753, unidadesPacking: null, etiqueta: et,
+    };
+  }
+  const seisDua = [ { concepto: 'IVA Importación', importe: 256215 }, { concepto: 'Anticipo IVA', importe: 116462 }, { concepto: 'Tasa consular', importe: 20000 }, { concepto: 'TSA', importe: 6476 } ];
+  const conExtra = [ ...seisDua, { concepto: 'Recargo de importación', importe: 22835 }, { concepto: 'Tasa de escáner', importe: 543 } ];
+
+  it('§1 saldo = todos los cargos − pagos acreditados (no omite honorarios ni gastos)', () => {
+    const r = construirCosteoHistorico(expediente({ detalle: seisDua, honorarios: 50000, total: 449153 }));
+    const cd = r.cuentaDespachante!;
+    // Cargos = tributos reintegrados (399.153) + honorarios (50.000) + IVA 22% de los
+    // honorarios (11.000) = 460.153. NO omite los honorarios ni su IVA.
+    expect(cd.cargosUYU).toBe(C(460153));
+    // Sin pagos acreditados → el saldo (a pagar) = todos los cargos.
+    expect(cd.pagosConfirmadosUYU).toBe(0n);
+    expect(-Number(cd.saldoConfirmadoUYU) / 100).toBeCloseTo(460153, 0);
+  });
+
+  it('§2 tributos de la factura que no están en el DUA: se concilian aparte y BLOQUEAN', () => {
+    const r = construirCosteoHistorico(expediente({ detalle: conExtra, honorarios: 50000, total: 472531 }));
+    expect(r.estado).toBe('PROVISIONAL');
+    expect(r.motivos.join(' ')).toMatch(/Diferencia de tributos SIN CONCILIAR/i);
+    // La nota nombra los conceptos que están en la factura pero no en el DUA.
+    expect(r.conciliacion.despachante?.nota).toMatch(/Recargo de importación/i);
+    expect(r.conciliacion.despachante?.nota).toMatch(/Tasa de escáner/i);
+    expect(r.cuentaDespachante?.saldada).toBe(false);
+  });
+
+  it('recibo con marca de anulación/sustitución: no se imputa y bloquea', () => {
+    const r = construirCosteoHistorico(expediente({ detalle: seisDua, honorarios: 50000, total: 449153, pagos: [
+      { serie: 'A', numero: '33665', fecha: '2025-08-12', moneda: 'UYU', montoOrig: 100000, tc: 1, montoUYU: String(100000 * 100), confirmado: false, anuladoOSustituido: true, motivoRevision: 'anulación o sustitución' },
+    ] }));
+    expect(r.estado).toBe('PROVISIONAL');
+    expect(r.motivos.join(' ')).toMatch(/anulaci[oó]n|sustituci[oó]n/i);
+    expect(r.asientos.some((a) => /33665/.test(a.glosa))).toBe(false); // no se imputó
+  });
+
+  it('pagos que superan los cargos: bloquea (posibles anulaciones/sustituciones)', () => {
+    const r = construirCosteoHistorico(expediente({ detalle: seisDua, honorarios: 50000, total: 449153, pagos: [
+      { serie: 'A', numero: '33115', fecha: '2025-08-12', moneda: 'UYU', montoOrig: 300000, tc: 1, montoUYU: String(300000 * 100), confirmado: false },
+      { serie: 'A', numero: '33666', fecha: '2025-08-13', moneda: 'UYU', montoOrig: 300000, tc: 1, montoUYU: String(300000 * 100), confirmado: false },
+    ] }));
+    expect(r.motivos.join(' ')).toMatch(/superan los cargos/i);
+    expect(r.estado).toBe('PROVISIONAL');
   });
 });

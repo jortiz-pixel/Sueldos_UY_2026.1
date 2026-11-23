@@ -82,6 +82,8 @@ export interface ServicioCosteo {
   // importación, anticipo IVA, tasas): NO se capitalizan ni crean un segundo crédito;
   // ya están en el DUA. Se descuentan del importe capitalizable de la factura.
   tributosPorCuenta?: number | null;
+  // Detalle por concepto, para conciliar uno a uno contra los tributos del DUA.
+  tributosDetalle?: Array<{ concepto: string; importe: number }>;
 }
 
 export interface CosteoDocInput {
@@ -533,7 +535,7 @@ export interface CosteoHistoricoInput {
   // Cada uno con su moneda original, fecha y TC contable de ESA fecha. Si se informa,
   // reemplaza al pago único de arriba: se emite un asiento por recibo. confirmado =
   // true solo con comprobante de egreso bancario; un recibo de cobranza es pendiente.
-  pagosDespachante?: Array<{ serie: string | null; numero: string | null; fecha: string | null; moneda: string; montoOrig: number; tc: number | null; montoUYU: string | null; confirmado?: boolean; sinCotizacion?: boolean }>;
+  pagosDespachante?: Array<{ serie: string | null; numero: string | null; fecha: string | null; moneda: string; montoOrig: number; tc: number | null; montoUYU: string | null; confirmado?: boolean; sinCotizacion?: boolean; anuladoOSustituido?: boolean; motivoRevision?: string | null }>;
   pagoAgencia?: { fecha: string | null; moneda: string; montoME: number } | null; // evidencia de la transferencia a la agencia (fecha + ME)
   fechaReconocimiento: string | null;      // DUA / nacionalización
   cotizacionReconocimiento: number | null; // para el saldo no anticipado
@@ -752,7 +754,7 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
     const pagosPorCuenta = Math.max(noFac, tribFactura);
     const pushPagosPorCuenta = () => {
       if (pagosPorCuenta <= 0) return;
-      pushG({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, fecha: s.fecha ?? null, fuenteCotizacion: s.fuenteCotizacion ?? null, esDelDespachante: rutDespachante ? (s.rutEmisor === rutDespachante) : false, concepto: 'Pagos por cuenta del importador (tributos / tasas oficiales)', moneda: s.moneda ?? 'UYU', montoME: pagosPorCuenta, cotizacion: 1, montoUYU: 0n, ivaUYU: 0n, gravado: false, porCuentaDeTerceros: false, incluidoEnCosto: false, tratamiento: 'Tributos del DUA (IVA importación, anticipo IVA, tasas) pagados por cuenta y re-facturados: NO integran el costo ni dan un segundo crédito; ya están reconocidos en el DUA. Integran solo la cuenta del despachante.' });
+      pushG({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, fecha: s.fecha ?? null, fuenteCotizacion: s.fuenteCotizacion ?? null, esDelDespachante: rutDespachante ? (s.rutEmisor === rutDespachante) : false, concepto: 'Tributos y cargos re-facturados por el despachante (a conciliar con el DUA)', moneda: s.moneda ?? 'UYU', montoME: pagosPorCuenta, cotizacion: 1, montoUYU: 0n, ivaUYU: 0n, gravado: false, porCuentaDeTerceros: false, incluidoEnCosto: false, tratamiento: 'Conceptos rotulados como tributos que el despachante pagó por cuenta y re-factura: NO integran el costo ni dan un segundo crédito. La parte que coincide con el DUA es reintegro de esos tributos; cualquier diferencia con el DUA se concilia aparte (no se asume tributo del DUA). Integran solo la cuenta del despachante.' });
     };
     if (hon || gop) {
       if (hon) pushG({ documento: doc, emisor: s.emisor, rutEmisor: s.rutEmisor ?? null, fecha: s.fecha ?? null, fuenteCotizacion: s.fuenteCotizacion ?? null, esDelDespachante: rutDespachante ? (s.rutEmisor === rutDespachante) : false, concepto: 'Honorarios del despachante', moneda: s.moneda ?? 'UYU', montoME: hon, cotizacion: tcS ?? 1, montoUYU: cents(hon, tcS ?? 1), ivaUYU: cents(Math.round(hon * 0.22 * 100) / 100, tcS ?? 1), gravado: true, porCuentaDeTerceros: false, incluidoEnCosto: true, tratamiento: 'Gasto directamente atribuible (gravado 22%, IVA crédito).' });
@@ -904,6 +906,22 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
   const tributosReFacturados = servicios.reduce((s, x) => s + Math.max(Number(x.noFacturable) || 0, Number(x.tributosPorCuenta) || 0), 0);
   const difTrib = P(tributosReFacturados) - totalTributos; // para conciliar DUA vs factura
   const tributosPorDespachante = tributosReFacturados > 0;
+  // Conceptos rotulados como tributo en la factura del despachante que NO tienen un
+  // tributo del DUA del mismo importe (match por monto, tolerancia $1): hay que
+  // verificarlos (p. ej. Recargo de importación, Tasa de escáner). No se asumen del DUA.
+  const tributosSoloFactura: Array<{ concepto: string; importe: number }> = (() => {
+    const det = servicios.flatMap((s) => s.tributosDetalle ?? []);
+    if (!det.length) return [];
+    const duaRest = (dua?.tributos ?? []).map((t) => P(t.monto));
+    const solo: Array<{ concepto: string; importe: number }> = [];
+    for (const d of det) {
+      const amt = P(d.importe);
+      const idx = duaRest.findIndex((x) => (x - amt < 0n ? amt - x : x - amt) <= 100n);
+      if (idx >= 0) duaRest.splice(idx, 1); else solo.push(d);
+    }
+    return solo;
+  })();
+  const soloFacturaUYU = tributosSoloFactura.reduce((s, t) => s + P(t.importe), 0n);
 
   // Gastos divididos por prestador: despachante (cuenta corriente) vs agencia/plaza.
   // La cuenta de la agencia incluye TODOS sus comprobantes: los servicios que integran
@@ -926,6 +944,18 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
       { cuenta: et('anticipoIvaImportacion'), debe: anticiposFiscales, haber: 0n },
       { cuenta: et(tributosPorDespachante ? 'despachantes' : 'bancoPesos'), debe: 0n, haber: totalTributos },
     ], [{ documento: `DUA ${dua?.nroDua ?? ''}`, pagina: 'pág. 1 (tributos)', regla: 'Tributos liquidados en el DUA; IVA importación = crédito fiscal; anticipo IVA = pago a cuenta (no integra costo); no recuperables al inventario.' }, { documento: 'Pago SPE/Sistarbanc (cód. autorización)', regla: tributosPorDespachante ? 'Los pagó el despachante por cuenta del importador (constan como "no facturable" en su e-factura y se reintegran en el recibo); contrapartida Despachantes, NO Banco (el único egreso bancario es el recibo).' : 'Pagados directamente por el importador por SPE; contrapartida Banco.' }], true);
+  }
+  // Conceptos rotulados como tributo en la factura del despachante que NO figuran en el
+  // DUA (p. ej. Recargo de importación, Tasa de escáner): el despachante los cobra, así
+  // que SE LE DEBEN (integran su cuenta), pero su naturaleza (¿tributo omitido del DUA o
+  // cargo adicional?) está sin determinar → van a una cuenta transitoria "a clasificar"
+  // y el asiento queda PROVISORIO, bloqueando la aprobación hasta verificarlos. No se
+  // capitalizan ni dan crédito de IVA hasta clasificarlos (no se asume que son del DUA).
+  if (tributosPorDespachante && soloFacturaUYU > 0n) {
+    mk(fechaReconocimiento, 'Conceptos del despachante a clasificar (no figuran en el DUA)', [
+      { cuenta: et('otrosImpuestosTasas'), debe: soloFacturaUYU, haber: 0n },
+      { cuenta: et('despachantes'), debe: 0n, haber: soloFacturaUYU },
+    ], [{ documento: 'Factura del despachante vs DUA', regla: `Conceptos facturados como tributo que no coinciden con ningún tributo del DUA: ${tributosSoloFactura.map((t) => t.concepto).join(', ')}. Se le deben al despachante (integran su cuenta) pero quedan en una cuenta a CLASIFICAR; verificar documentalmente si son tributos omitidos del DUA (completar el DUA) o cargos adicionales del despachante antes de imputarlos al costo o al crédito fiscal.` }], false);
   }
   // Gastos y honorarios del DESPACHANTE (cuenta corriente del despachante). El IVA es
   // CRÉDITO (va a IVA compras), salvo operación no comprendida → se capitaliza al costo.
@@ -957,6 +987,13 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
         : []);
   for (const rp of pagosRecibos) {
     const etiq = `${rp.serie ?? ''}${rp.numero ?? ''}`.trim();
+    // Recibo con marca de ANULACIÓN / SUSTITUCIÓN / aplicación a otra factura: NO se
+    // imputa como pago sin verificar (podría no ser un pago independiente). Bloquea.
+    if (rp.anuladoOSustituido) {
+      provisionalCosto = true;
+      motivos.push(`Recibo del despachante ${etiq || '(s/n)'} marca ${rp.motivoRevision ?? 'una revisión'}: NO se imputa como pago hasta verificar si es un pago independiente, una anulación/sustitución o una aplicación a otra factura.`);
+      continue;
+    }
     if (rp.sinCotizacion || rp.montoUYU == null) {
       provisionalCosto = true;
       motivos.push(`Recibo del despachante ${etiq || '(s/n)'} en ${rp.moneda} ${rp.montoOrig.toLocaleString('es-UY', { minimumFractionDigits: 2 })}: falta la cotización del ${rp.fecha ?? 's/f'} para convertirlo a pesos (no se registra el pago hasta cotizarlo).`);
@@ -1030,7 +1067,6 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
 
   // Cuenta corriente del despachante UNIFICADA = movimientos a Despachantes en los
   // asientos (misma base que la conciliación y el resumen).
-  const movDespachante = asientos.reduce((s, a) => s + a.lineas.filter((l) => l.cuenta === 'despachantes').reduce((ss, l) => ss + l.debe - l.haber, 0n), 0n);
   const cargosDespachante = asientos.reduce((s, a) => s + a.lineas.filter((l) => l.cuenta === 'despachantes').reduce((ss, l) => ss + l.haber, 0n), 0n);
   const pagosDespachanteAs = asientos.reduce((s, a) => s + a.lineas.filter((l) => l.cuenta === 'despachantes').reduce((ss, l) => ss + l.debe, 0n), 0n);
   // Pagos CONFIRMADOS = debe a Despachantes en asientos definitivos (egreso bancario
@@ -1038,9 +1074,13 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
   // de cobranza, sin comprobante de egreso).
   const pagosConfirmadosDesp = asientos.filter((a) => a.definitivo).reduce((s, a) => s + a.lineas.filter((l) => l.cuenta === 'despachantes').reduce((ss, l) => ss + l.debe, 0n), 0n);
   const pagosPendientesDesp = asientos.filter((a) => !a.definitivo).reduce((s, a) => s + a.lineas.filter((l) => l.cuenta === 'despachantes').reduce((ss, l) => ss + l.debe, 0n), 0n);
-  // Saldo CONFIRMADO = neto de los movimientos de asientos DEFINITIVOS (el pago sin
-  // confirmar no cuenta). Saldo PROYECTADO = neto de todos (como si el pago se acreditara).
-  const saldoConfirmadoDesp = asientos.filter((a) => a.definitivo).reduce((s, a) => s + a.lineas.filter((l) => l.cuenta === 'despachantes').reduce((ss, l) => ss + l.debe - l.haber, 0n), 0n);
+  // Saldo CONFIRMADO = TODOS los cargos reconocidos − los pagos ACREDITADOS
+  // (confirmados). Un cargo (honorarios, gastos, tributos reintegrados) cuenta aunque
+  // su asiento de costo esté provisorio: igual es una obligación con el despachante.
+  // Solo los pagos requieren estar acreditados. (debe − haber: negativo = a pagar.)
+  const saldoConfirmadoDesp = pagosConfirmadosDesp - cargosDespachante;
+  // Saldo PROYECTADO = con TODOS los pagos (incluidos los recibos sin acreditar).
+  const saldoProyectadoDesp = pagosDespachanteAs - cargosDespachante;
   // MAYOR del despachante (conciliación por documento): un renglón por movimiento, en
   // orden cronológico, con moneda original, importe convertido y saldo acumulado.
   const movimientosDesp: NonNullable<CosteoHistorico['cuentaDespachante']>['movimientos'] = [];
@@ -1053,14 +1093,34 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
       }
     }
   }
-  // Diferencias SIN CONCILIAR que impiden declarar la cuenta «saldada»: pagos aún no
-  // acreditados (recibos sin egreso bancario), recibos sin cotización, o tributos del
-  // DUA que no cuadran con lo re-facturado por el despachante.
+  // Diferencias SIN CONCILIAR que impiden declarar la cuenta «saldada» y BLOQUEAN la
+  // aprobación: pagos aún no acreditados, recibos sin cotización, tributos del DUA que
+  // no cuadran con lo re-facturado, o pagos que superan los cargos (posibles
+  // anulaciones/sustituciones/duplicados a verificar).
   const algunReciboSinCotizacion = !!(input.pagosDespachante && input.pagosDespachante.some((p) => p.sinCotizacion || p.montoUYU == null));
   const tributosSinConciliar = tributosReFacturados > 0 && (difTrib < 0n ? -difTrib : difTrib) > 200n;
-  const saldadaDesp = cargosDespachante > 0n && saldoConfirmadoDesp === 0n && pagosPendientesDesp === 0n && !algunReciboSinCotizacion && !tributosSinConciliar;
+  // §2: la diferencia entre lo que el despachante rotula como tributo y lo que liquida
+  // el DUA NO se asume automáticamente un tributo del DUA: se bloquea para verificar si
+  // esos conceptos están en el DUA (y falta extraerlos) o son cargos adicionales.
+  if (tributosSinConciliar) {
+    const m2 = (v: bigint) => `$ ${(Number(v < 0n ? -v : v) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2 })}`;
+    motivos.push(`Diferencia de tributos SIN CONCILIAR: el despachante factura ${m2(P(tributosReFacturados))} en conceptos de tributo y el DUA liquida ${m2(totalTributos)} (diferencia ${m2(difTrib)}). Verificar documentalmente si esos conceptos figuran en el DUA (falta extraerlos) o son cargos adicionales del despachante; no se asumen tributos del DUA ni se capitalizan hasta clasificarlos.`);
+    provisionalCosto = true;
+  }
+  // VARIOS recibos que, SUMADOS, superan los cargos: señal de posibles recibos
+  // anulados/sustituidos o aplicados a otra factura (doble cómputo) → se bloquea hasta
+  // verificar la imputación. Un ÚNICO recibo que excede es una entrega a cuenta mayor
+  // (prepago documentado), no se bloquea.
+  const nRecibos = input.pagosDespachante?.length ?? (pagoDespachanteCtms && pagoDespachanteCtms > 0n ? 1 : 0);
+  const pagosSuperanCargos = nRecibos >= 2 && pagosDespachanteAs > cargosDespachante && (pagosDespachanteAs - cargosDespachante) > 200n;
+  if (pagosSuperanCargos) {
+    const m2 = (v: bigint) => `$ ${(Number(v) / 100).toLocaleString('es-UY', { minimumFractionDigits: 2 })}`;
+    motivos.push(`Los recibos del despachante (${m2(pagosDespachanteAs)}) superan los cargos documentados (${m2(cargosDespachante)}): verificar si algún recibo es una anulación, sustitución o se aplica a otra factura antes de imputarlo.`);
+    provisionalCosto = true;
+  }
+  const saldadaDesp = cargosDespachante > 0n && saldoConfirmadoDesp === 0n && pagosPendientesDesp === 0n && !algunReciboSinCotizacion && !tributosSinConciliar && !pagosSuperanCargos;
   const cuentaDespachante = (cargosDespachante > 0n || pagosDespachanteAs > 0n)
-    ? { cargosUYU: cargosDespachante, pagosUYU: pagosDespachanteAs, pagosConfirmadosUYU: pagosConfirmadosDesp, pagosPendientesUYU: pagosPendientesDesp, saldoUYU: movDespachante, saldoConfirmadoUYU: saldoConfirmadoDesp, saldoProyectadoUYU: movDespachante, pagoConfirmado: pagosConfirmadosDesp > 0n && pagosPendientesDesp === 0n, saldada: saldadaDesp, movimientos: movimientosDesp }
+    ? { cargosUYU: cargosDespachante, pagosUYU: pagosDespachanteAs, pagosConfirmadosUYU: pagosConfirmadosDesp, pagosPendientesUYU: pagosPendientesDesp, saldoUYU: saldoProyectadoDesp, saldoConfirmadoUYU: saldoConfirmadoDesp, saldoProyectadoUYU: saldoProyectadoDesp, pagoConfirmado: pagosConfirmadosDesp > 0n && pagosPendientesDesp === 0n, saldada: saldadaDesp, movimientos: movimientosDesp }
     : null;
 
   // ── Conciliaciones ──
@@ -1084,9 +1144,12 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
       // despachante = cargos − pagos = −saldoConfirmado (positivo = a pagar).
       const oweC = -cuentaDespachante.saldoConfirmadoUYU;
       // Conciliación de los tributos del DUA con lo re-facturado por el despachante.
+      const detSolo = tributosSoloFactura.length
+        ? ` Conceptos en la factura del despachante que NO figuran en el DUA: ${tributosSoloFactura.map((t) => `${t.concepto} ${money2(P(t.importe))}`).join(', ')} — verificar si son tributos omitidos del DUA (falta extraerlos) o cargos adicionales del despachante.`
+        : '';
       const trib = tributosReFacturados > 0
         ? (tributosSinConciliar
-            ? ` Tributos del DUA (${money2(totalTributos)}) vs re-facturados por el despachante (${money2(P(tributosReFacturados))}): diferencia de ${money2(difTrib)} SIN CONCILIAR — revisar qué tributo falta o sobra.`
+            ? ` Tributos del DUA (${money2(totalTributos)}) vs re-facturados por el despachante (${money2(P(tributosReFacturados))}): diferencia de ${money2(difTrib)} SIN CONCILIAR.${detSolo}`
             : ` Tributos del DUA (${money2(totalTributos)}) conciliados con lo re-facturado por el despachante.`)
         : '';
       // Saldo = cargos documentados − pagos ACREDITADOS (confirmados). Los pendientes no
@@ -1234,7 +1297,11 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
   }
 
   return {
-    estado: (costoInventario != null && !consistencia.ok) ? 'PROVISIONAL' : estado,
+    // El estado se recalcula al final para incorporar los BLOQUEOS de la conciliación
+    // del despachante (diferencia de tributos, recibos a verificar, pagos > cargos),
+    // que se detectan después de armar los asientos: la aprobación queda bloqueada
+    // (PROVISIONAL) mientras exista cualquiera de esas diferencias.
+    estado: (provisionalCosto || (costoInventario != null && !consistencia.ok)) ? 'PROVISIONAL' : estado,
     motivos: [...new Set(motivos)],
     avisoRegimen,
     anticipos: anticiposCalc, adquisicionUYU, anticiposPagadosUYU, excesoPagado, saldoNoAnticipado, comisionesBancariasUYU,
