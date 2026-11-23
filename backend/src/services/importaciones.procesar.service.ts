@@ -237,10 +237,12 @@ export async function reconstruirCosteoDesdeExtraccion(importacionId: string): P
   const servicios = await Promise.all(serviciosEx.map(async (s) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sd: any = s.datos ?? {};
-    const esUsd = (sd.moneda ?? '').toUpperCase() === 'USD';
+    // Solo se busca cotización si el comprobante está EN DÓLARES y su moneda NO es
+    // ambigua: un CFE en pesos no se convierte (no se le aplica TC).
+    const esUsd = (sd.moneda ?? '').toUpperCase() === 'USD' && sd.monedaAmbigua !== true;
     const cot = esUsd ? await tcFiscalDia(sd.moneda, s.fecha) : { valor: null, fuente: null };
     const primeraLinea = sd.concepto ?? (Array.isArray(sd.lineas) && sd.lineas[0] ? String(sd.lineas[0].descripcion ?? '') : '');
-    return { rutComprador: sd.rutComprador ?? null, rutEmisor: sd.rutEmisor ?? s.rutEmisor ?? null, moneda: sd.moneda ?? null, serie: sd.serie ?? null, numero: sd.numero ?? null, emisor: s.emisor, honorarios: sd.honorarios ?? null, gastosOperativos: sd.gastosOperativos ?? null, iva: sd.iva ?? null, total: sd.total ?? null, noFacturable: sd.noFacturable ?? null, concepto: primeraLinea, fecha: iso(s.fecha), cotizacion: esUsd ? cot.valor : null, fuenteCotizacion: esUsd ? cot.fuente : 'operación en pesos' };
+    return { rutComprador: sd.rutComprador ?? null, rutEmisor: sd.rutEmisor ?? s.rutEmisor ?? null, moneda: sd.moneda ?? null, monedaAmbigua: sd.monedaAmbigua === true, monedaMotivo: sd.monedaMotivo ?? null, serie: sd.serie ?? null, numero: sd.numero ?? null, emisor: s.emisor, honorarios: sd.honorarios ?? null, gastosOperativos: sd.gastosOperativos ?? null, iva: sd.iva ?? null, total: sd.total ?? null, noFacturable: sd.noFacturable ?? null, concepto: primeraLinea, fecha: iso(s.fecha), cotizacion: esUsd ? cot.valor : null, fuenteCotizacion: esUsd ? cot.fuente : 'operación en pesos' };
   }));
   // Pago al despachante: recibo emitido por el despachante (RUT declarante).
   const reciboDesp = recibos.find((rc) => rc.rutEmisor && d.declaranteRut && rc.rutEmisor === d.declaranteRut) ?? recibos[0] ?? null;

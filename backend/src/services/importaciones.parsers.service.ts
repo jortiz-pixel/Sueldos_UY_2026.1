@@ -504,12 +504,55 @@ export interface FacturaServiciosParsed {
   emisor: string | null; rutEmisor: string | null; tipoDoc: string;
   serie: string | null; numero: string | null; rutComprador: string | null; comprador: string | null;
   fecha: string | null; moneda: string; total: number | null;
+  // Identificación de moneda (regla de costeo): si es AMBIGUA/contradictoria, el
+  // costeo se bloquea y pide verificación en vez de convertir a ciegas.
+  monedaAmbigua: boolean; monedaMotivo: string | null;
   subtotalGravado: number | null; iva: number | null; subtotalNoGravado: number | null; noFacturable: number | null;
   honorarios: number | null; gastosOperativos: number | null;
   carpeta: string | null; dua: string | null; tipoCambio: number | null;
   tipoOperacion: string | null; // "TRANSITO" / "IMPORTACION" / … (adenda del despachante)
   concepto: string | null; // concepto principal (1.ª línea de detalle, o detectado)
   lineas: LineaServicio[];
+}
+
+/**
+ * Identifica la MONEDA de un CFE a partir del DOCUMENTO FUENTE, sin confundir la
+ * moneda del comprobante con menciones de dólares que son de REFERENCIA (p. ej. la
+ * ADENDA del despachante imprime "VALOR U$S" = FOB de la mercadería, y el "Valor en
+ * Aduana"): esos importes NO determinan la moneda del comprobante, que suele estar
+ * en PESOS. Prioridad: (1) campo "Moneda" explícito del CFE; (2) señales de dólar en
+ * el CUERPO (sin la adenda ni los rótulos de referencia); (3) por defecto, un CFE de
+ * plaza está en pesos. Si hay contradicción o ambas monedas sin un campo claro,
+ * marca AMBIGUA para que el costeo se bloquee y pida verificación.
+ */
+export function detectarMonedaCfe(texto: string): { moneda: 'USD' | 'UYU'; ambigua: boolean; motivo: string | null } {
+  // La ADENDA trae la mercadería en dólares de referencia: fuera de la detección.
+  const iAd = texto.search(/\n\s*ADENDA\b/i);
+  const cuerpo0 = iAd === -1 ? texto : texto.slice(0, iAd);
+  // Quitar los rótulos de REFERENCIA que nombran dólares sin ser la moneda del CFE
+  // (VALOR U$S / VALOR DNA / VALOR EN ADUANA / FOB / CIF de la mercadería).
+  const cuerpo = cuerpo0
+    .replace(/VALOR\s*(?:EN\s*ADUANA|DNA|U\$S|US\$|USD|D[OÓ]LAR\w*|\$)[^\n]*/gi, ' ')
+    .replace(/\b(?:FOB|CIF|C\.I\.F|CFR|C\s*&\s*F)\b[^\n]*(?:U\$S|US\$|USD|D[OÓ]LAR)[^\n]*/gi, ' ');
+  const esUsdTxt = (s: string) => /U\$S|US\$|\bUSD\b|d[oó]lar/i.test(s);
+  const esPesosTxt = (s: string) => /\bUYU\b|\$U\b|pesos?\s*uruguayos?|moneda\s*nacional/i.test(s);
+  // 1) Campo "Moneda" explícito del comprobante (lo más confiable).
+  const reMoneda = /\bMONEDA\b\s*(?:DE\s*LA\s*OPERACI[OÓ]N)?\s*:?\s*(U\$S|US\$|USD|D[OÓ]LAR\w*|UYU|PESOS?\s*URUGUAYOS?|PESOS?|MONEDA\s*NACIONAL|\$U|\$)/i;
+  const mExpl = cuerpo.match(reMoneda);
+  const explicita: 'USD' | 'UYU' | null = mExpl ? (esUsdTxt(mExpl[1]) ? 'USD' : 'UYU') : null;
+  // Señales en los IMPORTES: se quita el propio rótulo "Moneda: …" para que no cuente
+  // como señal (si no, "Moneda: PESOS" taparía una contradicción con importes en U$S).
+  const cuerpoImportes = cuerpo.replace(reMoneda, ' ');
+  const hayUsd = esUsdTxt(cuerpoImportes);
+  const hayPesos = esPesosTxt(cuerpoImportes);
+  if (explicita) {
+    if (explicita === 'UYU' && hayUsd && !hayPesos) return { moneda: 'UYU', ambigua: true, motivo: 'El comprobante declara moneda en pesos pero el cuerpo muestra importes en dólares: verificar la moneda.' };
+    if (explicita === 'USD' && hayPesos && !hayUsd) return { moneda: 'USD', ambigua: true, motivo: 'El comprobante declara moneda en dólares pero el cuerpo muestra pesos: verificar la moneda.' };
+    return { moneda: explicita, ambigua: false, motivo: null };
+  }
+  if (hayUsd && hayPesos) return { moneda: 'UYU', ambigua: true, motivo: 'El comprobante menciona dólares y pesos y no tiene un campo de moneda claro: verificar la moneda.' };
+  if (hayUsd) return { moneda: 'USD', ambigua: false, motivo: null };
+  return { moneda: 'UYU', ambigua: false, motivo: null }; // CFE de plaza: pesos por defecto
 }
 
 /**
@@ -547,10 +590,14 @@ export function parseFacturaServiciosUY(texto: string): FacturaServiciosParsed {
   const serie = mSerie ? mSerie[1] : null;
   const numero = mSerie ? mSerie[2] : null;
   const fecha = fechaDMY(texto.match(/(\d{1,2}\/\d{1,2}\/\d{4})/)?.[1] || null);
-  // Moneda del CFE: señales de DÓLAR primero (U$S, USD, "Dólares/Dolares
-  // Americanos"); si no, pesos. Antes solo miraba "dólar" y los CFE que ponen
-  // "MONEDA USD / U$S" (p. ej. Savino) caían a UYU → el importe quedaba ÷40.
-  const moneda = /U\$S|\bUSD\b|d[oó]lar/i.test(texto) ? 'USD' : 'UYU';
+  // Moneda del CFE: se identifica del documento fuente SIN confundir la moneda del
+  // comprobante con las referencias en dólares (ADENDA "VALOR U$S", Valor en Aduana,
+  // FOB/CIF de la mercadería). Prioriza el campo "Moneda" explícito; un CFE de plaza
+  // sin señales de dólar está en pesos. Si es contradictorio → AMBIGUA (bloquea el
+  // costeo). Antes miraba todo el texto y un "VALOR U$S" de referencia ponía USD, y
+  // un total en pesos quedaba ×TC (bug DUA 001-2025-230183).
+  const monedaDet = detectarMonedaCfe(texto);
+  const moneda = monedaDet.moneda;
 
   // Helper: monto de una etiqueta que puede traer el número en la misma línea,
   // en la anterior o en la siguiente (los CFE separan label e importe en renglones).
@@ -617,7 +664,8 @@ export function parseFacturaServiciosUY(texto: string): FacturaServiciosParsed {
     emisor: (rutEmisor && EMISORES_UY[rutEmisor]) || null,
     rutEmisor, tipoDoc, serie, numero, rutComprador,
     comprador: despues.match(/(?:NOMBRE\s+)?\b([A-ZÑ][A-ZÑ ]+?(?:SAS|SRL))\b/)?.[1]?.replace(/^NOMBRE\s+/i, '').trim() ?? null,
-    fecha, moneda, total, subtotalGravado, iva, subtotalNoGravado, noFacturable,
+    fecha, moneda, monedaAmbigua: monedaDet.ambigua, monedaMotivo: monedaDet.motivo,
+    total, subtotalGravado, iva, subtotalNoGravado, noFacturable,
     honorarios, gastosOperativos, carpeta, dua, tipoCambio, tipoOperacion, concepto, lineas: detalle,
   };
 }

@@ -1076,3 +1076,81 @@ describe('construirCosteoHistorico — §3 NIC 21/2 (reconocimiento al control +
     expect(rec.referencias?.[0]?.regla).toMatch(/factura comercial/i);
   });
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// IDENTIFICACIÓN DE MONEDA (bug DUA 001-2025-230183): importes en pesos tratados
+// como dólares y multiplicados por el TC. La moneda sale del documento fuente, sin
+// confundir la moneda del CFE con las referencias en dólares (ADENDA "VALOR U$S").
+// ═════════════════════════════════════════════════════════════════════════════
+import { detectarMonedaCfe, parseFacturaServiciosUY } from '../src/services/importaciones.parsers.service';
+
+describe('detectarMonedaCfe — identifica la moneda del CFE sin confundir referencias', () => {
+  it('CFE del despachante en PESOS con ADENDA "VALOR U$S": es UYU, no USD', () => {
+    const texto = [
+      'e-Factura  A 0012345',
+      'HONORARIOS 5.000,00',
+      'Gastos operativos 2.000,00',
+      'TOTAL A PAGAR 422.531,00',
+      'ADENDA',
+      'VALOR U$S 10.500,00',
+      'TIPO DE CAMBIO: 39,753',
+      'CARPETA: 230183',
+    ].join('\n');
+    const r = detectarMonedaCfe(texto);
+    expect(r.moneda).toBe('UYU');
+    expect(r.ambigua).toBe(false);
+  });
+  it('CFE con campo "Moneda: USD" en el cuerpo: es USD', () => {
+    const r = detectarMonedaCfe('e-Factura A 1\nMONEDA: USD\nTOTAL A PAGAR 12.022,10');
+    expect(r.moneda).toBe('USD');
+    expect(r.ambigua).toBe(false);
+  });
+  it('CFE en dólares (U$S en el cuerpo, p. ej. agente de carga): es USD', () => {
+    const r = detectarMonedaCfe('FLETE INTERNACIONAL U$S 1.200,00\nTOTAL A PAGAR U$S 1.464,00');
+    expect(r.moneda).toBe('USD');
+  });
+  it('contradicción (declara pesos pero el cuerpo está en dólares): AMBIGUA', () => {
+    const r = detectarMonedaCfe('MONEDA: PESOS URUGUAYOS\nFLETE U$S 1.200,00\nTOTAL U$S 1.464,00');
+    expect(r.ambigua).toBe(true);
+  });
+  it('el parser propaga la moneda UYU y el total sin convertir', () => {
+    const texto = [
+      'e-Factura - Cobranza  A 0012345',
+      'RUT COMPRADOR 220616930019',
+      'HONORARIOS 5.000,00',
+      'TOTAL A PAGAR 422.531,00',
+      'ADENDA',
+      'VALOR U$S 10.500,00',
+    ].join('\n');
+    const p = parseFacturaServiciosUY(texto);
+    expect(p.moneda).toBe('UYU');
+    expect(p.monedaAmbigua).toBe(false);
+    expect(p.total).toBeCloseTo(422531, 0);
+  });
+});
+
+describe('construirCosteoHistorico — un gasto en PESOS no se multiplica por el TC', () => {
+  function conGastoPesos(moneda: string, ambigua = false): CosteoHistoricoInput {
+    const base = marpolos(40.10, 40.20);
+    return {
+      ...base,
+      servicios: [
+        { rutComprador: '220616930019', rutEmisor: '217369500013', moneda, monedaAmbigua: ambigua, monedaMotivo: ambigua ? 'verificar' : null, serie: 'A', numero: '0012345', emisor: 'Despachante', honorarios: 4225.31, gastosOperativos: 0, iva: 929.57, total: 5154.88, noFacturable: null },
+      ],
+    };
+  }
+  it('gasto en UYU: montoUYU = importe (sin ×TC); el costo no se infla', () => {
+    const r = construirCosteoHistorico(conGastoPesos('UYU'));
+    const g = r.gastos.find((x) => x.concepto === 'Honorarios del despachante')!;
+    expect(g.moneda).toBe('UYU');
+    expect(g.cotizacion).toBe(1);        // TC aplicado = 1 (no se convierte)
+    expect(g.montoUYU).toBe(BigInt(Math.round(4225.31 * 100))); // = importe original, NO ×40
+  });
+  it('moneda AMBIGUA: bloquea el costeo (PROVISIONAL + motivo) y no convierte', () => {
+    const r = construirCosteoHistorico(conGastoPesos('USD', true));
+    expect(r.estado).toBe('PROVISIONAL');
+    expect(r.motivos.join(' ')).toMatch(/moneda ambigua|BLOQUEADO/i);
+    const g = r.gastos.find((x) => x.concepto === 'Honorarios del despachante')!;
+    expect(g.cotizacion).toBe(1); // ambigua → no se multiplica por el TC
+  });
+});

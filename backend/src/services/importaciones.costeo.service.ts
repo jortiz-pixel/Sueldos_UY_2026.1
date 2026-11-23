@@ -75,6 +75,9 @@ export interface ServicioCosteo {
   rutComprador: string | null; rutEmisor?: string | null; moneda: string | null; serie: string | null; numero: string | null; emisor: string | null;
   honorarios: number | null; gastosOperativos: number | null; iva: number | null; total: number | null;
   noFacturable?: number | null; concepto?: string | null;
+  // Moneda del CFE marcada como AMBIGUA/contradictoria por el parser: el costeo se
+  // bloquea (no se convierte a ciegas) hasta verificar la moneda del comprobante.
+  monedaAmbigua?: boolean; monedaMotivo?: string | null;
 }
 
 export interface CosteoDocInput {
@@ -688,11 +691,21 @@ export function construirCosteoHistorico(input: CosteoHistoricoInput): CosteoHis
   let gastoProvisional = false;
   const pushG = (g: GastoDesglosado) => gastos.push({ ...g, provisional: g.provisional ?? gastoProvisional });
   for (const s of servicios) {
-    const esUsd = (s.moneda ?? '').toUpperCase() === 'USD';
+    // Moneda AMBIGUA/contradictoria (p. ej. un CFE que menciona dólares de referencia
+    // y pesos sin un campo claro): NO se convierte a ciegas → se bloquea el costeo y
+    // se pide verificar la moneda del comprobante (regla de identificación de moneda).
+    if (s.monedaAmbigua) {
+      provisionalCosto = true;
+      motivos.push(`Moneda ambigua en el comprobante ${s.emisor ?? ''} ${s.serie ?? ''}${s.numero ?? ''}: ${s.monedaMotivo ?? 'no se pudo determinar con certeza la moneda'}. El costeo queda BLOQUEADO hasta confirmar la moneda (no se convierte a pesos un importe de moneda no confirmada).`);
+    }
+    // Solo se convierte con TC un importe efectivamente en MONEDA EXTRANJERA y con la
+    // moneda CONFIRMADA. Un importe en pesos (o de moneda ambigua) nunca se multiplica
+    // por el TC: se mantiene en pesos (bug DUA 001-2025-230183: UYU tratado como USD).
+    const esUsd = (s.moneda ?? '').toUpperCase() === 'USD' && !s.monedaAmbigua;
     const cotOk = validarTipoCambio(s.cotizacion).valido;
     const respaldada = !esUsd || cotizacionRespaldada(s.fuenteCotizacion);
     const tcS = esUsd ? (validarTipoCambio(s.cotizacion).valor ?? validarTipoCambio(tcProvisional).valor) : 1;
-    gastoProvisional = esUsd && (!cotOk || !respaldada);
+    gastoProvisional = s.monedaAmbigua || (esUsd && (!cotOk || !respaldada));
     if (esUsd && !cotOk) { provisionalCosto = true; motivos.push(`Falta la cotización del servicio ${s.emisor ?? ''} (${s.serie ?? ''}${s.numero ?? ''}) para convertir ${s.moneda} (provisional).`); }
     else if (esUsd && !respaldada) { provisionalCosto = true; motivos.push(`La cotización del servicio ${s.emisor ?? ''} (${s.serie ?? ''}${s.numero ?? ''}) no tiene respaldo verificable (fuente: ${s.fuenteCotizacion ?? 'sin fuente'}): se mantiene PROVISIONAL, no se considera definitiva.`); }
     const doc = `${s.emisor ?? 'Servicio'} ${s.serie ?? ''}${s.numero ?? ''}`.trim();
